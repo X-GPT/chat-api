@@ -1,0 +1,10 @@
+services:
+  chat-api:
+    container_name: chat-api
+    build: .
+    ports:
+      - 3000:3000
+    env_file:
+      # -/etc/mymemo/chat-api.env
+      - .env
+    restart: always

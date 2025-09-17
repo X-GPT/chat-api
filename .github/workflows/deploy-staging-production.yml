@@ -1,0 +1,351 @@
+name: Deploy to Staging & Production (Image → ECR → EC2)
+
+on:
+  push:
+    branches: [main]
+    # Only trigger deployments on source code and build configuration changes
+    # This prevents unnecessary deployments when only documentation is updated
+    paths:
+      - "src/**"
+      - "package.json"
+      - "bun.lock"
+      - "Dockerfile"
+      - "compose.yaml"
+      - ".github/workflows/deploy-staging-production.yml"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  AWS_REGION: us-west-2
+  ECR_REPO: ${{ github.event.repository.name }}
+  EC2_HOST: ec2-52-35-68-202.us-west-2.compute.amazonaws.com
+  EC2_USER: deploy
+  EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
+
+  # Staging Environment
+  STAGING_CONTAINER_NAME: ${{ github.event.repository.name }}-staging
+  STAGING_HOST_PORT: 8094
+  STAGING_CONTAINER_PORT: 3000
+  STAGING_NODE_ENV: production
+
+  # Production Environment
+  PROD_CONTAINER_NAME: ${{ github.event.repository.name }}-production
+  PROD_HOST_PORT: 8095
+  PROD_CONTAINER_PORT: 3000
+  PROD_NODE_ENV: production
+
+  AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+  AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run linting
+        run: bun run lint
+
+      - name: Run tests
+        run: bun test
+
+  build-and-push:
+    name: Build and Push Docker Image
+    runs-on: ubuntu-latest
+    needs: test
+    outputs:
+      registry: ${{ steps.ecr-login.outputs.registry }}
+      image_sha_tag: ${{ steps.meta.outputs.image_sha_tag }}
+      image_latest_tag: ${{ steps.meta.outputs.image_latest_tag }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4.3.1
+        with:
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Compute tags
+        id: meta
+        run: |
+          REG="${{ steps.ecr-login.outputs.registry }}"
+          REPO="${{ env.ECR_REPO }}"
+          echo "image_sha_tag=${REG}/${REPO}:staging-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "image_latest_tag=${REG}/${REPO}:staging-latest" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure ECR repository exists
+        run: |
+          set -euo pipefail
+          REPO="${{ env.ECR_REPO }}"
+          REGION="${{ env.AWS_REGION }}"
+          if ! aws ecr describe-repositories --repository-names "$REPO" --region "$REGION" >/dev/null 2>&1; then
+            echo "Creating ECR repository: $REPO in $REGION"
+            aws ecr create-repository \
+              --repository-name "$REPO" \
+              --image-scanning-configuration scanOnPush=true \
+              --encryption-configuration encryptionType=AES256 \
+              --region "$REGION" >/dev/null
+          fi
+
+      # Build + push + cache
+      - name: Build & Push image (with cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          # keep your tags
+          tags: |
+            ${{ steps.meta.outputs.image_sha_tag }}
+            ${{ steps.meta.outputs.image_latest_tag }}
+          # enable BuildKit cache persisted by GitHub Actions
+          # tells BuildKit to use GitHub Actions cache storage.
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  deploy-to-staging:
+    name: Deploy to Staging EC2
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: build-and-push
+    steps:
+      - name: Deploy on Staging EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ env.EC2_HOST }}
+          username: ${{ env.EC2_USER }}
+          key: ${{ env.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            set -euxo pipefail
+
+            # Settings from workflow
+            AWS_REGION="${{ env.AWS_REGION }}"
+            CONTAINER_NAME="${{ env.STAGING_CONTAINER_NAME }}"
+            HOST_PORT="${{ env.STAGING_HOST_PORT }}"
+            CONTAINER_PORT="${{ env.STAGING_CONTAINER_PORT }}"
+            NODE_ENV="${{ env.STAGING_NODE_ENV }}"
+            IMAGE="${{ needs.build-and-push.outputs.image_sha_tag }}"
+
+            echo "🚀 Deploying to staging: $IMAGE"
+
+            REGISTRY="${IMAGE%%/*}"
+            aws ecr get-login-password --region "$AWS_REGION" \
+              | sudo docker login --username AWS --password-stdin "$REGISTRY"
+
+            # Pull the new image
+            sudo docker pull "$IMAGE"
+
+            # Stop/remove old container if exists
+            sudo docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+
+            # Run new container
+            sudo docker run -d \
+              --name "$CONTAINER_NAME" \
+              --restart unless-stopped \
+              -e NODE_ENV="$NODE_ENV" \
+              -p "$HOST_PORT:$CONTAINER_PORT" \
+              --memory=2g \
+              --memory-reservation=1536m \
+              --memory-swap=2g \
+              --log-driver json-file \
+              --log-opt max-size=10m \
+              --log-opt max-file=5 \
+              "$IMAGE"
+
+            echo "✅ Staging deployment completed on port $HOST_PORT"
+
+            # Clean up old images (keep some for rollback)
+            sudo docker image prune -f --filter "until=24h"
+
+  staging-smoke-test:
+    name: Staging Smoke Test
+    runs-on: ubuntu-latest
+    needs: [deploy-to-staging]
+    steps:
+      - name: Staging Health Check
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ env.EC2_HOST }}
+          username: ${{ env.EC2_USER }}
+          key: ${{ env.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            set -euxo pipefail
+
+            CONTAINER_NAME="${{ env.STAGING_CONTAINER_NAME }}"
+            HOST_PORT="${{ env.STAGING_HOST_PORT }}"
+
+            echo "🔍 Running staging health checks..."
+
+            # Health check - test basic API endpoint
+            for i in {1..30}; do
+              if curl -fsS "http://127.0.0.1:${HOST_PORT}/" | grep -q "Hello Hono!"; then
+                echo "🚀 Staging service healthy ✅ - Root endpoint responding"
+
+                # Additional check for API endpoint
+                if curl -fsS "http://127.0.0.1:${HOST_PORT}/v1/chat" -X POST \
+                  -H "Content-Type: application/json" \
+                  -d '{"messages":[]}' > /dev/null 2>&1; then
+                  echo "🚀 Staging API endpoints healthy ✅"
+                else
+                  echo "⚠️ Staging API endpoints responding but may have issues"
+                fi
+                exit 0
+              fi
+              echo "Waiting for staging health... ($i/30)"; sleep 2
+            done
+
+            echo "❌ Staging service failed health check, dumping logs"
+            sudo docker logs "$CONTAINER_NAME" || true
+            sudo docker inspect "$CONTAINER_NAME" --format 'Exit={{.State.ExitCode}} OOM={{.State.OOMKilled}} Error={{.State.Error}}' || true
+            exit 1
+
+  deploy-to-production:
+    name: Deploy to Production EC2
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    needs: [build-and-push, staging-smoke-test]
+    # Only deploy to production after staging smoke test succeeds
+    if: always() && needs.staging-smoke-test.result == 'success'
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4.3.1
+        with:
+          aws-access-key-id: ${{ env.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: ecr-login
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Set staging image for production
+        id: set-image
+        run: |
+          # Use image from staging deployment
+          STAGING_IMAGE="${{ needs.build-and-push.outputs.image_sha_tag }}"
+          echo "📦 Using staging image for production: ${STAGING_IMAGE}"
+          echo "staging_image=${STAGING_IMAGE}" >> $GITHUB_OUTPUT
+
+      - name: Deploy on Production EC2
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ env.EC2_HOST }}
+          username: ${{ env.EC2_USER }}
+          key: ${{ env.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            set -euxo pipefail
+
+            # Settings from workflow
+            AWS_REGION="${{ env.AWS_REGION }}"
+            CONTAINER_NAME="${{ env.PROD_CONTAINER_NAME }}"
+            HOST_PORT="${{ env.PROD_HOST_PORT }}"
+            CONTAINER_PORT="${{ env.PROD_CONTAINER_PORT }}"
+            NODE_ENV="${{ env.PROD_NODE_ENV }}"
+            IMAGE="${{ steps.set-image.outputs.staging_image }}"
+
+            echo "🚀 Deploying staging image to production: $IMAGE"
+
+            REGISTRY="${IMAGE%%/*}"
+            aws ecr get-login-password --region "$AWS_REGION" \
+              | sudo docker login --username AWS --password-stdin "$REGISTRY"
+
+            # Pull the staging image for production use
+            sudo docker pull "$IMAGE"
+
+            # Stop/remove old container if exists
+            sudo docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+
+            # Run new container with production settings
+            sudo docker run -d \
+              --name "$CONTAINER_NAME" \
+              --restart unless-stopped \
+              -e NODE_ENV="$NODE_ENV" \
+              -p "$HOST_PORT:$CONTAINER_PORT" \
+              --memory=4g \
+              --memory-reservation=3g \
+              --memory-swap=6g \
+              --log-driver json-file \
+              --log-opt max-size=10m \
+              --log-opt max-file=5 \
+              "$IMAGE"
+
+            echo "✅ Production deployment completed on port $HOST_PORT"
+
+            # Show container status
+            echo "📋 Production Container Status:"
+            sudo docker ps --filter name="${CONTAINER_NAME}" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+
+            # Clean up old images (keep more for production rollback)
+            sudo docker image prune -f --filter "until=48h"
+
+  production-smoke-test:
+    name: Production Smoke Test
+    runs-on: ubuntu-latest
+    needs: [deploy-to-production]
+    steps:
+      - name: Production Health Check
+        uses: appleboy/ssh-action@v1.2.0
+        with:
+          host: ${{ env.EC2_HOST }}
+          username: ${{ env.EC2_USER }}
+          key: ${{ env.EC2_SSH_KEY }}
+          port: 22
+          script: |
+            set -euxo pipefail
+
+            CONTAINER_NAME="${{ env.PROD_CONTAINER_NAME }}"
+            HOST_PORT="${{ env.PROD_HOST_PORT }}"
+
+            echo "🔍 Running production health checks..."
+
+            # Health check - test basic API endpoint
+            for i in {1..30}; do
+              if curl -fsS "http://127.0.0.1:${HOST_PORT}/" | grep -q "Hello Hono!"; then
+                echo "🚀 Production service healthy ✅ - Root endpoint responding"
+
+                # Additional check for API endpoint
+                if curl -fsS "http://127.0.0.1:${HOST_PORT}/v1/chat" -X POST \
+                  -H "Content-Type: application/json" \
+                  -d '{"messages":[]}' > /dev/null 2>&1; then
+                  echo "🚀 Production API endpoints healthy ✅"
+                  echo "🎉 Production deployment completed successfully!"
+                else
+                  echo "⚠️ Production API endpoints responding but may have issues"
+                fi
+                exit 0
+              fi
+              echo "Waiting for production health... ($i/30)"; sleep 2
+            done
+
+            echo "❌ Production service failed health check, dumping logs"
+            sudo docker logs "$CONTAINER_NAME" || true
+            sudo docker inspect "$CONTAINER_NAME" --format 'Exit={{.State.ExitCode}} OOM={{.State.OOMKilled}} Error={{.State.Error}}' || true
+            exit 1
