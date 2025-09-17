@@ -93,4 +93,4 @@ sudo -n nginx -t || { echo "Nginx configuration test failed"; exit 1; }
 echo "Reloading Nginx"
 sudo -n systemctl reload nginx || { echo "Failed to reload Nginx"; exit 1; }
 
-echo "API deployment successful: https://api-${REPO_SLUG}-${BRANCH_SLUG}.preview.mymemo.ai"
+echo "API deployment successful: https://${REPO_SLUG}-${BRANCH_SLUG}.preview.mymemo.ai"
