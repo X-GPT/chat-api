@@ -3,15 +3,6 @@ name: Deploy to Staging & Production (Image → ECR → EC2)
 on:
   push:
     branches: [main]
-    # Only trigger deployments on source code and build configuration changes
-    # This prevents unnecessary deployments when only documentation is updated
-    paths:
-      - "src/**"
-      - "package.json"
-      - "bun.lock"
-      - "Dockerfile"
-      - "compose.yaml"
-      - ".github/workflows/deploy-staging-production.yml"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
