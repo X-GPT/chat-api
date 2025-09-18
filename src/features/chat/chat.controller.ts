@@ -1,12 +1,53 @@
 import { openai } from "@ai-sdk/openai";
-import { convertToModelMessages, streamText, type UIMessage } from "ai";
+import { streamText } from "ai";
+import type { ChatRequest } from "./chat.schema";
+import type { MymemoEventSender } from "./chat.streaming";
 
-export async function complete(messages: UIMessage[]) {
+export async function complete(
+	request: ChatRequest,
+	mymemoEventSender: MymemoEventSender,
+) {
+	const { chatContent } = request;
+	const messages = [
+		{
+			role: "user" as const,
+			content: [{ type: "text" as const, text: chatContent }],
+		},
+	];
 	const result = streamText({
 		model: openai("gpt-4o"),
 		system: "You are a helpful assistant.",
-		messages: convertToModelMessages(messages),
+		messages,
 	});
 
-	return result.toUIMessageStreamResponse();
+	for await (const textPart of result.textStream) {
+		mymemoEventSender.send({
+			id: crypto.randomUUID(),
+			message: {
+				type: "chat_entity",
+				chatContent: textPart,
+				refsContent: "",
+				chatKey: "",
+				chatType: "",
+				createBy: "",
+				createTime: "",
+				delFlag: "",
+				followup: "",
+				id: 0,
+				memberCode: "",
+				memberName: "",
+				partnerCode: "",
+				partnerName: "",
+				readFlag: "",
+				remark: "",
+				senderCode: "",
+				senderType: "",
+				updateBy: "",
+				updateTime: "",
+				violateFlag: "",
+				collapseFlag: "",
+				voteType: 0,
+			},
+		});
+	}
 }
