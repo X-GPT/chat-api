@@ -159,6 +159,7 @@ jobs:
             sudo docker run -d \
               --name "$CONTAINER_NAME" \
               --restart unless-stopped \
+              --env-file /etc/mymemo/chat-api.env \
               -e NODE_ENV="$NODE_ENV" \
               -p "$HOST_PORT:$CONTAINER_PORT" \
               --memory=2g \
@@ -278,6 +279,7 @@ jobs:
             sudo docker run -d \
               --name "$CONTAINER_NAME" \
               --restart unless-stopped \
+              --env-file /etc/mymemo/chat-api.env \
               -e NODE_ENV="$NODE_ENV" \
               -p "$HOST_PORT:$CONTAINER_PORT" \
               --memory=4g \
