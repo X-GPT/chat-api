@@ -4,10 +4,9 @@ import type { ChatRequest } from "./chat.schema";
 import type { MymemoEventSender } from "./chat.streaming";
 
 export async function complete(
-	request: ChatRequest,
+	{ chatContent, chatKey, chatType, collectionId, summaryId }: ChatRequest,
 	mymemoEventSender: MymemoEventSender,
 ) {
-	const { chatContent } = request;
 	const messages = [
 		{
 			role: "user" as const,
@@ -27,8 +26,8 @@ export async function complete(
 				type: "chat_entity",
 				chatContent: textPart,
 				refsContent: "",
-				chatKey: "",
-				chatType: "",
+				chatKey: chatKey,
+				chatType: chatType,
 				createBy: "",
 				createTime: "",
 				delFlag: "",
