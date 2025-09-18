@@ -168,7 +168,7 @@ jobs:
             🚀 **Preview API is ready**
 
             PR: `pr-${{ github.event.pull_request.number }}`
-            API URL: https://api-${{ github.event.repository.name }}-pr-${{ github.event.pull_request.number }}.preview.mymemo.ai
+            API URL: https://${{ github.event.repository.name }}-pr-${{ github.event.pull_request.number }}.preview.mymemo.ai
 
             You can test the API endpoints using this base URL.
 
@@ -180,7 +180,7 @@ jobs:
           REPO_SLUG="${{ github.event.repository.name }}"
 
           echo "🎉 Preview deployment completed successfully!"
-          echo "API URL: https://api-${REPO_SLUG}-${BRANCH_SLUG}.preview.mymemo.ai"
+          echo "API URL: https://${REPO_SLUG}-${BRANCH_SLUG}.preview.mymemo.ai"
 
   destroy-preview:
     name: Destroy Preview Environment
