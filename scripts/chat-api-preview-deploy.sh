@@ -40,6 +40,7 @@ fi
 echo "Starting new container: $CONTAINER"
 sudo -n docker run -d --name "$CONTAINER" \
   --restart unless-stopped \
+  --env-file /etc/mymemo/chat-api.env \
   -e NODE_ENV=production \
   -p ":${CONTAINER_PORT}" \
   --memory=1g \
