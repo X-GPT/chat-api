@@ -6,6 +6,6 @@ export const ChatRequest = z.object({
 	chatContent: z.string(),
 	chatKey: z.string(),
 	chatType: z.string(),
-	collectionId: z.string().nullable(),
-	summaryId: z.string().nullable(),
+	collectionId: z.string().optional().nullable(),
+	summaryId: z.string().optional().nullable(),
 });
