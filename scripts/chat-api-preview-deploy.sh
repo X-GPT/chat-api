@@ -20,7 +20,7 @@ PORT_FILE="$STATE_DIR/port"
 # Nginx conf.d layout
 NGINX_DIR="/etc/nginx/conf.d"
 NGINX_TEMPLATES_DIR="/etc/nginx/templates/chat-api"
-API_CONF="${API_CONF:-$NGINX_DIR/api-preview-$REPO_SLUG-$BRANCH_SLUG.conf}"
+API_CONF="${API_CONF:-$NGINX_DIR/$REPO_SLUG-$BRANCH_SLUG.conf}"
 API_TEMPLATE="${API_TEMPLATE:-$NGINX_TEMPLATES_DIR/chat-api-preview-template.conf}"
 
 echo "Creating state directory: $STATE_DIR"

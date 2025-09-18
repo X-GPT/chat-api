@@ -12,7 +12,7 @@ if [[ ! "$BRANCH_SLUG" =~ ^[a-z0-9-]+$ ]]; then
 fi
 
 CONTAINER="preview-$REPO_SLUG-$BRANCH_SLUG"
-CONF="/etc/nginx/conf.d/api-preview-$REPO_SLUG-$BRANCH_SLUG.conf"
+CONF="/etc/nginx/conf.d/$REPO_SLUG-$BRANCH_SLUG.conf"
 STATE_DIR="/var/preview/$REPO_SLUG/$BRANCH_SLUG"
 
 echo "Removing container: $CONTAINER"
