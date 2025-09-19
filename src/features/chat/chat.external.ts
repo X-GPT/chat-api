@@ -77,11 +77,13 @@ export async function sendChatEntityToProtectedService(
 				status: response.status,
 				body: errorBody,
 			});
+			throw new Error(`Failed to upsert chat entity: ${response.status}`);
 		}
 	} catch (error) {
 		console.error({
 			message: "Error sending chat entity to protected service",
 			error,
 		});
+		throw error;
 	}
 }
