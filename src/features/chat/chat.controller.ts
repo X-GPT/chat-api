@@ -73,5 +73,10 @@ export async function complete(
 
 	if (lastChatEntity) {
 		await sendChatEntityToProtectedService(lastChatEntity);
+	} else {
+		console.error({
+			message: "Last chat entity is null",
+		});
+		throw new Error("Last chat entity is null");
 	}
 }
