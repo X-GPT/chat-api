@@ -21,6 +21,10 @@ app.post(
 	}),
 	async (c) => {
 		const request = c.req.valid("json");
+		// TODO: remove this
+		console.debug({
+			headers: c.req.header(),
+		});
 		const memberCode = c.req.header("X-Member-Code");
 		if (!memberCode) {
 			console.error({
