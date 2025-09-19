@@ -48,7 +48,8 @@ export async function complete(
 				updateBy: "",
 				updateTime: "",
 				violateFlag: "",
-				collapseFlag: "",
+				// 折叠标志（1代表展开 2代表折叠）
+				collapseFlag: "1",
 				voteType: 0,
 			},
 		});
