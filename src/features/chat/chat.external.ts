@@ -3,6 +3,7 @@ import {
 	getProtectedChatIdEndpoint,
 } from "../../config/env";
 import type { ChatEntity } from "./chat.events";
+import type { ChatLogger } from "./chat.logger";
 
 interface FetchOptions {
 	headers?: Record<string, string>;
@@ -21,7 +22,10 @@ interface ProtectedChatIdResponse {
 	};
 }
 
-export async function fetchProtectedChatId(options: FetchOptions = {}) {
+export async function fetchProtectedChatId(
+	options: FetchOptions = {},
+	logger: ChatLogger,
+) {
 	const endpoint = getProtectedChatIdEndpoint();
 
 	try {
@@ -46,17 +50,26 @@ export async function fetchProtectedChatId(options: FetchOptions = {}) {
 
 		return chatId;
 	} catch (error) {
-		console.error({
-			message: "Error fetching chat id from protected service",
-			error,
-		});
-		throw error;
+		if (error instanceof Error) {
+			logger.error({
+				message: "Error fetching chat id from protected service",
+				error: error.message,
+			});
+			throw error;
+		} else {
+			logger.error({
+				message: "Error fetching chat id from protected service",
+				error: String(error),
+			});
+			throw new Error(String(error));
+		}
 	}
 }
 
 export async function sendChatEntityToProtectedService(
 	chatEntity: ChatEntity,
 	options: FetchOptions = {},
+	logger: ChatLogger,
 ) {
 	const endpoint = getProtectedChatEndpoint();
 
@@ -72,7 +85,7 @@ export async function sendChatEntityToProtectedService(
 
 		if (!response.ok) {
 			const errorBody = await response.text().catch(() => undefined);
-			console.error({
+			logger.error({
 				message: "Failed to upsert chat entity",
 				status: response.status,
 				body: errorBody,
@@ -80,12 +93,12 @@ export async function sendChatEntityToProtectedService(
 			throw new Error(`Failed to upsert chat entity: ${response.status}`);
 		}
 
-		const body = await response.json();
+		const body = (await response.json()) as { code: number; msg: string };
 		if (body.code !== 200) {
 			throw new Error(`Failed to upsert chat entity: ${body.msg}`);
 		}
 	} catch (error) {
-		console.error({
+		logger.error({
 			message: "Error sending chat entity to protected service",
 			error,
 		});

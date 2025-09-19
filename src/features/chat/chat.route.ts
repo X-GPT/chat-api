@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { validator as zValidator } from "hono-openapi";
 import { complete } from "./chat.controller";
+import { ChatLogger } from "./chat.logger";
 import { ChatRequest } from "./chat.schema";
 import { HonoSSESender } from "./chat.streaming";
 
@@ -20,6 +21,13 @@ app.post(
 	}),
 	async (c) => {
 		const request = c.req.valid("json");
+		const memberCode = c.req.header("X-Member-Code");
+		if (!memberCode) {
+			console.error({
+				message: "X-Member-Code is required",
+			});
+			return c.json({ error: "X-Member-Code is required" }, 400);
+		}
 
 		return streamSSE(
 			c,
@@ -33,6 +41,7 @@ app.post(
 						summaryId: request.summaryId,
 					},
 					new HonoSSESender(stream),
+					new ChatLogger(memberCode, request.chatKey),
 				);
 			},
 			async (error, stream) => {
