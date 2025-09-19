@@ -95,8 +95,18 @@ export async function sendChatEntityToProtectedService(
 
 		const body = (await response.json()) as { code: number; msg: string };
 		if (body.code !== 200) {
+			logger.error({
+				message: "Failed to upsert chat entity",
+				status: response.status,
+				body: body,
+			});
 			throw new Error(`Failed to upsert chat entity: ${body.msg}`);
 		}
+
+		logger.info({
+			message: "Chat entity upserted successfully",
+			body: body,
+		});
 	} catch (error) {
 		logger.error({
 			message: "Error sending chat entity to protected service",
