@@ -19,12 +19,16 @@ export async function complete(
 		messages,
 	});
 
+	let accumulatedContent = "";
+
 	for await (const textPart of result.textStream) {
+		accumulatedContent += textPart;
+
 		mymemoEventSender.send({
 			id: crypto.randomUUID(),
 			message: {
 				type: "chat_entity",
-				chatContent: textPart,
+				chatContent: accumulatedContent,
 				refsContent: "",
 				chatKey: chatKey,
 				chatType: chatType,
