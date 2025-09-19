@@ -43,6 +43,7 @@ sudo -n docker run -d --name "$CONTAINER" \
   --env-file /etc/mymemo/chat-api/env.dev \
   -e NODE_ENV=production \
   -p ":${CONTAINER_PORT}" \
+	--add-host=host.docker.internal:host-gateway \
   --memory=1g \
   --memory-reservation=512m \
   --memory-swap=2g \

@@ -162,6 +162,7 @@ jobs:
               --env-file /etc/mymemo/chat-api/env.dev \
               -e NODE_ENV="$NODE_ENV" \
               -p "$HOST_PORT:$CONTAINER_PORT" \
+              --add-host=host.docker.internal:host-gateway \
               --memory=2g \
               --memory-reservation=1536m \
               --memory-swap=2g \
@@ -282,6 +283,7 @@ jobs:
               --env-file /etc/mymemo/chat-api/env.prod \
               -e NODE_ENV="$NODE_ENV" \
               -p "$HOST_PORT:$CONTAINER_PORT" \
+              --add-host=host.docker.internal:host-gateway \
               --memory=4g \
               --memory-reservation=3g \
               --memory-swap=6g \
