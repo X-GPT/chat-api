@@ -4,9 +4,14 @@ import {
 } from "../../config/env";
 import type { ChatEntity } from "./chat.events";
 
-interface SendChatEntityOptions {
+interface FetchOptions {
 	headers?: Record<string, string>;
 }
+
+const defaultHeaders = {
+	"content-type": "application/json",
+	Authorization: `Bearer ${Bun.env.PROTECTED_API_TOKEN}`,
+};
 
 interface ProtectedChatIdResponse {
 	code: number;
@@ -16,11 +21,17 @@ interface ProtectedChatIdResponse {
 	};
 }
 
-export async function fetchProtectedChatId() {
+export async function fetchProtectedChatId(options: FetchOptions = {}) {
 	const endpoint = getProtectedChatIdEndpoint();
 
 	try {
-		const response = await fetch(endpoint);
+		const response = await fetch(endpoint, {
+			method: "GET",
+			headers: {
+				...defaultHeaders,
+				...options.headers,
+			},
+		});
 
 		if (!response.ok) {
 			throw new Error(`Failed to fetch chat id: ${response.status}`);
@@ -45,7 +56,7 @@ export async function fetchProtectedChatId() {
 
 export async function sendChatEntityToProtectedService(
 	chatEntity: ChatEntity,
-	options: SendChatEntityOptions = {},
+	options: FetchOptions = {},
 ) {
 	const endpoint = getProtectedChatEndpoint();
 
@@ -53,7 +64,7 @@ export async function sendChatEntityToProtectedService(
 		const response = await fetch(endpoint, {
 			method: "POST",
 			headers: {
-				"content-type": "application/json",
+				...defaultHeaders,
 				...options.headers,
 			},
 			body: JSON.stringify(chatEntity),
