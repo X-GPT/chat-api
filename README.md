@@ -142,6 +142,8 @@ When running the development server, interactive API documentation is available 
 |----------|-------------|----------|
 | `OPENAI_API_KEY` | OpenAI API key for chat functionality | Yes |
 | `PORT` | Server port (default: 3000) | No |
+| `PROTECTED_API_PREFIX` | Path prefix used when forwarding chat entities (e.g. `/beta-api` or `/api`) | No |
+| `PROTECTED_API_ORIGIN` | Origin (protocol + host[:port]) for the protected service (default: `http://127.0.0.1`) | No |
 
 ## Contributing
 

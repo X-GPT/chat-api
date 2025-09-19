@@ -1,7 +1,5 @@
 import { z } from "zod";
 
-export type ChatRequest = z.infer<typeof ChatRequest>;
-
 export const ChatRequest = z.object({
 	chatContent: z.string(),
 	chatKey: z.string(),
@@ -9,3 +7,4 @@ export const ChatRequest = z.object({
 	collectionId: z.string().optional().nullable(),
 	summaryId: z.string().optional().nullable(),
 });
+export type ChatRequest = z.infer<typeof ChatRequest>;

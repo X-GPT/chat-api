@@ -25,7 +25,7 @@ export interface ChatEntityEvent {
 	createTime: string;
 	delFlag: string;
 	followup: string;
-	id: number;
+	id: string;
 	memberCode: string;
 	memberName: string;
 	partnerCode: string;
@@ -40,3 +40,5 @@ export interface ChatEntityEvent {
 	collapseFlag: string; // 折叠标志（1代表展开 2代表折叠）
 	voteType: number; // 是否喜欢该回答（1代表支持 2代表反对 0-none）
 }
+
+export type ChatEntity = Omit<ChatEntityEvent, "type">;
