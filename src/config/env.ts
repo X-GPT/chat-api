@@ -28,6 +28,33 @@ export const getProtectedChatEndpoint = () => {
 	return new URL(path, origin).toString();
 };
 
+interface ChatContextEndpointOptions {
+	collectionId?: string | null;
+	summaryId?: string | null;
+}
+
+export const getProtectedChatContextEndpoint = (
+	chatKey: string,
+	options: ChatContextEndpointOptions = {},
+) => {
+	const origin = getProtectedApiOrigin();
+	const prefix = getProtectedApiPrefix();
+	const encodedChatKey = encodeURIComponent(chatKey);
+	const basePath = `/protected/chat/context/${encodedChatKey}`;
+	const path = prefix === "/" ? basePath : `${prefix}${basePath}`;
+	const url = new URL(path, origin);
+	const { collectionId, summaryId } = options;
+	const normalizedCollectionId = collectionId?.trim();
+	if (normalizedCollectionId) {
+		url.searchParams.set("collectionId", normalizedCollectionId);
+	}
+	const normalizedSummaryId = summaryId?.trim();
+	if (normalizedSummaryId) {
+		url.searchParams.set("summaryId", normalizedSummaryId);
+	}
+	return url.toString();
+};
+
 export const getProtectedChatIdEndpoint = () => {
 	const origin = getProtectedApiOrigin();
 	const prefix = getProtectedApiPrefix();
