@@ -103,6 +103,7 @@ export async function sendChatEntityToProtectedService(
 			throw new Error(`Failed to upsert chat entity: ${body.msg}`);
 		}
 
+		// TODO: remove this
 		logger.info({
 			message: "Chat entity upserted successfully",
 			body: body,
