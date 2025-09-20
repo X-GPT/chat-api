@@ -128,7 +128,7 @@ export async function fetchProtectedChatContext(
 			logger.error({
 				message: "Invalid chat context response",
 				target: endpoint,
-				errors: parseResult.error.flatten(),
+				errors: parseResult.error,
 			});
 			throw new Error("Invalid chat context response structure");
 		}

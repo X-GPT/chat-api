@@ -12,7 +12,6 @@ import type { MymemoEventSender } from "./chat.streaming";
 
 export async function complete(
 	{ chatContent, chatKey, chatType, collectionId, summaryId }: ChatRequest,
-	memberCode: string,
 	mymemoEventSender: MymemoEventSender,
 	logger: ChatLogger,
 ) {
@@ -29,7 +28,7 @@ export async function complete(
 		logger,
 	);
 	const contextChatData = chatContext.chatData;
-	const resolvedMemberCode = contextChatData?.memberCode ?? memberCode;
+	const resolvedMemberCode = contextChatData?.memberCode ?? "";
 	const resolvedMemberName = contextChatData?.nickName ?? "";
 	const resolvedPartnerCode = contextChatData?.partnerCode ?? "";
 	const resolvedPartnerName = contextChatData?.partnerName ?? "";
