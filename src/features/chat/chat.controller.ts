@@ -2,6 +2,7 @@ import { openai } from "@ai-sdk/openai";
 import { streamText } from "ai";
 import type { ChatEntity } from "./chat.events";
 import {
+	fetchProtectedChatContext,
 	fetchProtectedChatId,
 	sendChatEntityToProtectedService,
 } from "./chat.external";
@@ -15,6 +16,20 @@ export async function complete(
 	logger: ChatLogger,
 ) {
 	const chatId = await fetchProtectedChatId({}, logger);
+
+	const chatContext = await fetchProtectedChatContext(
+		chatKey,
+		collectionId,
+		summaryId,
+		{},
+		logger,
+	);
+	const contextChatData = chatContext.chatData;
+	const resolvedMemberCode = contextChatData?.memberCode ?? "";
+	const resolvedMemberName = contextChatData?.nickName ?? "";
+	const resolvedPartnerCode = contextChatData?.partnerCode ?? "";
+	const resolvedPartnerName = contextChatData?.partnerName ?? "";
+	const resolvedSenderCode = contextChatData?.teamCode ?? "";
 
 	const messages = [
 		{
@@ -32,53 +47,61 @@ export async function complete(
 
 	let lastChatEntity: ChatEntity | null = null;
 
-	for await (const textPart of result.textStream) {
-		accumulatedContent += textPart;
+	for await (const event of result.fullStream) {
+		switch (event.type) {
+			case "text-delta": {
+				accumulatedContent += event.text;
 
-		const chatEntity: ChatEntity = {
-			chatContent: accumulatedContent,
-			refsContent: "",
-			chatKey,
-			chatType,
-			createBy: "",
-			createTime: "",
-			delFlag: "",
-			followup: "",
-			id: chatId,
-			memberCode: "",
-			memberName: "",
-			partnerCode: "",
-			partnerName: "",
-			readFlag: "",
-			remark: "",
-			senderCode: "",
-			// 发送者类型（AI/User）
-			senderType: "AI",
-			updateBy: "",
-			updateTime: "",
-			violateFlag: "",
-			// 折叠标志（1代表展开 2代表折叠）
-			collapseFlag: "1",
-			voteType: 0,
-		};
+				const chatEntity: ChatEntity = {
+					chatContent: accumulatedContent,
+					refsContent: "",
+					chatKey,
+					chatType,
+					createBy: "",
+					createTime: "",
+					delFlag: "0",
+					followup: "",
+					id: chatId,
+					memberCode: resolvedMemberCode,
+					memberName: resolvedMemberName,
+					partnerCode: resolvedPartnerCode,
+					partnerName: resolvedPartnerName,
+					readFlag: "1",
+					remark: "",
+					senderCode: resolvedSenderCode,
+					// 发送者类型（AI/User）
+					senderType: "AI",
+					updateBy: "",
+					updateTime: "",
+					violateFlag: "",
+					// 折叠标志（1代表展开 2代表折叠）
+					collapseFlag: "1",
+					voteType: 0,
+				};
 
-		lastChatEntity = chatEntity;
+				lastChatEntity = chatEntity;
 
-		mymemoEventSender.send({
-			id: crypto.randomUUID(),
-			message: {
-				type: "chat_entity",
-				...chatEntity,
-			},
-		});
-	}
-
-	if (lastChatEntity) {
-		await sendChatEntityToProtectedService(lastChatEntity, {}, logger);
-	} else {
-		logger.error({
-			message: "Last chat entity is null",
-		});
-		throw new Error("Last chat entity is null");
+				mymemoEventSender.send({
+					id: crypto.randomUUID(),
+					message: {
+						type: "chat_entity",
+						...chatEntity,
+					},
+				});
+				break;
+			}
+			case "text-end": {
+				if (lastChatEntity) {
+					lastChatEntity.readFlag = "0";
+					await sendChatEntityToProtectedService(lastChatEntity, {}, logger);
+				} else {
+					logger.error({
+						message: "Last chat entity is null",
+					});
+					throw new Error("Last chat entity is null");
+				}
+				break;
+			}
+		}
 	}
 }

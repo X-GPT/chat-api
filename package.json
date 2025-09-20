@@ -12,6 +12,8 @@
 		"ai": "^5.0.0-beta.34",
 		"hono": "^4.9.7",
 		"hono-openapi": "^1.0.8",
+		"pino": "^9.10.0",
+		"pino-http": "^10.5.0",
 		"zod": "^4.1.9"
 	},
 	"devDependencies": {
