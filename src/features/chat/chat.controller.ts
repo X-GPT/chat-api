@@ -17,13 +17,10 @@ export async function complete(
 ) {
 	const chatId = await fetchProtectedChatId({}, logger);
 
-	const normalizedCollectionId = collectionId?.trim() || undefined;
-	const normalizedSummaryId = summaryId?.trim() || undefined;
-
 	const chatContext = await fetchProtectedChatContext(
 		chatKey,
-		normalizedCollectionId,
-		normalizedSummaryId,
+		collectionId,
+		summaryId,
 		{},
 		logger,
 	);
