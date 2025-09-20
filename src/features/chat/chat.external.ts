@@ -33,7 +33,6 @@ const chatDataSchema = z.object({
 });
 
 const chatContextSchema = z.object({
-	contextIdentifier: z.string(),
 	chatKey: z.string(),
 	collectionId: z.string().optional().nullable(),
 	summaryId: z.string().optional().nullable(),
