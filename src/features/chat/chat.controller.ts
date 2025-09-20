@@ -5,14 +5,16 @@ import {
 	fetchProtectedChatId,
 	sendChatEntityToProtectedService,
 } from "./chat.external";
+import type { ChatLogger } from "./chat.logger";
 import type { ChatRequest } from "./chat.schema";
 import type { MymemoEventSender } from "./chat.streaming";
 
 export async function complete(
 	{ chatContent, chatKey, chatType, collectionId, summaryId }: ChatRequest,
 	mymemoEventSender: MymemoEventSender,
+	logger: ChatLogger,
 ) {
-	const chatId = await fetchProtectedChatId();
+	const chatId = await fetchProtectedChatId({}, logger);
 
 	const messages = [
 		{
@@ -72,9 +74,9 @@ export async function complete(
 	}
 
 	if (lastChatEntity) {
-		await sendChatEntityToProtectedService(lastChatEntity);
+		await sendChatEntityToProtectedService(lastChatEntity, {}, logger);
 	} else {
-		console.error({
+		logger.error({
 			message: "Last chat entity is null",
 		});
 		throw new Error("Last chat entity is null");
