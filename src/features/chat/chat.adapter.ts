@@ -66,8 +66,8 @@ function enforceAlternatingRoles(messages: AdapterMessage[]): AdapterMessage[] {
 	}
 
 	// If the last message is 'user', remove it.
-	// This ensures that the message sequence always starts with an assistant message,
-	// which is required by the downstream model. A user message at the beginning may
+	// This ensures that the message sequence always ends with an assistant message,
+	// which is required by the downstream model. A user message at the end may
 	// indicate an incomplete or invalid conversation history, so we remove them to
 	// maintain a valid alternating message flow.
 	if (result[result.length - 1]?.role === "user") {
