@@ -28,6 +28,7 @@ export async function complete(
 				collectionId,
 				summaryId,
 				memberCode,
+				size: 1000,
 			},
 			{},
 			logger,

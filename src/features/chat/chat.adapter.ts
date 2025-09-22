@@ -53,17 +53,28 @@ function enforceAlternatingRoles(messages: AdapterMessage[]): AdapterMessage[] {
 		previousRole = message.role;
 	}
 
-	// if the last message is 'assistant', remove it
-	if (validated[validated.length - 1]?.role === "assistant") {
-		validated.pop();
+	// Reverse the array to process messages in the correct order, from oldest to newest.
+	const result = validated.reverse();
+
+	// If the first message is 'assistant', remove it.
+	// This ensures that the message sequence always starts with an user message,
+	// which is required by the downstream model. An assistant message at the beginning may
+	// indicate an incomplete or invalid conversation history, so we remove them to
+	// maintain a valid alternating message flow.
+	if (result[0]?.role === "assistant") {
+		result.shift();
 	}
 
-	// if the first message is 'user', remove it
-	if (validated[0]?.role === "user") {
-		validated.shift();
+	// If the last message is 'user', remove it.
+	// This ensures that the message sequence always starts with an assistant message,
+	// which is required by the downstream model. A user message at the beginning may
+	// indicate an incomplete or invalid conversation history, so we remove them to
+	// maintain a valid alternating message flow.
+	if (result[result.length - 1]?.role === "user") {
+		result.pop();
 	}
 
-	return validated.reverse();
+	return result;
 }
 
 function toModelMessage(message: AdapterMessage): ModelMessage {
