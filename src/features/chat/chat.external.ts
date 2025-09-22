@@ -1,8 +1,10 @@
 import * as z from "zod";
 import {
+	type ChatMessagesScope,
 	getProtectedChatContextEndpoint,
 	getProtectedChatEndpoint,
 	getProtectedChatIdEndpoint,
+	getProtectedChatMessagesEndpoint,
 } from "../../config/env";
 import type { ChatEntity } from "./chat.events";
 import type { ChatLogger } from "./chat.logger";
@@ -48,6 +50,37 @@ const protectedChatContextResponseSchema = z.object({
 
 export type ProtectedChatContext = z.infer<typeof chatContextSchema>;
 export type ProtectedChatContextData = z.infer<typeof chatDataSchema>;
+
+const chatMessageSchema = z
+	.object({
+		chatContent: z.string().optional().nullable(),
+		senderType: z.string().optional().nullable(),
+	})
+	.loose();
+
+const protectedChatMessagesResponseSchema = z.object({
+	code: z.number(),
+	msg: z.string(),
+	data: z.array(chatMessageSchema).optional(),
+});
+
+export type ProtectedChatMessage = z.infer<typeof chatMessageSchema>;
+
+const VALID_CHAT_MESSAGE_SCOPES = new Set<ChatMessagesScope>([
+	"general",
+	"collection",
+	"document",
+]);
+
+const normalizeChatMessagesScope = (
+	scope: ChatMessagesScope | null | undefined,
+): ChatMessagesScope => {
+	if (scope && VALID_CHAT_MESSAGE_SCOPES.has(scope)) {
+		return scope;
+	}
+
+	return "general";
+};
 
 export async function fetchProtectedChatId(
 	options: FetchOptions = {},
@@ -161,6 +194,105 @@ export async function fetchProtectedChatContext(
 			chatKey,
 			collectionId,
 			summaryId,
+		});
+		throw new Error(String(error));
+	}
+}
+
+export interface FetchProtectedChatMessagesParams {
+	scope?: ChatMessagesScope | null;
+	collectionId?: string | null | undefined;
+	summaryId?: string | null | undefined;
+	size?: number | null | undefined;
+	memberCode?: string | null | undefined;
+}
+
+export async function fetchProtectedChatMessages(
+	chatKey: string,
+	params: FetchProtectedChatMessagesParams = {},
+	options: FetchOptions = {},
+	logger: ChatLogger,
+): Promise<ProtectedChatMessage[]> {
+	const { scope, collectionId, summaryId, size, memberCode } = params;
+	const resolvedScope = normalizeChatMessagesScope(scope);
+
+	const endpoint = getProtectedChatMessagesEndpoint(chatKey, {
+		scope: resolvedScope,
+		collectionId: collectionId ?? null,
+		summaryId: summaryId ?? null,
+		size: size ?? null,
+		memberCode: memberCode ?? null,
+	});
+
+	try {
+		const response = await fetch(endpoint, {
+			method: "GET",
+			headers: {
+				...defaultHeaders,
+				...options.headers,
+			},
+		});
+
+		if (!response.ok) {
+			throw new Error(
+				`Failed to fetch chat messages for ${chatKey}: ${response.status}`,
+			);
+		}
+
+		const rawBody = await response.json();
+		const parseResult = protectedChatMessagesResponseSchema.safeParse(rawBody);
+
+		if (!parseResult.success) {
+			logger.error({
+				message: "Invalid chat messages response",
+				target: endpoint,
+				errors: parseResult.error,
+				chatKey,
+			});
+			throw new Error("Invalid chat messages response structure");
+		}
+
+		const body = parseResult.data;
+		if (body.code !== 200) {
+			logger.error({
+				message: "Protected service returned error when fetching chat messages",
+				code: body.code,
+				msg: body.msg,
+				chatKey,
+				scope: resolvedScope,
+				collectionId,
+				summaryId,
+				size,
+				memberCode,
+			});
+			throw new Error(`Failed to fetch chat messages: ${body.msg}`);
+		}
+
+		return body.data ?? [];
+	} catch (error) {
+		if (error instanceof Error) {
+			logger.error({
+				message: "Error fetching chat messages from protected service",
+				error: error.message,
+				chatKey,
+				scope: resolvedScope,
+				collectionId,
+				summaryId,
+				size,
+				memberCode,
+			});
+			throw error;
+		}
+
+		logger.error({
+			message: "Error fetching chat messages from protected service",
+			error: String(error),
+			chatKey,
+			scope: resolvedScope,
+			collectionId,
+			summaryId,
+			size,
+			memberCode,
 		});
 		throw new Error(String(error));
 	}
