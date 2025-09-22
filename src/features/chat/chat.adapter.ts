@@ -61,7 +61,7 @@ function enforceAlternatingRoles(messages: AdapterMessage[]): AdapterMessage[] {
 	// which is required by the downstream model. An assistant message at the beginning may
 	// indicate an incomplete or invalid conversation history, so we remove them to
 	// maintain a valid alternating message flow.
-	if (result[0]?.role === "assistant") {
+	if (result[0]?.role !== "user") {
 		result.shift();
 	}
 
@@ -70,7 +70,7 @@ function enforceAlternatingRoles(messages: AdapterMessage[]): AdapterMessage[] {
 	// which is required by the downstream model. A user message at the end may
 	// indicate an incomplete or invalid conversation history, so we remove them to
 	// maintain a valid alternating message flow.
-	if (result[result.length - 1]?.role === "user") {
+	if (result[result.length - 1]?.role !== "assistant") {
 		result.pop();
 	}
 
