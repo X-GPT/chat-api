@@ -8,10 +8,10 @@ import {
 	fetchProtectedChatMessages,
 	sendChatEntityToProtectedService,
 } from "./chat.external";
+import { resolveLanguageModel } from "./chat.language-models";
 import type { ChatLogger } from "./chat.logger";
 import type { ChatRequest } from "./chat.schema";
 import type { MymemoEventSender } from "./chat.streaming";
-import { resolveLanguageModel } from "./chat.language-models";
 
 export async function complete(
 	{ chatContent, chatKey, chatType, collectionId, summaryId }: ChatRequest,
@@ -59,8 +59,12 @@ export async function complete(
 			content: [{ type: "text" as const, text: chatContent }],
 		},
 	];
-	const { model: languageModel, isFallback, requestedModelId, modelId } =
-		resolveLanguageModel(resolvedModelType);
+	const {
+		model: languageModel,
+		isFallback,
+		requestedModelId,
+		modelId,
+	} = resolveLanguageModel(resolvedModelType);
 
 	if (isFallback) {
 		logger.info({
