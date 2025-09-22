@@ -56,7 +56,7 @@ function enforceAlternatingRoles(messages: AdapterMessage[]): AdapterMessage[] {
 	// Reverse the array to process messages in the correct order, from oldest to newest.
 	const result = validated.reverse();
 
-	// If the first message is 'assistant', remove it.
+	// If the first message is not 'user', remove it.
 	// This ensures that the message sequence always starts with a user message,
 	// which is required by the downstream model. An assistant message at the beginning may
 	// indicate an incomplete or invalid conversation history, so we remove them to
@@ -65,7 +65,7 @@ function enforceAlternatingRoles(messages: AdapterMessage[]): AdapterMessage[] {
 		result.shift();
 	}
 
-	// If the last message is 'user', remove it.
+	// If the last message is not 'assistant', remove it.
 	// This ensures that the message sequence always ends with an assistant message,
 	// which is required by the downstream model. A user message at the end may
 	// indicate an incomplete or invalid conversation history, so we remove them to
