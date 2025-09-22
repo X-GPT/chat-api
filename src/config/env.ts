@@ -17,7 +17,9 @@ export const getProtectedApiOrigin = () => {
 
 export const getProtectedApiPrefix = () => {
 	const rawPrefix =
-		Bun.env.PROTECTED_API_PREFIX ?? Bun.env.API_PREFIX ?? DEFAULT_PROTECTED_API_PREFIX;
+		Bun.env.PROTECTED_API_PREFIX ??
+		Bun.env.API_PREFIX ??
+		DEFAULT_PROTECTED_API_PREFIX;
 	return sanitizePrefix(rawPrefix);
 };
 
@@ -58,7 +60,8 @@ export const getProtectedChatContextEndpoint = (
 export const getProtectedChatIdEndpoint = () => {
 	const origin = getProtectedApiOrigin();
 	const prefix = getProtectedApiPrefix();
-	const path = prefix === "/" ? "/protected/chat/id" : `${prefix}/protected/chat/id`;
+	const path =
+		prefix === "/" ? "/protected/chat/id" : `${prefix}/protected/chat/id`;
 	return new URL(path, origin).toString();
 };
 
@@ -79,7 +82,7 @@ export const getProtectedChatMessagesEndpoint = (
 	const origin = getProtectedApiOrigin();
 	const prefix = getProtectedApiPrefix();
 	const encodedChatKey = encodeURIComponent(chatKey);
-	const basePath = `/protected/chat/chats/${encodedChatKey}/messages`;
+	const basePath = `/protected/chats/${encodedChatKey}/messages`;
 	const path = prefix === "/" ? basePath : `${prefix}${basePath}`;
 	const url = new URL(path, origin);
 
