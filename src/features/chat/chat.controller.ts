@@ -43,13 +43,6 @@ export async function complete(
 	const resolvedSenderCode = contextChatData?.teamCode ?? "";
 	const resolvedModelType = contextChatData?.modelType ?? "gpt-4o";
 
-	// TODO: remove this
-	console.debug({
-		chatId,
-		contextChatData: JSON.stringify(contextChatData, null, 2),
-		chatHistory,
-	});
-
 	const historyMessages = adaptProtectedMessagesToModelMessages(chatHistory);
 
 	const messages: ModelMessage[] = [

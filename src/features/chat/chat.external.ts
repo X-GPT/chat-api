@@ -32,7 +32,7 @@ const chatDataSchema = z.object({
 	nickName: z.string().optional().nullable(),
 	partnerName: z.string().optional().nullable(),
 	partnerCode: z.string().optional().nullable(),
-	enableKnowledge: z.boolean().optional().nullable(),
+	enableKnowledge: z.number().optional().nullable(),
 	modelType: z.string().optional().nullable(),
 });
 
@@ -165,6 +165,7 @@ export async function fetchProtectedChatContext(
 				message: "Invalid chat context response",
 				target: endpoint,
 				errors: parseResult.error,
+				rawBody,
 			});
 			throw new Error("Invalid chat context response structure");
 		}
