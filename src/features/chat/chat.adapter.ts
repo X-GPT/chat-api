@@ -57,7 +57,7 @@ function enforceAlternatingRoles(messages: AdapterMessage[]): AdapterMessage[] {
 	const result = validated.reverse();
 
 	// If the first message is 'assistant', remove it.
-	// This ensures that the message sequence always starts with an user message,
+	// This ensures that the message sequence always starts with a user message,
 	// which is required by the downstream model. An assistant message at the beginning may
 	// indicate an incomplete or invalid conversation history, so we remove them to
 	// maintain a valid alternating message flow.
