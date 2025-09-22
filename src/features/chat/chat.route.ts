@@ -41,6 +41,7 @@ app.post(
 						collectionId: request.collectionId,
 						summaryId: request.summaryId,
 					},
+					memberCode,
 					new HonoSSESender(stream),
 					new ChatLogger(memberCode, request.chatKey),
 				);

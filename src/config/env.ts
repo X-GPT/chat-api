@@ -17,7 +17,9 @@ export const getProtectedApiOrigin = () => {
 
 export const getProtectedApiPrefix = () => {
 	const rawPrefix =
-		Bun.env.PROTECTED_API_PREFIX ?? Bun.env.API_PREFIX ?? DEFAULT_PROTECTED_API_PREFIX;
+		Bun.env.PROTECTED_API_PREFIX ??
+		Bun.env.API_PREFIX ??
+		DEFAULT_PROTECTED_API_PREFIX;
 	return sanitizePrefix(rawPrefix);
 };
 
@@ -58,6 +60,56 @@ export const getProtectedChatContextEndpoint = (
 export const getProtectedChatIdEndpoint = () => {
 	const origin = getProtectedApiOrigin();
 	const prefix = getProtectedApiPrefix();
-	const path = prefix === "/" ? "/protected/chat/id" : `${prefix}/protected/chat/id`;
+	const path =
+		prefix === "/" ? "/protected/chat/id" : `${prefix}/protected/chat/id`;
 	return new URL(path, origin).toString();
+};
+
+export type ChatMessagesScope = "general" | "collection" | "document";
+
+interface ChatMessagesEndpointOptions {
+	scope?: ChatMessagesScope | null;
+	collectionId?: string | null;
+	summaryId?: string | null;
+	size?: number | null;
+	memberCode?: string | null;
+}
+
+export const getProtectedChatMessagesEndpoint = (
+	chatKey: string,
+	options: ChatMessagesEndpointOptions = {},
+) => {
+	const origin = getProtectedApiOrigin();
+	const prefix = getProtectedApiPrefix();
+	const encodedChatKey = encodeURIComponent(chatKey);
+	const basePath = `/protected/chats/${encodedChatKey}/messages`;
+	const path = prefix === "/" ? basePath : `${prefix}${basePath}`;
+	const url = new URL(path, origin);
+
+	const { scope, collectionId, summaryId, size, memberCode } = options;
+
+	if (scope) {
+		url.searchParams.set("scope", scope);
+	}
+
+	const normalizedCollectionId = collectionId?.trim();
+	if (normalizedCollectionId) {
+		url.searchParams.set("collectionId", normalizedCollectionId);
+	}
+
+	const normalizedSummaryId = summaryId?.trim();
+	if (normalizedSummaryId) {
+		url.searchParams.set("summaryId", normalizedSummaryId);
+	}
+
+	if (typeof size === "number" && Number.isFinite(size) && size > 0) {
+		url.searchParams.set("size", String(size));
+	}
+
+	const normalizedMemberCode = memberCode?.trim();
+	if (normalizedMemberCode) {
+		url.searchParams.set("memberCode", normalizedMemberCode);
+	}
+
+	return url.toString();
 };
