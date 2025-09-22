@@ -42,6 +42,13 @@ export async function complete(
 	const resolvedPartnerName = contextChatData?.partnerName ?? "";
 	const resolvedSenderCode = contextChatData?.teamCode ?? "";
 
+	// TODO: remove this
+	console.debug({
+		chatId,
+		contextChatData: JSON.stringify(contextChatData, null, 2),
+		chatHistory,
+	});
+
 	const historyMessages = adaptProtectedMessagesToModelMessages(chatHistory);
 
 	const messages: ModelMessage[] = [

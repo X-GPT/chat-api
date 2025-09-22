@@ -32,15 +32,19 @@ const chatDataSchema = z.object({
 	nickName: z.string().optional().nullable(),
 	partnerName: z.string().optional().nullable(),
 	partnerCode: z.string().optional().nullable(),
+	enableKnowledge: z.boolean().optional().nullable(),
+	modelType: z.string().optional().nullable(),
 });
 
-const chatContextSchema = z.object({
-	chatKey: z.string(),
-	collectionId: z.string().optional().nullable(),
-	summaryId: z.string().optional().nullable(),
-	chatData: chatDataSchema.optional(),
-	timestamp: z.string().optional(),
-});
+const chatContextSchema = z
+	.object({
+		chatKey: z.string(),
+		collectionId: z.string().optional().nullable(),
+		summaryId: z.string().optional().nullable(),
+		chatData: chatDataSchema.optional(),
+		timestamp: z.string().optional(),
+	})
+	.loose();
 
 const protectedChatContextResponseSchema = z.object({
 	code: z.number(),
