@@ -33,11 +33,10 @@ describe("adaptProtectedMessagesToModelMessages", () => {
 		]);
 	});
 
-	it("drops earlier history after consecutive messages from the same role", () => {
+	it("removes an unmatched trailing user message", () => {
 		const history: ProtectedChatMessage[] = [
 			buildMessage("First user", "user"),
-			buildMessage("Assistant one", "assistant"),
-			buildMessage("Assistant two", "assistant"),
+			buildMessage("Assistant reply", "assistant"),
 			buildMessage("Latest user", "user"),
 		];
 
@@ -46,7 +45,34 @@ describe("adaptProtectedMessagesToModelMessages", () => {
 		expect(result).toEqual([
 			{
 				role: "user",
+				content: [{ type: "text", text: "First user" }],
+			},
+			{
+				role: "assistant",
+				content: [{ type: "text", text: "Assistant reply" }],
+			},
+		]);
+	});
+
+	it("keeps only the most recent alternating user/assistant pair", () => {
+		const history: ProtectedChatMessage[] = [
+			buildMessage("First user", "user"),
+			buildMessage("Assistant one", "assistant"),
+			buildMessage("Assistant two", "assistant"),
+			buildMessage("Latest user", "user"),
+			buildMessage("Latest assistant", "assistant"),
+		];
+
+		const result = adaptProtectedMessagesToModelMessages(history);
+
+		expect(result).toEqual([
+			{
+				role: "user",
 				content: [{ type: "text", text: "Latest user" }],
+			},
+			{
+				role: "assistant",
+				content: [{ type: "text", text: "Latest assistant" }],
 			},
 		]);
 	});

@@ -58,6 +58,11 @@ function enforceAlternatingRoles(messages: AdapterMessage[]): AdapterMessage[] {
 		validated.pop();
 	}
 
+	// if the first message is 'user', remove it
+	if (validated[0]?.role === "user") {
+		validated.shift();
+	}
+
 	return validated.reverse();
 }
 
