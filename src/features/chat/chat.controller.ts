@@ -42,12 +42,6 @@ export async function complete(
 	const resolvedSenderCode = contextChatData?.teamCode ?? "";
 
 	const historyMessages = adaptProtectedMessagesToModelMessages(chatHistory);
-	// TODO: remove this
-	const historyMessagesLength = historyMessages.length;
-	console.debug(
-		"historyMessages",
-		JSON.stringify(historyMessages.slice(historyMessagesLength - 10), null, 2),
-	);
 
 	const messages: ModelMessage[] = [
 		...historyMessages,
