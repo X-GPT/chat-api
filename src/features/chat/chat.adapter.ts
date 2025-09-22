@@ -1,11 +1,14 @@
 import type { ModelMessage } from "ai";
+import invariant from "tiny-invariant";
 import type { ProtectedChatMessage } from "./chat.external";
 
 const USER_SENDER_TYPE = "user";
 
 const TEXT_TYPE = "text";
 
-function getRoleFromSenderType(senderType: string | null | undefined): "user" | "assistant" {
+function getRoleFromSenderType(
+	senderType: string | null | undefined,
+): "user" | "assistant" {
 	if (!senderType) {
 		return "assistant";
 	}
@@ -28,20 +31,22 @@ export function adaptProtectedMessagesToModelMessages(
 	return messages
 		.filter((message) => isNonEmptyContent(message.chatContent))
 		.map((message) => {
+			invariant(
+				message.chatContent,
+				"chatContent is required for convert ImChatVO to ModelMessage",
+			);
 			const role = getRoleFromSenderType(message.senderType);
-			const content = [
-				{ type: TEXT_TYPE as const, text: message.chatContent! },
-			] as const;
+			const content = [{ type: TEXT_TYPE, text: message.chatContent }];
 
 			if (role === "user") {
 				return {
-					role,
+					role: "user" as const,
 					content,
 				} as ModelMessage;
 			}
 
 			return {
-				role,
+				role: "assistant" as const,
 				content,
 			} as ModelMessage;
 		});
