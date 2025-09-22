@@ -1,4 +1,3 @@
-import { openai } from "@ai-sdk/openai";
 import type { ModelMessage } from "ai";
 import { streamText } from "ai";
 import { adaptProtectedMessagesToModelMessages } from "./chat.adapter";
@@ -12,6 +11,7 @@ import {
 import type { ChatLogger } from "./chat.logger";
 import type { ChatRequest } from "./chat.schema";
 import type { MymemoEventSender } from "./chat.streaming";
+import { resolveLanguageModel } from "./chat.language-models";
 
 export async function complete(
 	{ chatContent, chatKey, chatType, collectionId, summaryId }: ChatRequest,
@@ -41,6 +41,7 @@ export async function complete(
 	const resolvedPartnerCode = contextChatData?.partnerCode ?? "";
 	const resolvedPartnerName = contextChatData?.partnerName ?? "";
 	const resolvedSenderCode = contextChatData?.teamCode ?? "";
+	const resolvedModelType = contextChatData?.modelType ?? "gpt-4o";
 
 	// TODO: remove this
 	console.debug({
@@ -58,8 +59,19 @@ export async function complete(
 			content: [{ type: "text" as const, text: chatContent }],
 		},
 	];
+	const { model: languageModel, isFallback, requestedModelId, modelId } =
+		resolveLanguageModel(resolvedModelType);
+
+	if (isFallback) {
+		logger.info({
+			message: "Requested model type is not supported; using fallback model",
+			requestedModelType: requestedModelId ?? resolvedModelType,
+			fallbackModelType: modelId,
+		});
+	}
+
 	const result = streamText({
-		model: openai("gpt-4o"),
+		model: languageModel,
 		system: "You are a helpful assistant.",
 		messages,
 	});
