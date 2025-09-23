@@ -1,11 +1,13 @@
 import type { ModelMessage } from "ai";
 import { streamText } from "ai";
 import { adaptProtectedMessagesToModelMessages } from "./chat.adapter";
+import type { ChatConfig } from "./chat.config";
 import type { ChatEntity } from "./chat.events";
 import {
 	fetchProtectedChatContext,
 	fetchProtectedChatId,
 	fetchProtectedChatMessages,
+	fetchProtectedFileDetail,
 	sendChatEntityToProtectedService,
 } from "./chat.external";
 import { resolveLanguageModel } from "./chat.language-models";
@@ -15,28 +17,57 @@ import type { MymemoEventSender } from "./chat.streaming";
 
 export async function complete(
 	{ chatContent, chatKey, chatType, collectionId, summaryId }: ChatRequest,
-	memberCode: string,
+	config: ChatConfig,
 	mymemoEventSender: MymemoEventSender,
 	logger: ChatLogger,
 ) {
-	const [chatId, chatContext, chatHistory] = await Promise.all([
-		fetchProtectedChatId({}, logger),
-		fetchProtectedChatContext(chatKey, collectionId, summaryId, {}, logger),
-		fetchProtectedChatMessages(
-			chatKey,
-			{
+	const protectedFetchOptions = {
+		memberAuthToken: config.memberAuthToken,
+	};
+
+	const normalizedSummaryId = summaryId?.trim() ?? null;
+
+	const summaryFileDetailPromise = normalizedSummaryId
+		? fetchProtectedFileDetail(
+				chatType,
+				normalizedSummaryId,
+				protectedFetchOptions,
+				logger,
+			)
+		: Promise.resolve(null);
+
+	const [summaryFileMetadata, chatId, chatContext, chatHistory] =
+		await Promise.all([
+			summaryFileDetailPromise,
+			fetchProtectedChatId(protectedFetchOptions, logger),
+			fetchProtectedChatContext(
+				chatKey,
 				collectionId,
 				summaryId,
-				memberCode,
-				size: 1000,
-			},
-			{},
-			logger,
-		),
-	]);
+				protectedFetchOptions,
+				logger,
+			),
+			fetchProtectedChatMessages(
+				chatKey,
+				{
+					collectionId,
+					summaryId,
+					memberCode: config.memberCode,
+					size: 1000,
+				},
+				protectedFetchOptions,
+				logger,
+			),
+		]);
+
+	// TODO: remove this after debugging
+	console.debug({
+		summaryFileMetadata,
+	});
 
 	const contextChatData = chatContext.chatData;
-	const resolvedMemberCode = contextChatData?.memberCode ?? memberCode ?? "";
+	const resolvedMemberCode =
+		contextChatData?.memberCode ?? config.memberCode ?? "";
 	const resolvedMemberName = contextChatData?.nickName ?? "";
 	const resolvedPartnerCode = contextChatData?.partnerCode ?? "";
 	const resolvedPartnerName = contextChatData?.partnerName ?? "";
@@ -123,7 +154,11 @@ export async function complete(
 			case "text-end": {
 				if (lastChatEntity) {
 					lastChatEntity.readFlag = "0";
-					await sendChatEntityToProtectedService(lastChatEntity, {}, logger);
+					await sendChatEntityToProtectedService(
+						lastChatEntity,
+						protectedFetchOptions,
+						logger,
+					);
 				} else {
 					logger.error({
 						message: "Last chat entity is null",
