@@ -58,8 +58,6 @@ const chatDataSchema = z.object({
 const chatContextSchema = z
 	.object({
 		chatKey: z.string(),
-		collectionId: z.string().optional().nullable(),
-		summaryId: z.string().optional().nullable(),
 		chatData: chatDataSchema.optional(),
 		timestamp: z.string().optional(),
 	})
@@ -298,6 +296,7 @@ export async function fetchProtectedChatMessages(
 				target: endpoint,
 				errors: parseResult.error,
 				chatKey,
+				rawBody,
 			});
 			throw new Error("Invalid chat messages response structure");
 		}
@@ -314,6 +313,7 @@ export async function fetchProtectedChatMessages(
 				summaryId,
 				size,
 				memberCode,
+				rawBody,
 			});
 			throw new Error(`Failed to fetch chat messages: ${body.msg}`);
 		}
