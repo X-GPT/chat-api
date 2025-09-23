@@ -54,11 +54,6 @@ export async function complete(
 					summaryId,
 					memberCode: config.memberCode,
 					size: 1000,
-					scope: summaryId
-						? "document"
-						: collectionId
-							? "collection"
-							: "general",
 				},
 				protectedFetchOptions,
 				logger,
