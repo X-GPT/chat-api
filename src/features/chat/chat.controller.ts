@@ -29,6 +29,7 @@ export async function complete(
 				summaryId,
 				memberCode,
 				size: 1000,
+				scope: summaryId ? "document" : collectionId ? "collection" : "general",
 			},
 			{},
 			logger,
