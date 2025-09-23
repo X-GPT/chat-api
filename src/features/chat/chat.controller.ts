@@ -29,7 +29,7 @@ export async function complete(
 
 	const summaryFileDetailPromise = normalizedSummaryId
 		? fetchProtectedFileDetail(
-				chatType,
+				0,
 				normalizedSummaryId,
 				protectedFetchOptions,
 				logger,
