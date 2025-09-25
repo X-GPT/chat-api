@@ -10,7 +10,7 @@ import {
 import type { ChatEntity } from "./chat.events";
 import type { ChatLogger } from "./chat.logger";
 
-interface FetchOptions {
+export interface FetchOptions {
 	headers?: Record<string, string>;
 	memberAuthToken?: string;
 }
