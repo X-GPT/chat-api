@@ -87,7 +87,7 @@ export async function handleReadFile({
 		case "image/jpeg":
 			return `
 			<fileContent>
-				${fileDetail.parseContent}
+				${fileDetail.content}
 			</fileContent>
 			<fileName>
 				${fileDetail.fileName}

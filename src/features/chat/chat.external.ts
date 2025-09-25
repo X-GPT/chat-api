@@ -109,7 +109,7 @@ const protectedFileDataSchema = z.discriminatedUnion("fileType", [
 	z.object({
 		fileType: z.literal("image/jpeg"),
 		id: z.union([z.string(), z.number()]),
-		parseContent: z.string(),
+		content: z.string(),
 		fileName: z.string(),
 	}),
 ]);
