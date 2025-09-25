@@ -1,14 +1,30 @@
+import type { UpdatePlanToolInput } from "./tools/update-plan";
+
 export interface MymemoEvent {
 	id: string;
 	message: EventMessage;
 }
 
-type EventMessage = AgentMessageDeltaEvent | ErrorEvent | ChatEntityEvent;
+export type EventMessage =
+	| AgentMessageDeltaEvent
+	| ErrorEvent
+	| ChatEntityEvent
+	| PlanUpdateEvent
+	| ReadFileEvent;
 
 export interface AgentMessageDeltaEvent {
 	type: "agent_message_delta";
 	delta: string;
 }
+
+export type PlanUpdateEvent = UpdatePlanToolInput & {
+	type: "plan_update";
+};
+
+export type ReadFileEvent = {
+	type: "read_file";
+	document: string;
+};
 
 export interface ErrorEvent {
 	type: "error";

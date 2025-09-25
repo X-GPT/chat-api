@@ -5,17 +5,36 @@ import {
 	getProtectedChatEndpoint,
 	getProtectedChatIdEndpoint,
 	getProtectedChatMessagesEndpoint,
+	getProtectedFileDetailEndpoint,
 } from "../../config/env";
 import type { ChatEntity } from "./chat.events";
 import type { ChatLogger } from "./chat.logger";
 
-interface FetchOptions {
+export interface FetchOptions {
 	headers?: Record<string, string>;
+	memberAuthToken?: string;
 }
 
 const defaultHeaders = {
 	"content-type": "application/json",
 	Authorization: `Bearer ${Bun.env.PROTECTED_API_TOKEN}`,
+};
+
+const buildHeaders = (options?: FetchOptions) => {
+	const headers: Record<string, string> = {
+		...defaultHeaders,
+	};
+
+	if (options?.memberAuthToken) {
+		// m_Authorization is the header key required by the protected service
+		headers.m_Authorization = options.memberAuthToken;
+	}
+
+	if (options?.headers) {
+		Object.assign(headers, options.headers);
+	}
+
+	return headers;
 };
 
 interface ProtectedChatIdResponse {
@@ -68,6 +87,41 @@ const protectedChatMessagesResponseSchema = z.object({
 
 export type ProtectedChatMessage = z.infer<typeof chatMessageSchema>;
 
+const protectedFileDataSchema = z.discriminatedUnion("fileType", [
+	z.object({
+		fileType: z.literal("application/pdf"),
+		id: z.union([z.string(), z.number()]),
+		parseContent: z.string(),
+		fileName: z.string(),
+	}),
+	z.object({
+		fileType: z.literal("link/normal"),
+		id: z.union([z.string(), z.number()]),
+		parseContent: z.string(),
+		fileLink: z.string(),
+	}),
+	z.object({
+		fileType: z.literal("link/video"),
+		id: z.union([z.string(), z.number()]),
+		parseContent: z.string(),
+		fileLink: z.string(),
+	}),
+	z.object({
+		fileType: z.literal("image/jpeg"),
+		id: z.union([z.string(), z.number()]),
+		content: z.string(),
+		fileName: z.string(),
+	}),
+]);
+
+const protectedFileDetailResponseSchema = z.object({
+	code: z.number(),
+	msg: z.string(),
+	data: protectedFileDataSchema.optional().nullable(),
+});
+
+type RawProtectedFileData = z.infer<typeof protectedFileDataSchema>;
+
 const VALID_CHAT_MESSAGE_SCOPES = new Set<ChatMessagesScope>([
 	"general",
 	"collection",
@@ -93,10 +147,7 @@ export async function fetchProtectedChatId(
 	try {
 		const response = await fetch(endpoint, {
 			method: "GET",
-			headers: {
-				...defaultHeaders,
-				...options.headers,
-			},
+			headers: buildHeaders(options),
 		});
 
 		if (!response.ok) {
@@ -143,10 +194,7 @@ export async function fetchProtectedChatContext(
 	try {
 		const response = await fetch(endpoint, {
 			method: "GET",
-			headers: {
-				...defaultHeaders,
-				...options.headers,
-			},
+			headers: buildHeaders(options),
 		});
 
 		if (!response.ok) {
@@ -230,10 +278,7 @@ export async function fetchProtectedChatMessages(
 	try {
 		const response = await fetch(endpoint, {
 			method: "GET",
-			headers: {
-				...defaultHeaders,
-				...options.headers,
-			},
+			headers: buildHeaders(options),
 		});
 
 		if (!response.ok) {
@@ -313,10 +358,7 @@ export async function sendChatEntityToProtectedService(
 	try {
 		const response = await fetch(endpoint, {
 			method: "POST",
-			headers: {
-				...defaultHeaders,
-				...options.headers,
-			},
+			headers: buildHeaders(options),
 			body: JSON.stringify(chatEntity),
 		});
 
@@ -351,5 +393,78 @@ export async function sendChatEntityToProtectedService(
 			error,
 		});
 		throw error;
+	}
+}
+
+export async function fetchProtectedFileDetail(
+	type: number | string,
+	id: number | string,
+	options: FetchOptions = {},
+	logger: ChatLogger,
+): Promise<RawProtectedFileData | null> {
+	const endpoint = getProtectedFileDetailEndpoint(type, id);
+
+	try {
+		const response = await fetch(endpoint, {
+			method: "GET",
+			headers: buildHeaders(options),
+		});
+
+		if (!response.ok) {
+			throw new Error(
+				`Failed to fetch file detail for ${type}/${id}: ${response.status}`,
+			);
+		}
+
+		const rawBody = await response.json();
+		const parseResult = protectedFileDetailResponseSchema.safeParse(rawBody);
+
+		if (!parseResult.success) {
+			logger.error({
+				message: "Invalid file detail response",
+				target: endpoint,
+				errors: parseResult.error,
+				type,
+				id,
+			});
+			throw new Error("Invalid file detail response structure");
+		}
+
+		const body = parseResult.data;
+		if (body.code !== 200) {
+			logger.error({
+				message: "Protected service returned error when fetching file detail",
+				code: body.code,
+				msg: body.msg,
+				type,
+				id,
+			});
+			throw new Error(`Failed to fetch file detail: ${body.msg}`);
+		}
+
+		const data = body.data;
+		if (!data) {
+			return null;
+		}
+
+		return data;
+	} catch (error) {
+		if (error instanceof Error) {
+			logger.error({
+				message: "Error fetching file detail from protected service",
+				error: error.message,
+				type,
+				id,
+			});
+			throw error;
+		}
+
+		logger.error({
+			message: "Error fetching file detail from protected service",
+			error: String(error),
+			type,
+			id,
+		});
+		throw new Error(String(error));
 	}
 }

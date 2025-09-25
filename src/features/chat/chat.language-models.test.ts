@@ -12,7 +12,8 @@ describe("resolveLanguageModel", () => {
 
 		expect(resolved.isFallback).toBe(false);
 		expect(resolved.modelId).toBe(id);
-		expect(resolved.model).toBe(LANGUAGE_MODELS_BY_ID[id]);
+		expect(resolved.provider).toBe("openai");
+		expect(resolved.model).toBe(LANGUAGE_MODELS_BY_ID[id].model);
 	});
 
 	it("falls back to the default model when an unknown id is requested", () => {
@@ -22,7 +23,8 @@ describe("resolveLanguageModel", () => {
 		expect(resolved.isFallback).toBe(true);
 		expect(resolved.requestedModelId).toBe(requestedId);
 		expect(resolved.modelId).toBe(DEFAULT_MODEL_ID);
-		expect(resolved.model).toBe(LANGUAGE_MODELS_BY_ID[DEFAULT_MODEL_ID]);
+		expect(resolved.provider).toBe("openai");
+		expect(resolved.model).toBe(LANGUAGE_MODELS_BY_ID[DEFAULT_MODEL_ID].model);
 	});
 
 	it("falls back to the default model when no id is provided", () => {
@@ -31,6 +33,7 @@ describe("resolveLanguageModel", () => {
 		expect(resolved.isFallback).toBe(true);
 		expect(resolved.requestedModelId).toBeUndefined();
 		expect(resolved.modelId).toBe(DEFAULT_MODEL_ID);
-		expect(resolved.model).toBe(LANGUAGE_MODELS_BY_ID[DEFAULT_MODEL_ID]);
+		expect(resolved.provider).toBe("openai");
+		expect(resolved.model).toBe(LANGUAGE_MODELS_BY_ID[DEFAULT_MODEL_ID].model);
 	});
 });

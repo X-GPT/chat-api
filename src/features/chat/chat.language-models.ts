@@ -6,17 +6,29 @@ import invariant from "tiny-invariant";
 
 export const DEFAULT_MODEL_ID = "gpt-4o";
 
+export type LanguageModelProvider = "openai" | "anthropic" | "google";
+
+type LanguageModelEntry = {
+	model: LanguageModel;
+	provider: LanguageModelProvider;
+};
+
 const createModelMap = <TModelId extends string>(
+	provider: LanguageModelProvider,
 	modelIds: readonly TModelId[],
 	factory: (modelId: TModelId) => LanguageModel,
 ) =>
-	modelIds.reduce<Record<string, LanguageModel>>((accumulator, modelId) => {
-		accumulator[modelId] = factory(modelId);
+	modelIds.reduce<Record<string, LanguageModelEntry>>((accumulator, modelId) => {
+		accumulator[modelId] = {
+			model: factory(modelId),
+			provider,
+		};
 		return accumulator;
 	}, {});
 
 export const LANGUAGE_MODELS_BY_ID = {
 	...createModelMap(
+		"openai",
 		[
 			"gpt-4o",
 			"gpt-4o-mini",
@@ -66,6 +78,7 @@ export const LANGUAGE_MODELS_BY_ID = {
 		openai,
 	),
 	...createModelMap(
+		"anthropic",
 		[
 			"claude-3-opus-20240229",
 			"claude-3-opus-latest",
@@ -83,6 +96,7 @@ export const LANGUAGE_MODELS_BY_ID = {
 		anthropic,
 	),
 	...createModelMap(
+		"google",
 		[
 			"gemini-1.5-flash",
 			"gemini-1.5-flash-001",
@@ -114,29 +128,33 @@ export const LANGUAGE_MODELS_BY_ID = {
 		],
 		google,
 	),
-} satisfies Record<string, LanguageModel>;
+} satisfies Record<string, LanguageModelEntry>;
 
-export const DEFAULT_LANGUAGE_MODEL = LANGUAGE_MODELS_BY_ID[DEFAULT_MODEL_ID];
+export const DEFAULT_LANGUAGE_MODEL =
+	LANGUAGE_MODELS_BY_ID[DEFAULT_MODEL_ID]?.model;
 
 export const resolveLanguageModel = (modelId: string | null | undefined) => {
 	const requestedId = modelId ?? undefined;
-	const nextModel = requestedId
+	const nextModelEntry = requestedId
 		? LANGUAGE_MODELS_BY_ID[requestedId]
 		: undefined;
 
-	if (nextModel) {
+	if (nextModelEntry) {
 		return {
-			model: nextModel,
+			model: nextModelEntry.model,
 			modelId: requestedId,
+			provider: nextModelEntry.provider,
 			isFallback: false,
 		};
 	}
 
-	invariant(DEFAULT_LANGUAGE_MODEL, "DEFAULT_LANGUAGE_MODEL is required");
+	const defaultModelEntry = LANGUAGE_MODELS_BY_ID[DEFAULT_MODEL_ID];
+	invariant(defaultModelEntry, "DEFAULT_LANGUAGE_MODEL is required");
 
 	return {
-		model: DEFAULT_LANGUAGE_MODEL,
+		model: defaultModelEntry.model,
 		modelId: DEFAULT_MODEL_ID,
+		provider: defaultModelEntry.provider,
 		isFallback: true,
 		requestedModelId: requestedId,
 	};

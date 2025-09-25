@@ -22,6 +22,14 @@ app.post(
 	async (c) => {
 		const request = c.req.valid("json");
 
+		const memberAuthToken = c.req.header("X-Member-Auth");
+		if (!memberAuthToken) {
+			console.error({
+				message: "X-Member-Auth is required",
+			});
+			return c.json({ error: "X-Member-Auth-Token is required" }, 400);
+		}
+
 		const memberCode = c.req.header("X-Member-Code");
 		if (!memberCode) {
 			console.error({
@@ -41,7 +49,10 @@ app.post(
 						collectionId: request.collectionId,
 						summaryId: request.summaryId,
 					},
-					memberCode,
+					{
+						memberAuthToken,
+						memberCode,
+					},
 					new HonoSSESender(stream),
 					new ChatLogger(memberCode, request.chatKey),
 				);
