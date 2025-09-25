@@ -89,7 +89,7 @@ type TurnRunResult = {
 };
 
 async function runTurn(
-	session: Session,
+	_session: Session,
 	turnContext: TurnContext,
 	turnInput: ModelMessage[],
 	onTextDelta: (text: string) => void,
@@ -189,8 +189,8 @@ async function runTurn(
 		}
 	} else {
 		// Don't push anything to the output when the model doesn't request to use any more tools
-		console.log("\\n\\nFinal message history:");
-		console.dir(session.messages, { depth: null });
+		// console.log("\\n\\nFinal message history:");
+		// console.dir(session.messages, { depth: null });
 	}
 
 	return {
@@ -242,6 +242,10 @@ async function runTask({
 		}
 
 		if (nextTurnInput.length === 0) {
+			turnContext.logger.info({
+				message: "\\n\\nFinal message history:",
+				messages: session.messages,
+			});
 			break;
 		}
 	}
