@@ -1,4 +1,6 @@
 import { type LanguageModel, type ModelMessage, streamText } from "ai";
+import invariant from "tiny-invariant";
+import type { ChatMessagesScope } from "@/config/env";
 import type { EventMessage } from "../chat.events";
 import {
 	type LanguageModelProvider,
@@ -7,7 +9,9 @@ import {
 import type { ChatLogger } from "../chat.logger";
 import { buildEnvironmentContext } from "../prompts/environment-context";
 import { buildPrompt, getSystemPrompt } from "../prompts/prompts";
+import { handleListCollectionFiles } from "../tools/list-collection-files";
 import { handleReadFile } from "../tools/read-file";
+import { getTools } from "../tools/tools";
 import { handleUpdatePlan } from "../tools/update-plan";
 import type { Config } from "./config";
 import type { ConversationHistory } from "./history";
@@ -31,6 +35,7 @@ function buildSession({
 	const environmentContext = buildEnvironmentContext(
 		config.scope,
 		config.summaryId,
+		config.collectionId,
 	);
 
 	const { model, provider, isFallback, requestedModelId } =
@@ -50,6 +55,10 @@ function buildSession({
 		systemPrompt: getSystemPrompt(),
 		environmentContext,
 		memberAuthToken: config.memberAuthToken,
+		scope: config.scope,
+		summaryId: config.summaryId,
+		collectionId: config.collectionId,
+		partnerCode: config.partnerCode,
 		logger,
 	};
 
@@ -72,12 +81,16 @@ function buildSession({
 	return { session, turnContext };
 }
 
-type TurnContext = {
+export type TurnContext = {
 	model: LanguageModel;
 	provider: LanguageModelProvider;
 	systemPrompt: string;
 	environmentContext: string | null;
 	memberAuthToken: string;
+	scope: ChatMessagesScope;
+	summaryId: string | null;
+	collectionId: string | null;
+	partnerCode: string;
 	logger: ChatLogger;
 };
 
@@ -96,11 +109,13 @@ async function runTurn(
 	onTextEnd: () => Promise<void>,
 	onEvent: (event: EventMessage) => void,
 ): Promise<TurnRunResult> {
+	const tools = getTools();
 	const prompt = buildPrompt({
-		provider: turnContext.provider,
 		systemPrompt: turnContext.systemPrompt,
 		environmentContext: turnContext.environmentContext,
 		messages: turnInput,
+		scope: turnContext.scope,
+		tools,
 	});
 
 	const result = streamText({
@@ -108,6 +123,7 @@ async function runTurn(
 		system: prompt.system,
 		tools: prompt.tools,
 		messages: prompt.messages,
+		activeTools: prompt.allowedTools,
 	});
 
 	const output: TurnRunResult["processedItems"] = [];
@@ -141,7 +157,7 @@ async function runTurn(
 
 		// Handle all tool call execution here
 		for (const toolCall of toolCalls) {
-			if (toolCall.toolName === "update-plan" && !toolCall.dynamic) {
+			if (toolCall.toolName === "update_plan" && !toolCall.dynamic) {
 				const toolOutput = await handleUpdatePlan({
 					args: toolCall.input,
 					onEvent,
@@ -160,9 +176,36 @@ async function runTurn(
 						],
 					},
 				});
-			} else if (toolCall.toolName === "read-file" && !toolCall.dynamic) {
+			} else if (toolCall.toolName === "read_file" && !toolCall.dynamic) {
 				const toolOutput = await handleReadFile({
 					documentId: toolCall.input.documentId,
+					protectedFetchOptions: {
+						memberAuthToken: turnContext.memberAuthToken,
+					},
+					logger: turnContext.logger,
+					onEvent,
+				});
+				output.push({
+					response: null,
+					nextTurnInput: {
+						role: "tool" as const,
+						content: [
+							{
+								toolName: toolCall.toolName,
+								toolCallId: toolCall.toolCallId,
+								type: "tool-result" as const,
+								output: { type: "text" as const, value: toolOutput }, // update depending on the tool's output format
+							},
+						],
+					},
+				});
+			} else if (
+				toolCall.toolName === "list_collection_files" &&
+				!toolCall.dynamic
+			) {
+				const toolOutput = await handleListCollectionFiles({
+					args: toolCall.input,
+					partnerCode: turnContext.partnerCode,
 					protectedFetchOptions: {
 						memberAuthToken: turnContext.memberAuthToken,
 					},

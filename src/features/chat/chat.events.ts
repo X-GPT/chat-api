@@ -10,7 +10,8 @@ export type EventMessage =
 	| ErrorEvent
 	| ChatEntityEvent
 	| PlanUpdateEvent
-	| ReadFileEvent;
+	| ReadFileEvent
+	| ListCollectionFilesEvent;
 
 export interface AgentMessageDeltaEvent {
 	type: "agent_message_delta";
@@ -24,6 +25,11 @@ export type PlanUpdateEvent = UpdatePlanToolInput & {
 export type ReadFileEvent = {
 	type: "read_file";
 	document: string;
+};
+
+export type ListCollectionFilesEvent = {
+	type: "list_collection_files";
+	collection: string;
 };
 
 export interface ErrorEvent {

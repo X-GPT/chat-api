@@ -76,6 +76,7 @@ export async function complete(
 		collectionId: normalizeCollectionId,
 		summaryId: normalizedSummaryId,
 		modelId: resolvedModelType,
+		partnerCode: resolvedPartnerCode,
 	};
 
 	let conversationHistory: ConversationHistory = {

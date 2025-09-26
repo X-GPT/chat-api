@@ -1,6 +1,6 @@
 import type { ChatMessagesScope } from "@/config/env";
 
-const CONTEXT_TEMPLATE = [
+const SINGLE_DOCUMENT_CONTEXT_TEMPLATE = [
 	"---",
 	"",
 	"### Context",
@@ -12,13 +12,31 @@ const CONTEXT_TEMPLATE = [
 	"---",
 ].join("\n");
 
+const COLLECTION_CONTEXT_TEMPLATE = [
+	"---",
+	"",
+	"### Context",
+	"",
+	"<collection>",
+	"{{COLLECTION}}",
+	"</collection>",
+	"",
+	"---",
+].join("\n");
+
 export function buildEnvironmentContext(
 	scope: ChatMessagesScope,
 	summaryId: string | null,
+	collectionId: string | null,
 ): string | null {
 	if (scope === "document" && summaryId) {
 		const document = `<id>${summaryId}</id>`;
-		return CONTEXT_TEMPLATE.replace("{{DOCUMENT}}", document);
+		return SINGLE_DOCUMENT_CONTEXT_TEMPLATE.replace("{{DOCUMENT}}", document);
+	}
+
+	if (scope === "collection" && collectionId) {
+		const collection = `<id>${collectionId}</id>`;
+		return COLLECTION_CONTEXT_TEMPLATE.replace("{{COLLECTION}}", collection);
 	}
 
 	return null;
