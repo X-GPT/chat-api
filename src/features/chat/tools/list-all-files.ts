@@ -1,4 +1,5 @@
 import { tool } from "ai";
+import { z } from "zod";
 import type { EventMessage } from "../chat.events";
 import { type FetchOptions, fetchProtectedFiles } from "../chat.external";
 import type { ChatLogger } from "../chat.logger";
@@ -7,6 +8,7 @@ import { normalizeFiles } from "./utils";
 // the `tool` helper function ensures correct type inference:
 export const listAllFilesTool = tool({
 	description: "List the files in all collections",
+	inputSchema: z.object({}),
 });
 
 export async function handleListAllFiles({

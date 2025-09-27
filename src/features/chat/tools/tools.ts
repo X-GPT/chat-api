@@ -23,6 +23,7 @@ export function getAllowedTools(
 				? [
 						"update_plan" as const,
 						"read_file" as const,
+						"list_collection_files" as const,
 						"list_all_files" as const,
 					]
 				: ["update_plan" as const];
