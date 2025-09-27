@@ -34,6 +34,7 @@ function buildSession({
 } {
 	const environmentContext = buildEnvironmentContext(
 		config.scope,
+		config.enableKnowledge,
 		config.summaryId,
 		config.collectionId,
 	);
