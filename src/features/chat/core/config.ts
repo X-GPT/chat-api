@@ -7,6 +7,6 @@ export type Config = {
 	collectionId: string | null;
 	summaryId: string | null;
 	partnerCode: string;
-
+	enableKnowledge: boolean;
 	modelId: string;
 };

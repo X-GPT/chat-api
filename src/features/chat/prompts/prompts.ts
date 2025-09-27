@@ -23,15 +23,17 @@ export function buildPrompt({
 	environmentContext,
 	tools,
 	scope,
+	enableKnowledge,
 	messages,
 }: {
 	systemPrompt: string;
 	environmentContext: string | null;
 	tools: ReturnType<typeof getTools>;
 	scope: ChatMessagesScope;
+	enableKnowledge: boolean;
 	messages: ModelMessage[];
 }) {
-	const allowedTools = getAllowedTools(scope);
+	const allowedTools = getAllowedTools(scope, enableKnowledge);
 
 	return {
 		system: `${systemPrompt}\n\n${environmentContext ?? ""}`,
