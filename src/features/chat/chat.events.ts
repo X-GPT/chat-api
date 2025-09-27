@@ -40,27 +40,23 @@ export interface ErrorEvent {
 export interface ChatEntityEvent {
 	type: "chat_entity";
 	chatContent: string;
-	refsContent: string;
 	chatKey: string;
 	chatType: string;
-	createBy: string;
-	createTime: string;
 	delFlag: string;
 	followup: string;
 	id: string;
-	memberCode: string;
-	memberName: string;
-	partnerCode: string;
-	partnerName: string;
+	memberCode: string | null;
+	memberName: string | null;
+	partnerCode: string | null;
+	partnerName: string | null;
 	readFlag: string;
-	remark: string;
-	senderCode: string;
+	senderCode: string | null;
 	senderType: string;
-	updateBy: string;
-	updateTime: string;
-	violateFlag: string;
-	collapseFlag: string; // 折叠标志（1代表展开 2代表折叠）
-	voteType: number; // 是否喜欢该回答（1代表支持 2代表反对 0-none）
+	summaryId: string | null;
+	endFlag: number;
+	collectionId: string | null;
+	teamCode: string | null;
+	refsId: string | null;
 }
 
 export type ChatEntity = Omit<ChatEntityEvent, "type">;
