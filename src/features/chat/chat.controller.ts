@@ -53,6 +53,8 @@ export async function complete(
 	]);
 
 	const contextChatData = chatContext.chatData;
+	// TODO: Remove this after testing
+	logger.info({ message: "Context chat data", contextChatData });
 	const resolvedMemberCode =
 		contextChatData?.memberCode ?? config.memberCode ?? null;
 	const resolvedMemberName = contextChatData?.nickName ?? null;
