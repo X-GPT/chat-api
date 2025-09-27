@@ -28,7 +28,8 @@ export async function complete(
 	const normalizeCollectionId = collectionId?.trim() ?? null;
 	const normalizedSummaryId = summaryId?.trim() ?? null;
 
-	const [chatId, chatContext, chatHistory] = await Promise.all([
+	const [chatId, refsId, chatContext, chatHistory] = await Promise.all([
+		fetchProtectedChatId(protectedFetchOptions, logger),
 		fetchProtectedChatId(protectedFetchOptions, logger),
 		fetchProtectedChatContext(
 			chatKey,
@@ -53,11 +54,12 @@ export async function complete(
 
 	const contextChatData = chatContext.chatData;
 	const resolvedMemberCode =
-		contextChatData?.memberCode ?? config.memberCode ?? "";
-	const resolvedMemberName = contextChatData?.nickName ?? "";
-	const resolvedPartnerCode = contextChatData?.partnerCode ?? "";
-	const resolvedPartnerName = contextChatData?.partnerName ?? "";
-	const resolvedSenderCode = contextChatData?.teamCode ?? "";
+		contextChatData?.memberCode ?? config.memberCode ?? null;
+	const resolvedMemberName = contextChatData?.nickName ?? null;
+	const resolvedTeamCode = contextChatData?.teamCode ?? null;
+	const resolvedPartnerCode = contextChatData?.partnerCode ?? null;
+	const resolvedPartnerName = contextChatData?.partnerName ?? null;
+	const resolvedSenderCode = contextChatData?.partnerCode ?? null;
 	const resolvedModelType = contextChatData?.modelType ?? "gpt-4o";
 
 	const historyMessages = adaptProtectedMessagesToModelMessages(chatHistory);
@@ -76,6 +78,7 @@ export async function complete(
 		collectionId: normalizeCollectionId,
 		summaryId: normalizedSummaryId,
 		modelId: resolvedModelType,
+		partnerCode: resolvedPartnerCode ?? "",
 	};
 
 	let conversationHistory: ConversationHistory = {
@@ -99,30 +102,25 @@ export async function complete(
 		onTextDelta: (text) => {
 			accumulatedContent += text;
 			const chatEntity: ChatEntity = {
-				chatContent: accumulatedContent,
-				refsContent: "",
-				chatKey,
-				chatType,
-				createBy: "",
-				createTime: "",
-				delFlag: "0",
-				followup: "",
 				id: chatId,
+				chatKey,
+				readFlag: "1",
+				delFlag: "0",
+				teamCode: resolvedTeamCode,
 				memberCode: resolvedMemberCode,
 				memberName: resolvedMemberName,
 				partnerCode: resolvedPartnerCode,
 				partnerName: resolvedPartnerName,
-				readFlag: "1",
-				remark: "",
-				senderCode: resolvedSenderCode,
-				// 发送者类型（AI/User）
+				chatType,
 				senderType: "AI",
-				updateBy: "",
-				updateTime: "",
-				violateFlag: "",
-				// 折叠标志（1代表展开 2代表折叠）
+				senderCode: resolvedSenderCode,
+				chatContent: accumulatedContent,
+				followup: "",
+				endFlag: 1,
+				collectionId: normalizeCollectionId,
+				summaryId: normalizedSummaryId,
+				refsId: refsId,
 				collapseFlag: "1",
-				voteType: 0,
 			};
 
 			lastChatEntity = chatEntity;

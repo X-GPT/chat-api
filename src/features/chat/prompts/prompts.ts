@@ -1,8 +1,7 @@
 import { readFileSync } from "node:fs";
 import type { ModelMessage } from "ai";
-import type { LanguageModelProvider } from "../chat.language-models";
-import { readFileTool } from "../tools/read-file";
-import { updatePlanTool } from "../tools/update-plan";
+import type { ChatMessagesScope } from "@/config/env";
+import { getAllowedTools, type getTools } from "../tools/tools";
 
 const SYSTEM_PROMPT_URL = new URL("./system-prompt.md", import.meta.url);
 
@@ -20,32 +19,24 @@ export function getSystemPrompt(): string {
 }
 
 export function buildPrompt({
-	provider,
 	systemPrompt,
 	environmentContext,
+	tools,
+	scope,
 	messages,
 }: {
-	provider: LanguageModelProvider;
 	systemPrompt: string;
 	environmentContext: string | null;
+	tools: ReturnType<typeof getTools>;
+	scope: ChatMessagesScope;
 	messages: ModelMessage[];
 }) {
-	const tools = {
-		"update-plan": updatePlanTool,
-		"read-file": readFileTool,
-	};
-
-	if (provider === "openai") {
-		return {
-			system: systemPrompt,
-			tools,
-			messages,
-		};
-	}
+	const allowedTools = getAllowedTools(scope);
 
 	return {
 		system: `${systemPrompt}\n\n${environmentContext ?? ""}`,
 		tools,
 		messages,
+		allowedTools,
 	};
 }

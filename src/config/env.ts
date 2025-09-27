@@ -114,6 +114,34 @@ export const getProtectedChatMessagesEndpoint = (
 	return url.toString();
 };
 
+interface FilesEndpointOptions {
+	partnerCode: string;
+	collectionId?: string | null;
+}
+
+export const getProtectedFilesEndpoint = (options: FilesEndpointOptions) => {
+	const origin = getProtectedApiOrigin();
+	const prefix = getProtectedApiPrefix();
+	const basePath = `/protected/files`;
+	const path = prefix === "/" ? basePath : `${prefix}${basePath}`;
+	const url = new URL(path, origin);
+	const { partnerCode, collectionId } = options;
+	const normalizedPartnerCode = partnerCode.trim();
+	if (!normalizedPartnerCode) {
+		throw new Error(
+			"partnerCode is required to build protected files endpoint",
+		);
+	}
+	url.searchParams.set("partnerCode", normalizedPartnerCode);
+
+	const normalizedCollectionId = collectionId?.trim();
+	if (normalizedCollectionId) {
+		url.searchParams.set("collectionId", normalizedCollectionId);
+	}
+
+	return url.toString();
+};
+
 export const getProtectedFileDetailEndpoint = (
 	type: string | number,
 	id: string | number,
