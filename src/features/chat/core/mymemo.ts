@@ -1,5 +1,4 @@
 import { type LanguageModel, type ModelMessage, streamText } from "ai";
-import invariant from "tiny-invariant";
 import type { ChatMessagesScope } from "@/config/env";
 import type { EventMessage } from "../chat.events";
 import {
@@ -59,6 +58,7 @@ function buildSession({
 		summaryId: config.summaryId,
 		collectionId: config.collectionId,
 		partnerCode: config.partnerCode,
+		enableKnowledge: config.enableKnowledge,
 		logger,
 	};
 
@@ -91,6 +91,7 @@ export type TurnContext = {
 	summaryId: string | null;
 	collectionId: string | null;
 	partnerCode: string;
+	enableKnowledge: boolean;
 	logger: ChatLogger;
 };
 
@@ -115,6 +116,7 @@ async function runTurn(
 		environmentContext: turnContext.environmentContext,
 		messages: turnInput,
 		scope: turnContext.scope,
+		enableKnowledge: turnContext.enableKnowledge,
 		tools,
 	});
 

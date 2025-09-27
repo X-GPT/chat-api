@@ -11,7 +11,10 @@ export function getTools() {
 	};
 }
 
-export function getAllowedTools(scope: ChatMessagesScope) {
+export function getAllowedTools(
+	scope: ChatMessagesScope,
+	enableKnowledge: boolean,
+) {
 	switch (scope) {
 		case "collection":
 			return [
@@ -21,7 +24,15 @@ export function getAllowedTools(scope: ChatMessagesScope) {
 			];
 		case "document":
 			return ["update_plan" as const, "read_file" as const];
+		case "general":
+			return enableKnowledge
+				? [
+						"update_plan" as const,
+						"read_file" as const,
+						"list_collection_files" as const,
+					]
+				: ["update_plan" as const];
 		default:
-			return ["update_plan" as const, "read_file" as const];
+			return ["update_plan" as const];
 	}
 }
