@@ -1,4 +1,5 @@
 import type { ChatMessagesScope } from "@/config/env";
+import { listAllFilesTool } from "./list-all-files";
 import { listCollectionFilesTool } from "./list-collection-files";
 import { readFileTool } from "./read-file";
 import { updatePlanTool } from "./update-plan";
@@ -8,6 +9,7 @@ export function getTools() {
 		update_plan: updatePlanTool,
 		read_file: readFileTool,
 		list_collection_files: listCollectionFilesTool,
+		list_all_files: listAllFilesTool,
 	};
 }
 
@@ -16,6 +18,14 @@ export function getAllowedTools(
 	enableKnowledge: boolean,
 ) {
 	switch (scope) {
+		case "general":
+			return enableKnowledge
+				? [
+						"update_plan" as const,
+						"read_file" as const,
+						"list_all_files" as const,
+					]
+				: ["update_plan" as const];
 		case "collection":
 			return [
 				"update_plan" as const,
@@ -24,14 +34,6 @@ export function getAllowedTools(
 			];
 		case "document":
 			return ["update_plan" as const, "read_file" as const];
-		case "general":
-			return enableKnowledge
-				? [
-						"update_plan" as const,
-						"read_file" as const,
-						"list_collection_files" as const,
-					]
-				: ["update_plan" as const];
 		default:
 			return ["update_plan" as const];
 	}

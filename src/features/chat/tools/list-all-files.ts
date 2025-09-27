@@ -1,33 +1,20 @@
 import { tool } from "ai";
-import invariant from "tiny-invariant";
-import { z } from "zod";
 import type { EventMessage } from "../chat.events";
 import { type FetchOptions, fetchProtectedFiles } from "../chat.external";
 import type { ChatLogger } from "../chat.logger";
 import { normalizeFiles } from "./utils";
 
-export const listCollectionFilesToolInputSchema = z.object({
-	collectionId: z.string().describe("The collection id"),
-});
-
-export type ListCollectionFilesToolInput = z.infer<
-	typeof listCollectionFilesToolInputSchema
->;
-
 // the `tool` helper function ensures correct type inference:
-export const listCollectionFilesTool = tool({
-	description: "List the files in a collection",
-	inputSchema: listCollectionFilesToolInputSchema,
+export const listAllFilesTool = tool({
+	description: "List the files in all collections",
 });
 
-export async function handleListCollectionFiles({
-	args,
+export async function handleListAllFiles({
 	partnerCode,
 	protectedFetchOptions,
 	logger,
 	onEvent,
 }: {
-	args: ListCollectionFilesToolInput;
 	partnerCode: string;
 	protectedFetchOptions: FetchOptions;
 	logger: ChatLogger;
@@ -36,30 +23,20 @@ export async function handleListCollectionFiles({
 	const files = await fetchProtectedFiles(
 		{
 			partnerCode,
-			collectionId: args.collectionId,
 		},
 		protectedFetchOptions,
 		logger,
 	);
+
 	const normalizedFiles = normalizeFiles(files);
 
 	if (normalizedFiles.length === 0) {
 		onEvent({
-			type: "list_collection_files",
-			collection: `There is no files in this collection: ${args.collectionId}`,
+			type: "list_all_files",
+			message: "No files found",
 		});
 		return "No files found";
 	}
-
-	const firstFile = normalizedFiles[0];
-	invariant(firstFile, "First file is required");
-
-	const collectionName = firstFile.collections.find(
-		(collection) => collection.id === args.collectionId,
-	)?.name;
-
-	invariant(collectionName, "Collection name is required");
-	invariant(collectionName.length > 0, "Collection name is required");
 
 	const fileList = normalizedFiles
 		.map((file) => {
@@ -69,6 +46,7 @@ export async function handleListCollectionFiles({
 					<link>${file.fileLink}</link>
 					<id>${file.summaryId}</id>
 					<type>${file.fileType}</type>
+					<collections>${file.collections.map((collection) => collection.name).join(",")}</collections>
 				</file>`;
 			}
 
@@ -77,13 +55,40 @@ export async function handleListCollectionFiles({
 				<name>${file.fileName}</name>
 				<id>${file.summaryId}</id>
 				<type>${file.fileType}</type>
+				<collections>${file.collections
+					.map(
+						(collection) => `
+						<collection>
+							<id>${collection.id}</id>
+							<name>${collection.name}</name>
+						</collection>`,
+					)
+					.join("\n")}</collections>
 			</file>`;
 		})
 		.join("\n");
 
-	onEvent({
-		type: "list_collection_files",
-		collection: collectionName,
+	const collections = new Map<string, string>();
+	normalizedFiles.forEach((file) => {
+		file.collections.forEach((collection) => {
+			collections.set(collection.id, collection.name);
+		});
 	});
-	return `<collection id="${args.collectionId}" name="${collectionName}">\n${fileList}\n</collection>`;
+
+	const collectionList = Array.from(collections.entries())
+		.map(([id, name]) => {
+			return `
+		<collection>
+			<id>${id}</id>
+			<name>${name}</name>
+		</collection>`;
+		})
+		.join("\n");
+
+	onEvent({
+		type: "list_all_files",
+		message: "listed all files",
+	});
+
+	return `\n${fileList}\n${collectionList}\n`;
 }

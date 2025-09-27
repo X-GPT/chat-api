@@ -8,6 +8,7 @@ import {
 import type { ChatLogger } from "../chat.logger";
 import { buildEnvironmentContext } from "../prompts/environment-context";
 import { buildPrompt, getSystemPrompt } from "../prompts/prompts";
+import { handleListAllFiles } from "../tools/list-all-files";
 import { handleListCollectionFiles } from "../tools/list-collection-files";
 import { handleReadFile } from "../tools/read-file";
 import { getTools } from "../tools/tools";
@@ -207,6 +208,29 @@ async function runTurn(
 			) {
 				const toolOutput = await handleListCollectionFiles({
 					args: toolCall.input,
+					partnerCode: turnContext.partnerCode,
+					protectedFetchOptions: {
+						memberAuthToken: turnContext.memberAuthToken,
+					},
+					logger: turnContext.logger,
+					onEvent,
+				});
+				output.push({
+					response: null,
+					nextTurnInput: {
+						role: "tool" as const,
+						content: [
+							{
+								toolName: toolCall.toolName,
+								toolCallId: toolCall.toolCallId,
+								type: "tool-result" as const,
+								output: { type: "text" as const, value: toolOutput }, // update depending on the tool's output format
+							},
+						],
+					},
+				});
+			} else if (toolCall.toolName === "list_all_files" && !toolCall.dynamic) {
+				const toolOutput = await handleListAllFiles({
 					partnerCode: turnContext.partnerCode,
 					protectedFetchOptions: {
 						memberAuthToken: turnContext.memberAuthToken,
