@@ -8,24 +8,24 @@ import type { ChatLogger } from "../chat.logger";
 export const readFileTool = tool({
 	description: "Read a file",
 	inputSchema: z.object({
-		documentId: z.string().describe("The document ID to read"),
+		fileId: z.string().describe("The file ID to read"),
 	}),
 });
 
 export async function handleReadFile({
-	documentId,
+	fileId,
 	protectedFetchOptions,
 	logger,
 	onEvent,
 }: {
-	documentId: string;
+	fileId: string;
 	protectedFetchOptions: FetchOptions;
 	logger: ChatLogger;
 	onEvent: (event: EventMessage) => void;
 }) {
 	const fileDetail = await fetchProtectedFileDetail(
 		0,
-		documentId,
+		fileId,
 		protectedFetchOptions,
 		logger,
 	);
