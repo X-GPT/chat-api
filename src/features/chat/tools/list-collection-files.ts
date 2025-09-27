@@ -86,14 +86,23 @@ export async function handleListCollectionFiles({
 	invariant(collectionName.length > 0, "Collection name is required");
 
 	const fileList = normalizedFiles
-		.map(
-			(file) => `
+		.map((file) => {
+			if (!file.fileName && file.fileLink) {
+				return `
+				<file>
+					<link>${file.fileLink}</link>
+					<id>${file.summaryId}</id>
+					<type>${file.fileType}</type>
+				</file>`;
+			}
+
+			return `
 			<file>
 				<name>${file.fileName}</name>
 				<id>${file.summaryId}</id>
 				<type>${file.fileType}</type>
-			</file>`,
-		)
+			</file>`;
+		})
 		.join("\n");
 
 	onEvent({
