@@ -121,12 +121,6 @@ async function runTurn(
 		enableKnowledge: turnContext.enableKnowledge,
 		tools,
 	});
-	// TODO: Remove this after testing
-	turnContext.logger.info({
-		message: "system prompt and allowed tools",
-		systemPrompt: prompt.system,
-		allowedTools: prompt.allowedTools,
-	});
 
 	const result = streamText({
 		model: turnContext.model,
