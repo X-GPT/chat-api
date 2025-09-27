@@ -63,7 +63,7 @@ export async function complete(
 	const resolvedPartnerName = contextChatData?.partnerName ?? null;
 	const resolvedSenderCode = contextChatData?.partnerCode ?? null;
 	const resolvedModelType = contextChatData?.modelType ?? "gpt-4o";
-	const resolvedEnableKnowledge = contextChatData?.enableKnowledge ?? 1;
+	const resolvedEnableKnowledge = contextChatData?.enableKnowledge ?? 2;
 
 	const historyMessages = adaptProtectedMessagesToModelMessages(chatHistory);
 
