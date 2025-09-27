@@ -120,6 +120,7 @@ export async function complete(
 				collectionId: normalizeCollectionId,
 				summaryId: normalizedSummaryId,
 				refsId: refsId,
+				collapseFlag: "1",
 			};
 
 			lastChatEntity = chatEntity;

@@ -57,6 +57,7 @@ export interface ChatEntityEvent {
 	collectionId: string | null;
 	teamCode: string | null;
 	refsId: string | null;
+	collapseFlag: string;
 }
 
 export type ChatEntity = Omit<ChatEntityEvent, "type">;
