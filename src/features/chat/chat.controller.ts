@@ -150,36 +150,38 @@ export async function complete(
 					logger,
 				);
 
-				const chatEntity: ChatEntity = {
-					id: chatId,
-					chatKey,
-					readFlag: "0",
-					delFlag: "0",
-					teamCode: resolvedTeamCode,
-					memberCode: resolvedMemberCode,
-					memberName: resolvedMemberName,
-					partnerCode: resolvedPartnerCode,
-					partnerName: resolvedPartnerName,
-					chatType: "refs",
-					senderType: "AI",
-					senderCode: resolvedSenderCode,
-					chatContent: JSON.stringify(accumulatedCitations),
-					followup: "",
-					endFlag: 1,
-					collectionId: normalizeCollectionId,
-					summaryId: normalizedSummaryId,
-					refsId: refsId,
-					// Only send the not collapsed messages
-					collapseFlag: "1",
-					refsContent: null,
-				};
-				mymemoEventSender.send({
-					id: crypto.randomUUID(),
-					message: {
-						type: "chat_entity",
-						...chatEntity,
-					},
-				});
+				if (accumulatedCitations.length > 0) {
+					const chatEntity: ChatEntity = {
+						id: chatId,
+						chatKey,
+						readFlag: "0",
+						delFlag: "0",
+						teamCode: resolvedTeamCode,
+						memberCode: resolvedMemberCode,
+						memberName: resolvedMemberName,
+						partnerCode: resolvedPartnerCode,
+						partnerName: resolvedPartnerName,
+						chatType: "refs",
+						senderType: "AI",
+						senderCode: resolvedSenderCode,
+						chatContent: JSON.stringify(accumulatedCitations),
+						followup: "",
+						endFlag: 1,
+						collectionId: normalizeCollectionId,
+						summaryId: normalizedSummaryId,
+						refsId: refsId,
+						// Only send the not collapsed messages
+						collapseFlag: "1",
+						refsContent: null,
+					};
+					mymemoEventSender.send({
+						id: crypto.randomUUID(),
+						message: {
+							type: "chat_entity",
+							...chatEntity,
+						},
+					});
+				}
 			} else {
 				logger.error({
 					message: "Last chat entity is null",
