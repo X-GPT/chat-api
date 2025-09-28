@@ -82,11 +82,12 @@ DO NOT use file name or file link to read the content. Use file id like "1971416
    - Correct Numbering: Insert references as superscript numbers in the text, corresponding to the numbers in the provided reference list.
    - Precision and Context: Ensure that each inserted reference accurately reflects the context and content of the passage it corresponds to. Insert multiple references for a single passage if it draws from more than one source.
 
-3. DO NOTs
+3. Update citations with tool `update_citations`
+	 - If there is any citation used, you MUST use the `update_citations` tool to update the citations.
+
+4. DO NOTs
    - DO NOT list the citations at the end of the answer.
 
-4. update_citations tool
-	 - If there is any citation used, you MUST use the tool to update the citations.
 
 ---
 

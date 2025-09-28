@@ -29,7 +29,7 @@ export function getAllowedTools(
 						"list_all_files" as const,
 						"update_citations" as const,
 					]
-				: ["update_plan" as const, "update_citations" as const];
+				: ["update_plan" as const];
 		case "collection":
 			return [
 				"update_plan" as const,
