@@ -55,6 +55,7 @@ export type ReadFileCompletedEvent = {
 	type: "read_file.completed";
 	fileId: string;
 	fileName: string;
+	message?: string;
 };
 
 export type ListCollectionFilesStartedEvent = {

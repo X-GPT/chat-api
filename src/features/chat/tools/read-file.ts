@@ -109,10 +109,15 @@ export async function handleReadFile({
 			`;
 
 		default:
+			logger.error({
+				message: "File detail is null",
+				fileDetail,
+			});
 			onEvent({
 				type: "read_file.completed",
 				fileId: fileId,
 				fileName: "",
+				message: "File detail is null",
 			});
 			throw new Error("File detail is null");
 	}
