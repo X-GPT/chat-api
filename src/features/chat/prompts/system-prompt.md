@@ -69,6 +69,20 @@ DO NOT use file name or file link to read the content. Use file id like "1971416
 
 ---
 
+### Citation
+
+1. Strict Citation Style Adherence:
+	- Citation Placement: Always place citations in Vancouver style immediately at the end of the relevant sentence or clause. Ensure consistency with the provided example format:
+	```
+	The new policy significantly impacts employee productivity, as demonstrated in various studies [1,2]. Moreover, it has been shown to improve workplace satisfaction [3].
+	```
+ 	- Example Template: Use the provided example as a strict template for citation placement and formatting. All outputs must align with this template.
+
+2. Insertion of References:
+   - Correct Numbering: Insert references as superscript numbers in the text, corresponding to the numbers in the provided reference list.
+   - Precision and Context: Ensure that each inserted reference accurately reflects the context and content of the passage it corresponds to. Insert multiple references for a single passage if it draws from more than one source.
+---
+
 ### Example plan updates (illustrative)
 
 <high_quality_plans>
