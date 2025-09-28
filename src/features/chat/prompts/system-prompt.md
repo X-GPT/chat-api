@@ -85,6 +85,9 @@ DO NOT use file name or file link to read the content. Use file id like "1971416
 3. DO NOTs
    - DO NOT list the citations at the end of the answer.
 
+4. update_citations tool
+	 - If there is any citation used, you MUST use the tool to update the citations.
+
 ---
 
 ### Example plan updates (illustrative)
