@@ -5,6 +5,8 @@ const SINGLE_DOCUMENT_CONTEXT_TEMPLATE = [
 	"",
 	"### Context",
 	"",
+	"You have access to the following files:",
+	"",
 	"<document>",
 	"{{DOCUMENT}}",
 	"</document>",
@@ -17,11 +19,31 @@ const COLLECTION_CONTEXT_TEMPLATE = [
 	"",
 	"### Context",
 	"",
+	"You have access to the following collection:",
+	"",
 	"<collection>",
 	"{{COLLECTION}}",
 	"</collection>",
 	"",
 	"---",
+].join("\n");
+
+const ALL_FILES_CONTEXT_TEMPLATE = [
+	"---",
+	"",
+	"### Context",
+	"",
+	"You have access to the following files:",
+	"",
+	"---",
+].join("\n");
+
+const NO_FILES_CONTEXT_TEMPLATE = [
+	"---",
+	"",
+	"### Context",
+	"",
+	"You don't have access to any files in the system. You can't use any file related tools.",
 ].join("\n");
 
 export function buildEnvironmentContext(
@@ -41,11 +63,11 @@ export function buildEnvironmentContext(
 	}
 
 	if (scope === "general" && enableKnowledge) {
-		return "You have access to all files in the system. You can list all files in the system using the list_all_files tool.";
+		return ALL_FILES_CONTEXT_TEMPLATE;
 	}
 
 	if (scope === "general" && !enableKnowledge) {
-		return "You don't have access to any files in the system. You can't use any file related tools.";
+		return NO_FILES_CONTEXT_TEMPLATE;
 	}
 
 	return null;

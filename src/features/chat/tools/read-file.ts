@@ -6,7 +6,7 @@ import type { ChatLogger } from "../chat.logger";
 
 // the `tool` helper function ensures correct type inference:
 export const readFileTool = tool({
-	description: "Read a file",
+	description: "Read a file by file id",
 	inputSchema: z.object({
 		fileId: z.string().describe("The file ID to read"),
 	}),
@@ -23,6 +23,11 @@ export async function handleReadFile({
 	logger: ChatLogger;
 	onEvent: (event: EventMessage) => void;
 }) {
+	onEvent({
+		type: "read_file.started",
+		fileId: fileId,
+		fileName: "",
+	});
 	const fileDetail = await fetchProtectedFileDetail(
 		0,
 		fileId,
@@ -30,22 +35,13 @@ export async function handleReadFile({
 		logger,
 	);
 
-	onEvent({
-		type: "read_file",
-		document:
-			fileDetail?.fileType === "application/pdf"
-				? fileDetail.fileName
-				: fileDetail?.fileType === "link/normal"
-					? fileDetail.fileLink
-					: fileDetail?.fileType === "link/video"
-						? fileDetail.fileLink
-						: fileDetail?.fileType === "image/jpeg"
-							? fileDetail.fileName
-							: "",
-	});
-
 	switch (fileDetail?.fileType) {
 		case "application/pdf":
+			onEvent({
+				type: "read_file.completed",
+				fileId: fileId,
+				fileName: fileDetail?.fileName || "",
+			});
 			return `
 			<fileContent>
 				${fileDetail.parseContent}
@@ -59,6 +55,11 @@ export async function handleReadFile({
 			`;
 
 		case "link/normal":
+			onEvent({
+				type: "read_file.completed",
+				fileId: fileId,
+				fileName: fileDetail.fileLink,
+			});
 			return `
 			<fileContent>
 				${fileDetail.parseContent}
@@ -72,6 +73,11 @@ export async function handleReadFile({
 			`;
 
 		case "link/video":
+			onEvent({
+				type: "read_file.completed",
+				fileId: fileId,
+				fileName: fileDetail.fileLink,
+			});
 			return `
 			<fileContent>
 				${fileDetail.parseContent}
@@ -85,6 +91,11 @@ export async function handleReadFile({
 			`;
 
 		case "image/jpeg":
+			onEvent({
+				type: "read_file.completed",
+				fileId: fileId,
+				fileName: fileDetail.fileName,
+			});
 			return `
 			<fileContent>
 				${fileDetail.content}
@@ -98,6 +109,11 @@ export async function handleReadFile({
 			`;
 
 		default:
+			onEvent({
+				type: "read_file.completed",
+				fileId: fileId,
+				fileName: "",
+			});
 			throw new Error("File detail is null");
 	}
 }

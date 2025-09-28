@@ -33,6 +33,11 @@ export async function handleListCollectionFiles({
 	logger: ChatLogger;
 	onEvent: (event: EventMessage) => void;
 }): Promise<string> {
+	onEvent({
+		type: "list_collection_files.started",
+		collectionId: args.collectionId,
+	});
+
 	const files = await fetchProtectedFiles(
 		{
 			partnerCode,
@@ -45,8 +50,10 @@ export async function handleListCollectionFiles({
 
 	if (normalizedFiles.length === 0) {
 		onEvent({
-			type: "list_collection_files",
-			collection: `There is no files in this collection: ${args.collectionId}`,
+			type: "list_collection_files.completed",
+			collectionId: args.collectionId,
+			collectionName: null,
+			message: `There is no files in this collection: ${args.collectionId}`,
 		});
 		return "No files found";
 	}
@@ -82,8 +89,10 @@ export async function handleListCollectionFiles({
 		.join("\n");
 
 	onEvent({
-		type: "list_collection_files",
-		collection: collectionName,
+		type: "list_collection_files.completed",
+		collectionId: args.collectionId,
+		collectionName: collectionName,
+		message: `Collection ${collectionName} files listed`,
 	});
 	return `<collection id="${args.collectionId}" name="${collectionName}">\n${fileList}\n</collection>`;
 }

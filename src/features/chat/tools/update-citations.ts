@@ -12,7 +12,7 @@ export const citationSchema = z.object({
 	id: z
 		.string()
 		.min(1, "Citation id cannot be empty")
-		.describe("Identifier for the cited source (e.g. summaryId)"),
+		.describe("Identifier for the cited source (e.g. fileId)"),
 	number: z
 		.number()
 		.int("Citation number must be an integer")
@@ -32,7 +32,7 @@ export type UpdateCitationsToolInput = z.infer<
 
 export const updateCitationsTool = tool({
 	description:
-		"Update the citations that support the current response. Provide summaryIds with the numeric markers used in the answer, ordered by appearance.",
+		"Update the citations that support the current response. Provide fileIds with the numeric markers used in the answer, ordered by appearance.",
 	inputSchema: updateCitationsToolInputSchema,
 });
 
@@ -85,7 +85,7 @@ export async function handleUpdateCitations({
 	);
 
 	onEvent({
-		type: "citations_update",
+		type: "citations.updated",
 		citations: summaries.map((summary) => ({
 			...summary,
 			number:

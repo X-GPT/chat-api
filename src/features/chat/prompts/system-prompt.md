@@ -52,7 +52,7 @@ Use a plan when:
 
 You have access to an `read_file` tool, which read the content of files, links and videos that users saved earlier. You should use this tool when user want to summarize the content, find interesting things in those content.
 
-Do not use file name or file link to read the content. Use file id.
+DO NOT use file name or file link to read the content. Use file id like "1971416461704429568".
 
 ---
 
