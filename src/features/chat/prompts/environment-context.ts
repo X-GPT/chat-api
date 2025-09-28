@@ -33,7 +33,7 @@ const ALL_FILES_CONTEXT_TEMPLATE = [
 	"",
 	"### Context",
 	"",
-	"You have access to the following files:",
+	"You have access to the all files in the system. You can list all files names and ids in the system using the list_all_files tool.",
 	"",
 	"---",
 ].join("\n");
@@ -44,6 +44,8 @@ const NO_FILES_CONTEXT_TEMPLATE = [
 	"### Context",
 	"",
 	"You don't have access to any files in the system. You can't use any file related tools.",
+	"",
+	"---",
 ].join("\n");
 
 export function buildEnvironmentContext(
