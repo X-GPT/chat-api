@@ -124,6 +124,12 @@ async function runTurn(
 		tools,
 	});
 
+	// TODO: Remove this after debugging
+	turnContext.logger.info({
+		message: "Prompt",
+		prompt: JSON.stringify(prompt, null, 2),
+	});
+
 	const result = streamText({
 		model: turnContext.model,
 		system: prompt.system,
