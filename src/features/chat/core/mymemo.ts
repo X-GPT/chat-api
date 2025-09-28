@@ -127,7 +127,13 @@ async function runTurn(
 	// TODO: Remove this after debugging
 	turnContext.logger.info({
 		message: "Prompt",
-		prompt: JSON.stringify(prompt, null, 2),
+		system: prompt.system,
+		messages: prompt.messages.map((message) => {
+			return {
+				role: message.role,
+				content: JSON.stringify(message.content),
+			};
+		}),
 	});
 
 	const result = streamText({
