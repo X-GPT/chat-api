@@ -346,7 +346,7 @@ async function runTask({
 		if (nextTurnInput.length === 0) {
 			turnContext.logger.info({
 				message: "\\n\\nFinal message history:",
-				messages: session.messages,
+				messages: JSON.stringify(session.messages, null, 2),
 			});
 			break;
 		}
