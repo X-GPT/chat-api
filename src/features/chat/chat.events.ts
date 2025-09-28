@@ -1,3 +1,4 @@
+import type { ProtectedSummary } from "./chat.external";
 import type { UpdatePlanToolInput } from "./tools/update-plan";
 
 export interface MymemoEvent {
@@ -10,6 +11,7 @@ export type EventMessage =
 	| ErrorEvent
 	| ChatEntityEvent
 	| PlanUpdateEvent
+	| CitationsUpdateEvent
 	| ReadFileEvent
 	| ListCollectionFilesEvent
 	| ListAllFilesEvent;
@@ -21,6 +23,15 @@ export interface AgentMessageDeltaEvent {
 
 export type PlanUpdateEvent = UpdatePlanToolInput & {
 	type: "plan_update";
+};
+
+export type Citation = ProtectedSummary & {
+	number: number;
+};
+
+export type CitationsUpdateEvent = {
+	type: "citations_update";
+	citations: Citation[];
 };
 
 export type ReadFileEvent = {
@@ -63,6 +74,7 @@ export interface ChatEntityEvent {
 	collectionId: string | null;
 	teamCode: string | null;
 	refsId: string | null;
+	refsContent: string | null;
 	collapseFlag: string;
 }
 

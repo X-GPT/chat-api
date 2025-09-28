@@ -7,6 +7,7 @@ import {
 	getProtectedChatMessagesEndpoint,
 	getProtectedFileDetailEndpoint,
 	getProtectedFilesEndpoint,
+	getProtectedSummariesEndpoint,
 } from "../../config/env";
 import type { ChatEntity } from "./chat.events";
 import type { ChatLogger } from "./chat.logger";
@@ -144,6 +145,48 @@ const protectedFileDetailResponseSchema = z.object({
 });
 
 type RawProtectedFileData = z.infer<typeof protectedFileDataSchema>;
+
+const protectedSummarySchema = z.object({
+	id: z.union([z.string(), z.number()]),
+	memberCode: z.string().nullable().optional(),
+	partnerCode: z.string().nullable().optional(),
+	docId: z.union([z.string(), z.number()]).nullable().optional(),
+	cosKey: z.string().nullable().optional(),
+	fileType: z.string().nullable().optional(),
+	fileName: z.string().nullable().optional(),
+	fileLink: z.string().nullable().optional(),
+	content: z.string().nullable().optional(),
+	title: z.string().nullable().optional(),
+	summaryTitle: z.string().nullable().optional(),
+	parseContent: z.string().nullable().optional(),
+	parseContentSlice: z.string().nullable().optional(),
+	addKnowledge: z.string().nullable().optional(),
+	delFlag: z.union([z.string(), z.number()]).nullable().optional(),
+	coverUrl: z.string().nullable().optional(),
+	contentCosKey: z.string().nullable().optional(),
+	coverUrlCosKey: z.string().nullable().optional(),
+	fileLinkCosKey: z.string().nullable().optional(),
+	type: z.number().nullable().optional(),
+	status: z.number().nullable().optional(),
+	shareable: z.union([z.string(), z.number()]).nullable().optional(),
+	taskId: z.string().nullable().optional(),
+	errMsg: z.string().nullable().optional(),
+	chatKey: z.string().nullable().optional(),
+	imgWidth: z.number().nullable().optional(),
+	imgHeight: z.number().nullable().optional(),
+	createBy: z.union([z.string(), z.number()]).nullable().optional(),
+	createTime: z.string().nullable().optional(),
+	updateBy: z.union([z.string(), z.number()]).nullable().optional(),
+	updateTime: z.string().nullable().optional(),
+});
+
+const protectedSummariesResponseSchema = z.object({
+	code: z.number(),
+	msg: z.string(),
+	data: z.array(protectedSummarySchema).optional().nullable(),
+});
+
+export type ProtectedSummary = z.infer<typeof protectedSummarySchema>;
 
 const VALID_CHAT_MESSAGE_SCOPES = new Set<ChatMessagesScope>([
 	"general",
@@ -560,6 +603,69 @@ export async function fetchProtectedFileDetail(
 			error: String(error),
 			type,
 			id,
+		});
+		throw new Error(String(error));
+	}
+}
+
+export async function fetchProtectedSummaries(
+	ids: Array<string | number>,
+	options: FetchOptions = {},
+	logger: ChatLogger,
+): Promise<ProtectedSummary[]> {
+	const endpoint = getProtectedSummariesEndpoint(ids);
+
+	try {
+		const response = await fetch(endpoint, {
+			method: "GET",
+			headers: buildHeaders(options),
+		});
+
+		if (!response.ok) {
+			throw new Error(`Failed to fetch summaries: ${response.status}`);
+		}
+
+		const rawBody = await response.json();
+		const parseResult = protectedSummariesResponseSchema.safeParse(rawBody);
+
+		if (!parseResult.success) {
+			logger.error({
+				message: "Invalid summaries response",
+				target: endpoint,
+				errors: parseResult.error,
+				ids,
+				rawBody,
+			});
+			throw new Error("Invalid summaries response structure");
+		}
+
+		const body = parseResult.data;
+		if (body.code !== 200) {
+			logger.error({
+				message: "Protected service returned error when fetching summaries",
+				code: body.code,
+				msg: body.msg,
+				ids,
+				rawBody,
+			});
+			throw new Error(`Failed to fetch summaries: ${body.msg}`);
+		}
+
+		return body.data ?? [];
+	} catch (error) {
+		if (error instanceof Error) {
+			logger.error({
+				message: "Error fetching summaries from protected service",
+				error: error.message,
+				ids,
+			});
+			throw error;
+		}
+
+		logger.error({
+			message: "Error fetching summaries from protected service",
+			error: String(error),
+			ids,
 		});
 		throw new Error(String(error));
 	}
