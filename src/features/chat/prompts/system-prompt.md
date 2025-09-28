@@ -60,7 +60,7 @@ Rules:
 - Never call `read_file` with a collection id — it only accepts file ids.
 - When answering, prefer to read the content rather than rely only on metadata, unless the user explicitly asks for metadata only.
 
-DO NOT use file name or file link to read the content. Use file id like "1971416461704429568".
+DO NOT use file name or file link to read the content!
 
 ---
 
