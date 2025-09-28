@@ -73,6 +73,7 @@ interface ChatMessagesEndpointOptions {
 	summaryId?: string | null;
 	size?: number | null;
 	memberCode?: string | null;
+	collapseFlag?: string | null;
 }
 
 export const getProtectedChatMessagesEndpoint = (
@@ -86,7 +87,8 @@ export const getProtectedChatMessagesEndpoint = (
 	const path = prefix === "/" ? basePath : `${prefix}${basePath}`;
 	const url = new URL(path, origin);
 
-	const { scope, collectionId, summaryId, size, memberCode } = options;
+	const { scope, collectionId, summaryId, size, memberCode, collapseFlag } =
+		options;
 
 	if (scope) {
 		url.searchParams.set("scope", scope);
@@ -109,6 +111,11 @@ export const getProtectedChatMessagesEndpoint = (
 	const normalizedMemberCode = memberCode?.trim();
 	if (normalizedMemberCode) {
 		url.searchParams.set("memberCode", normalizedMemberCode);
+	}
+
+	const normalizedCollapseFlag = collapseFlag?.trim();
+	if (normalizedCollapseFlag) {
+		url.searchParams.set("collapseFlag", normalizedCollapseFlag);
 	}
 
 	return url.toString();
