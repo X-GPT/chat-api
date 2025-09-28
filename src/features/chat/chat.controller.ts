@@ -188,6 +188,11 @@ export async function complete(
 							...chatEntity,
 						},
 					});
+					await sendChatEntityToProtectedService(
+						chatEntity,
+						protectedFetchOptions,
+						logger,
+					);
 				}
 			} else {
 				logger.error({
