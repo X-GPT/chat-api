@@ -321,7 +321,6 @@ export interface FetchProtectedChatMessagesParams {
 	collectionId?: string | null | undefined;
 	summaryId?: string | null | undefined;
 	size?: number | null | undefined;
-	collapseFlag?: string | null | undefined;
 }
 
 export async function fetchProtectedChatMessages(
@@ -330,7 +329,7 @@ export async function fetchProtectedChatMessages(
 	options: FetchOptions = {},
 	logger: ChatLogger,
 ): Promise<ProtectedChatMessage[]> {
-	const { scope, collectionId, summaryId, size, collapseFlag } = params;
+	const { scope, collectionId, summaryId, size } = params;
 	const resolvedScope = normalizeChatMessagesScope(scope);
 
 	const endpoint = getProtectedChatMessagesEndpoint(chatKey, {
@@ -338,7 +337,6 @@ export async function fetchProtectedChatMessages(
 		collectionId: collectionId ?? null,
 		summaryId: summaryId ?? null,
 		size: size ?? null,
-		collapseFlag: collapseFlag ?? null,
 	});
 
 	try {

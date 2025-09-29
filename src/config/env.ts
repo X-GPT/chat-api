@@ -72,8 +72,6 @@ interface ChatMessagesEndpointOptions {
 	collectionId?: string | null;
 	summaryId?: string | null;
 	size?: number | null;
-	memberCode?: string | null;
-	collapseFlag?: string | null;
 }
 
 export const getProtectedChatMessagesEndpoint = (
@@ -87,8 +85,7 @@ export const getProtectedChatMessagesEndpoint = (
 	const path = prefix === "/" ? basePath : `${prefix}${basePath}`;
 	const url = new URL(path, origin);
 
-	const { scope, collectionId, summaryId, size, memberCode, collapseFlag } =
-		options;
+	const { scope, collectionId, summaryId, size } = options;
 
 	if (scope) {
 		url.searchParams.set("scope", scope);
@@ -106,16 +103,6 @@ export const getProtectedChatMessagesEndpoint = (
 
 	if (typeof size === "number" && Number.isFinite(size) && size > 0) {
 		url.searchParams.set("size", String(size));
-	}
-
-	const normalizedMemberCode = memberCode?.trim();
-	if (normalizedMemberCode) {
-		url.searchParams.set("memberCode", normalizedMemberCode);
-	}
-
-	const normalizedCollapseFlag = collapseFlag?.trim();
-	if (normalizedCollapseFlag) {
-		url.searchParams.set("collapseFlag", normalizedCollapseFlag);
 	}
 
 	return url.toString();
@@ -162,9 +149,7 @@ export const getProtectedFileDetailEndpoint = (
 	return new URL(path, origin).toString();
 };
 
-export const getProtectedSummariesEndpoint = (
-	ids: Array<string | number>,
-) => {
+export const getProtectedSummariesEndpoint = (ids: Array<string | number>) => {
 	const origin = getProtectedApiOrigin();
 	const prefix = getProtectedApiPrefix();
 	const basePath = `/protected/summaries`;

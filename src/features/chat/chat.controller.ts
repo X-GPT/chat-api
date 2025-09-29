@@ -45,8 +45,6 @@ export async function complete(
 				summaryId,
 				scope: summaryId ? "document" : collectionId ? "collection" : "general",
 				size: 1000,
-				// Only fetch the not collapsed messages
-				collapseFlag: "1",
 			},
 			protectedFetchOptions,
 			logger,
