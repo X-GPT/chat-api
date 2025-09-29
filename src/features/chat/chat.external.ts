@@ -321,7 +321,6 @@ export interface FetchProtectedChatMessagesParams {
 	collectionId?: string | null | undefined;
 	summaryId?: string | null | undefined;
 	size?: number | null | undefined;
-	memberCode?: string | null | undefined;
 	collapseFlag?: string | null | undefined;
 }
 
@@ -331,8 +330,7 @@ export async function fetchProtectedChatMessages(
 	options: FetchOptions = {},
 	logger: ChatLogger,
 ): Promise<ProtectedChatMessage[]> {
-	const { scope, collectionId, summaryId, size, memberCode, collapseFlag } =
-		params;
+	const { scope, collectionId, summaryId, size, collapseFlag } = params;
 	const resolvedScope = normalizeChatMessagesScope(scope);
 
 	const endpoint = getProtectedChatMessagesEndpoint(chatKey, {
@@ -340,7 +338,6 @@ export async function fetchProtectedChatMessages(
 		collectionId: collectionId ?? null,
 		summaryId: summaryId ?? null,
 		size: size ?? null,
-		memberCode: memberCode ?? null,
 		collapseFlag: collapseFlag ?? null,
 	});
 
@@ -381,7 +378,6 @@ export async function fetchProtectedChatMessages(
 				collectionId,
 				summaryId,
 				size,
-				memberCode,
 				rawBody,
 			});
 			throw new Error(`Failed to fetch chat messages: ${body.msg}`);
@@ -398,7 +394,6 @@ export async function fetchProtectedChatMessages(
 				collectionId,
 				summaryId,
 				size,
-				memberCode,
 			});
 			throw error;
 		}
@@ -411,7 +406,6 @@ export async function fetchProtectedChatMessages(
 			collectionId,
 			summaryId,
 			size,
-			memberCode,
 		});
 		throw new Error(String(error));
 	}
