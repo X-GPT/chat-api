@@ -95,5 +95,5 @@ export async function handleListAllFiles({
 		message: "All files listed",
 	});
 
-	return `\n${fileList}\n${collectionList}\n`;
+	return `\n<files>${fileList}\n</files>\n<collections>${collectionList}\n</collections>\n`;
 }
