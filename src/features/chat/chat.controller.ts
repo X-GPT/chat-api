@@ -43,7 +43,6 @@ export async function complete(
 			{
 				collectionId,
 				summaryId,
-				memberCode: config.memberCode,
 				scope: summaryId ? "document" : collectionId ? "collection" : "general",
 				size: 1000,
 				// Only fetch the not collapsed messages
