@@ -13,11 +13,14 @@ export class ChatLogger {
 	}
 
 	dir(message: Record<string, unknown>) {
-		console.dir({
-			memberCode: this.memberCode,
-			chatKey: this.chatKey,
-			...message,
-		});
+		console.dir(
+			{
+				memberCode: this.memberCode,
+				chatKey: this.chatKey,
+				...message,
+			},
+			{ depth: null },
+		);
 	}
 
 	error(message: Record<string, unknown>) {
