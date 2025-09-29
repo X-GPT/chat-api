@@ -161,3 +161,32 @@ export const getProtectedFileDetailEndpoint = (
 	const path = prefix === "/" ? basePath : `${prefix}${basePath}`;
 	return new URL(path, origin).toString();
 };
+
+export const getProtectedSummariesEndpoint = (
+	ids: Array<string | number>,
+) => {
+	const origin = getProtectedApiOrigin();
+	const prefix = getProtectedApiPrefix();
+	const basePath = `/protected/summaries`;
+	const path = prefix === "/" ? basePath : `${prefix}${basePath}`;
+	const url = new URL(path, origin);
+
+	if (!Array.isArray(ids) || ids.length === 0) {
+		throw new Error("At least one summary id is required");
+	}
+
+	let appendedIds = 0;
+	ids.forEach((rawId) => {
+		const normalizedId = String(rawId).trim();
+		if (normalizedId) {
+			url.searchParams.append("ids", normalizedId);
+			appendedIds += 1;
+		}
+	});
+
+	if (appendedIds === 0) {
+		throw new Error("At least one valid summary id is required");
+	}
+
+	return url.toString();
+};

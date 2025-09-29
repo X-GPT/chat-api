@@ -59,7 +59,7 @@ app.post(
 			},
 			async (error, stream) => {
 				console.error({
-					message: "Error in messages route",
+					message: "Error in chat route",
 					error,
 				});
 				// TODO: enrich error with more details

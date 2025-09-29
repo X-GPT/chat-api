@@ -1,3 +1,4 @@
+import type { ProtectedSummary } from "./chat.external";
 import type { UpdatePlanToolInput } from "./tools/update-plan";
 
 export interface MymemoEvent {
@@ -7,30 +8,66 @@ export interface MymemoEvent {
 
 export type EventMessage =
 	| AgentMessageDeltaEvent
+	| TaskStartEvent
 	| ErrorEvent
 	| ChatEntityEvent
-	| PlanUpdateEvent
-	| ReadFileEvent
-	| ListCollectionFilesEvent
-	| ListAllFilesEvent;
+	| PlanUpdatedEvent
+	| CitationsUpdatedEvent
+	| ReadFileStartedEvent
+	| ReadFileCompletedEvent
+	| ListCollectionFilesStartedEvent
+	| ListCollectionFilesCompletedEvent
+	| ListAllFilesStartedEvent
+	| ListAllFilesCompletedEvent
+	| ReadFileStartedEvent
+	| ReadFileCompletedEvent;
+
+export interface TaskStartEvent {
+	type: "task.started";
+	taskId: string;
+}
 
 export interface AgentMessageDeltaEvent {
-	type: "agent_message_delta";
+	type: "agent.message.delta";
 	delta: string;
 }
 
-export type PlanUpdateEvent = UpdatePlanToolInput & {
-	type: "plan_update";
+export type PlanUpdatedEvent = UpdatePlanToolInput & {
+	type: "plan.updated";
 };
 
-export type ReadFileEvent = {
-	type: "read_file";
-	document: string;
+export type Citation = ProtectedSummary & {
+	number: number;
 };
 
-export type ListCollectionFilesEvent = {
-	type: "list_collection_files";
-	collection: string;
+export type CitationsUpdatedEvent = {
+	type: "citations.updated";
+	citations: Citation[];
+};
+
+export type ReadFileStartedEvent = {
+	type: "read_file.started";
+	fileId: string;
+	fileName: string;
+};
+
+export type ReadFileCompletedEvent = {
+	type: "read_file.completed";
+	fileId: string;
+	fileName: string;
+	message?: string;
+};
+
+export type ListCollectionFilesStartedEvent = {
+	type: "list_collection_files.started";
+	collectionId: string | null;
+};
+
+export type ListCollectionFilesCompletedEvent = {
+	type: "list_collection_files.completed";
+	collectionId: string | null;
+	collectionName: string | null;
+	message: string;
 };
 
 export interface ErrorEvent {
@@ -38,8 +75,12 @@ export interface ErrorEvent {
 	message: string;
 }
 
-export type ListAllFilesEvent = {
-	type: "list_all_files";
+export type ListAllFilesStartedEvent = {
+	type: "list_all_files.started";
+};
+
+export type ListAllFilesCompletedEvent = {
+	type: "list_all_files.completed";
 	message: string;
 };
 
@@ -63,6 +104,7 @@ export interface ChatEntityEvent {
 	collectionId: string | null;
 	teamCode: string | null;
 	refsId: string | null;
+	refsContent: string | null;
 	collapseFlag: string;
 }
 

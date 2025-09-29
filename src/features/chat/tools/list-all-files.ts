@@ -22,6 +22,9 @@ export async function handleListAllFiles({
 	logger: ChatLogger;
 	onEvent: (event: EventMessage) => void;
 }): Promise<string> {
+	onEvent({
+		type: "list_all_files.started",
+	});
 	const files = await fetchProtectedFiles(
 		{
 			partnerCode,
@@ -34,7 +37,7 @@ export async function handleListAllFiles({
 
 	if (normalizedFiles.length === 0) {
 		onEvent({
-			type: "list_all_files",
+			type: "list_all_files.completed",
 			message: "No files found",
 		});
 		return "No files found";
@@ -88,8 +91,8 @@ export async function handleListAllFiles({
 		.join("\n");
 
 	onEvent({
-		type: "list_all_files",
-		message: "listed all files",
+		type: "list_all_files.completed",
+		message: "All files listed",
 	});
 
 	return `\n${fileList}\n${collectionList}\n`;

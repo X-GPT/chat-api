@@ -39,7 +39,7 @@ export async function handleUpdatePlan({
 	onEvent: (event: EventMessage) => void;
 }) {
 	onEvent({
-		type: "plan_update",
+		type: "plan.updated",
 		explanation: args.explanation,
 		plan: args.plan,
 	});
