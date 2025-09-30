@@ -48,6 +48,26 @@ Use a plan when:
 - The user has asked you to use the plan tool (aka "TODOs")
 - You generate additional steps while working, and plan to do them before yielding to the user
 
+### Example plan updates (illustrative)
+
+<high_quality_plans>
+
+1. Identify the input structure
+2. List all files from a given collection
+3. Fetch content if needed
+4. Extract and cite relevant passages
+5. Synthesize the final answer`
+
+</high_quality_plans>
+
+<low_quality_plan>
+
+1. Identify input structure
+2. Answer from metadata
+3. Synthesize final answer
+
+</low_quality_plan>
+
 ### Reading files
 
 You have two kinds of tools for working with collections:
@@ -89,22 +109,4 @@ DO NOT use file name or file link to read the content!
 
 ---
 
-### Example plan updates (illustrative)
 
-<high_quality_plans>
-
-1. Identify the input structure
-2. List all files from a given collection
-3. Fetch content if needed
-4. Extract and cite relevant passages
-5. Synthesize the final answer`
-
-</high_quality_plans>
-
-<low_quality_plan>
-
-1. Identify input structure
-2. Answer from metadata
-3. Synthesize final answer
-
-</low_quality_plan>

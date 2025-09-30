@@ -124,16 +124,10 @@ async function runTurn(
 		tools,
 	});
 
-	// TODO: Remove this after debugging
 	turnContext.logger.info({
 		message: "Prompt",
 		system: prompt.system,
-		messages: prompt.messages.map((message) => {
-			return {
-				role: message.role,
-				content: JSON.stringify(message.content),
-			};
-		}),
+		allowedTools: prompt.allowedTools,
 	});
 
 	const result = streamText({
@@ -356,9 +350,9 @@ async function runTask({
 		}
 
 		if (nextTurnInput.length === 0) {
-			turnContext.logger.info({
-				message: "\\n\\nFinal message history:",
-				messages: JSON.stringify(session.messages, null, 2),
+			turnContext.logger.dir({
+				message: "Final message history:",
+				messages: session.messages,
 			});
 			break;
 		}

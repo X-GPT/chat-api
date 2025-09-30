@@ -45,31 +45,20 @@ export async function handleListAllFiles({
 
 	const fileList = normalizedFiles
 		.map((file) => {
-			if (!file.fileName && file.fileLink) {
-				return `
-				<file>
-					<link>${file.fileLink}</link>
-					<id>${file.summaryId}</id>
-					<type>${file.fileType}</type>
-					<collections>${file.collections.map((collection) => collection.name).join(",")}</collections>
-				</file>`;
-			}
-
-			return `
-			<file>
-				<name>${file.fileName}</name>
-				<id>${file.summaryId}</id>
-				<type>${file.fileType}</type>
-				<collections>${file.collections
-					.map(
-						(collection) => `
-						<collection>
-							<id>${collection.id}</id>
-							<name>${collection.name}</name>
-						</collection>`,
-					)
-					.join("\n")}</collections>
-			</file>`;
+			return [
+				"<file>",
+				`\t${!file.fileName && file.fileLink ? `<link>${file.fileLink}</link>` : `<name>${file.fileName}</name>`}`,
+				`\t<id>${file.summaryId}</id>`,
+				`\t<type>${file.fileType}</type>`,
+				"\t<collections>",
+				`${file.collections
+					.map((collection) => {
+						return `\t\t<collection id="${collection.id}" name="${collection.name}" />`;
+					})
+					.join("\n")}`,
+				"\t</collections>",
+				"</file>",
+			].join("\n");
 		})
 		.join("\n");
 
@@ -95,5 +84,5 @@ export async function handleListAllFiles({
 		message: "All files listed",
 	});
 
-	return `\n${fileList}\n${collectionList}\n`;
+	return `\n<files>${fileList}\n</files>\n<collections>${collectionList}\n</collections>\n`;
 }
