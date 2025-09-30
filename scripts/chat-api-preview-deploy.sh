@@ -50,7 +50,7 @@ sudo -n docker run -d --name "$CONTAINER" \
 	--log-driver=awslogs \
 	--log-opt awslogs-region=us-west-2 \
 	--log-opt awslogs-group=/apps/chat-api-preview \
-	--log-opt awslogs-stream=ec2-{{$PR_NUMBER}} \
+	--log-opt awslogs-stream=ec2-$BRANCH_SLUG \
 	--log-opt awslogs-create-group=true \
 
   "$IMAGE" || { echo "Failed to start Docker container"; exit 1; }

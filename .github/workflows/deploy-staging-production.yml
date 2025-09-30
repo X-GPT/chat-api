@@ -290,7 +290,7 @@ jobs:
               --log-driver=awslogs \
               --log-opt awslogs-region=us-west-2 \
               --log-opt awslogs-group=/apps/chat-api \
-              --log-opt awslogs-stream=ec2-{{.ID}} \
+              --log-opt awslogs-stream=ec2-$CONTAINER_NAME \
               --log-opt awslogs-create-group=true \
               "$IMAGE"
 
