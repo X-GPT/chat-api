@@ -1,11 +1,14 @@
+import type { PinoLogger } from "hono-pino";
+
 export class ChatLogger {
 	constructor(
+		private logger: PinoLogger,
 		private memberCode: string,
 		private chatKey: string,
 	) {}
 
 	info(message: Record<string, unknown>) {
-		console.log({
+		this.logger.info({
 			memberCode: this.memberCode,
 			chatKey: this.chatKey,
 			...message,
@@ -13,18 +16,23 @@ export class ChatLogger {
 	}
 
 	dir(message: Record<string, unknown>) {
-		console.dir(
-			{
-				memberCode: this.memberCode,
-				chatKey: this.chatKey,
-				...message,
-			},
-			{ depth: null },
-		);
+		// console.dir(
+		// 	{
+		// 		memberCode: this.memberCode,
+		// 		chatKey: this.chatKey,
+		// 		...message,
+		// 	},
+		// 	{ depth: null },
+		// );
+		this.logger.info({
+			memberCode: this.memberCode,
+			chatKey: this.chatKey,
+			...message,
+		});
 	}
 
 	error(message: Record<string, unknown>) {
-		console.error({
+		this.logger.error({
 			memberCode: this.memberCode,
 			chatKey: this.chatKey,
 			...message,
