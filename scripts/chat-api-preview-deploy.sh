@@ -52,7 +52,6 @@ sudo -n docker run -d --name "$CONTAINER" \
 	--log-opt awslogs-group=/apps/chat-api-preview \
 	--log-opt awslogs-stream=ec2-$BRANCH_SLUG \
 	--log-opt awslogs-create-group=true \
-
   "$IMAGE" || { echo "Failed to start Docker container"; exit 1; }
 
 # Robust, deterministic port extraction
