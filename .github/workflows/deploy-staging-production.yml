@@ -287,9 +287,11 @@ jobs:
               --memory=4g \
               --memory-reservation=3g \
               --memory-swap=6g \
-              --log-driver json-file \
-              --log-opt max-size=10m \
-              --log-opt max-file=5 \
+              --log-driver=awslogs \
+              --log-opt awslogs-region=us-west-2 \
+              --log-opt awslogs-group=/apps/chat-api \
+              --log-opt awslogs-stream=ec2-$CONTAINER_NAME \
+              --log-opt awslogs-create-group=true \
               "$IMAGE"
 
             echo "✅ Production deployment completed on port $HOST_PORT"
