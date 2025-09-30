@@ -1,4 +1,5 @@
 import { describe, expect, it } from "bun:test";
+import invariant from "tiny-invariant";
 import {
 	DEFAULT_MODEL_ID,
 	LANGUAGE_MODELS_BY_ID,
@@ -13,6 +14,7 @@ describe("resolveLanguageModel", () => {
 		expect(resolved.isFallback).toBe(false);
 		expect(resolved.modelId).toBe(id);
 		expect(resolved.provider).toBe("openai");
+		invariant(LANGUAGE_MODELS_BY_ID[id], "Language model not found");
 		expect(resolved.model).toBe(LANGUAGE_MODELS_BY_ID[id].model);
 	});
 
@@ -23,7 +25,11 @@ describe("resolveLanguageModel", () => {
 		expect(resolved.isFallback).toBe(true);
 		expect(resolved.requestedModelId).toBe(requestedId);
 		expect(resolved.modelId).toBe(DEFAULT_MODEL_ID);
-		expect(resolved.provider).toBe("openai");
+		expect(resolved.provider).toBe("anthropic");
+		invariant(
+			LANGUAGE_MODELS_BY_ID[DEFAULT_MODEL_ID],
+			"Language model not found",
+		);
 		expect(resolved.model).toBe(LANGUAGE_MODELS_BY_ID[DEFAULT_MODEL_ID].model);
 	});
 
@@ -33,7 +39,11 @@ describe("resolveLanguageModel", () => {
 		expect(resolved.isFallback).toBe(true);
 		expect(resolved.requestedModelId).toBeUndefined();
 		expect(resolved.modelId).toBe(DEFAULT_MODEL_ID);
-		expect(resolved.provider).toBe("openai");
+		expect(resolved.provider).toBe("anthropic");
+		invariant(
+			LANGUAGE_MODELS_BY_ID[DEFAULT_MODEL_ID],
+			"Language model not found",
+		);
 		expect(resolved.model).toBe(LANGUAGE_MODELS_BY_ID[DEFAULT_MODEL_ID].model);
 	});
 });
