@@ -4,7 +4,7 @@ import { openai } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 import invariant from "tiny-invariant";
 
-export const DEFAULT_MODEL_ID = "gpt-4o";
+export const DEFAULT_MODEL_ID = "claude-3-5-haiku-20241022";
 
 export type LanguageModelProvider = "openai" | "anthropic" | "google";
 
@@ -18,13 +18,16 @@ const createModelMap = <TModelId extends string>(
 	modelIds: readonly TModelId[],
 	factory: (modelId: TModelId) => LanguageModel,
 ) =>
-	modelIds.reduce<Record<string, LanguageModelEntry>>((accumulator, modelId) => {
-		accumulator[modelId] = {
-			model: factory(modelId),
-			provider,
-		};
-		return accumulator;
-	}, {});
+	modelIds.reduce<Record<string, LanguageModelEntry>>(
+		(accumulator, modelId) => {
+			accumulator[modelId] = {
+				model: factory(modelId),
+				provider,
+			};
+			return accumulator;
+		},
+		{},
+	);
 
 export const LANGUAGE_MODELS_BY_ID = {
 	...createModelMap(
