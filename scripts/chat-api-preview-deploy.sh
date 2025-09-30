@@ -47,9 +47,12 @@ sudo -n docker run -d --name "$CONTAINER" \
   --memory=1g \
   --memory-reservation=512m \
   --memory-swap=2g \
-  --log-driver json-file \
-  --log-opt max-size=10m \
-  --log-opt max-file=5 \
+	--log-driver=awslogs \
+	--log-opt awslogs-region=us-west-2 \
+	--log-opt awslogs-group=/apps/chat-api-preview \
+	--log-opt awslogs-stream=ec2-{{$PR_NUMBER}} \
+	--log-opt awslogs-create-group=true \
+
   "$IMAGE" || { echo "Failed to start Docker container"; exit 1; }
 
 # Robust, deterministic port extraction
