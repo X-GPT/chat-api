@@ -1,15 +1,13 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { validator as zValidator } from "hono-openapi";
-import { type PinoLogger, pinoLogger } from "hono-pino";
+import type { Env as PinoEnv } from "hono-pino";
 import { complete } from "./chat.controller";
 import { ChatLogger } from "./chat.logger";
 import { ChatRequest } from "./chat.schema";
 import { HonoSSESender } from "./chat.streaming";
 
-const app = new Hono<{ Bindings: { logger: PinoLogger } }>();
-
-app.use(pinoLogger());
+const app = new Hono<PinoEnv>();
 
 app.post(
 	"/",
@@ -57,7 +55,7 @@ app.post(
 						memberCode,
 					},
 					new HonoSSESender(stream),
-					new ChatLogger(c.env.logger, memberCode, request.chatKey),
+					new ChatLogger(c.var.logger, memberCode, request.chatKey),
 				);
 			},
 			async (error, stream) => {
