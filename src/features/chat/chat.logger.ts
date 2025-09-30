@@ -15,22 +15,6 @@ export class ChatLogger {
 		});
 	}
 
-	dir(message: Record<string, unknown>) {
-		// console.dir(
-		// 	{
-		// 		memberCode: this.memberCode,
-		// 		chatKey: this.chatKey,
-		// 		...message,
-		// 	},
-		// 	{ depth: null },
-		// );
-		this.logger.info({
-			memberCode: this.memberCode,
-			chatKey: this.chatKey,
-			...message,
-		});
-	}
-
 	error(message: Record<string, unknown>) {
 		this.logger.error({
 			memberCode: this.memberCode,
