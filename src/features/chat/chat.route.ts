@@ -1,13 +1,15 @@
 import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { validator as zValidator } from "hono-openapi";
-import type { PinoLogger } from "hono-pino";
+import { type PinoLogger, pinoLogger } from "hono-pino";
 import { complete } from "./chat.controller";
 import { ChatLogger } from "./chat.logger";
 import { ChatRequest } from "./chat.schema";
 import { HonoSSESender } from "./chat.streaming";
 
 const app = new Hono<{ Bindings: { logger: PinoLogger } }>();
+
+app.use(pinoLogger());
 
 app.post(
 	"/",
