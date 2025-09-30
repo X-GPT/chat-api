@@ -5,11 +5,13 @@ const SINGLE_DOCUMENT_CONTEXT_TEMPLATE = [
 	"",
 	"### Context",
 	"",
-	"You have access to the following files:",
+	"You have access to the following file:",
 	"",
-	"<document>",
-	"{{DOCUMENT}}",
-	"</document>",
+	"<file>",
+	"{{FILE}}",
+	"</file>",
+	"",
+	"You must answer only using the provided file. If the file does not contain the answer, say you cannot find it. Do not use outside knowledge.",
 	"",
 	"---",
 ].join("\n");
@@ -25,6 +27,8 @@ const COLLECTION_CONTEXT_TEMPLATE = [
 	"{{COLLECTION}}",
 	"</collection>",
 	"",
+	"You must answer only using the provided collection. If the collection does not contain the answer, say you cannot find it. Do not use outside knowledge.",
+	"",
 	"---",
 ].join("\n");
 
@@ -34,6 +38,8 @@ const ALL_FILES_CONTEXT_TEMPLATE = [
 	"### Context",
 	"",
 	"You have access to the all files in the system. You can list all files names and ids in the system using the list_all_files tool.",
+	"",
+	"You must answer only using the provided document. If the document does not contain the answer, say you cannot find it. Do not use outside knowledge.",
 	"",
 	"---",
 ].join("\n");
@@ -56,7 +62,7 @@ export function buildEnvironmentContext(
 ): string | null {
 	if (scope === "document" && summaryId) {
 		const document = `<id>${summaryId}</id>`;
-		return SINGLE_DOCUMENT_CONTEXT_TEMPLATE.replace("{{DOCUMENT}}", document);
+		return SINGLE_DOCUMENT_CONTEXT_TEMPLATE.replace("{{FILE}}", document);
 	}
 
 	if (scope === "collection" && collectionId) {
