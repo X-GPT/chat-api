@@ -350,7 +350,7 @@ async function runTask({
 		}
 
 		if (nextTurnInput.length === 0) {
-			turnContext.logger.dir({
+			turnContext.logger.info({
 				message: "Final message history:",
 				messages: session.messages,
 			});
