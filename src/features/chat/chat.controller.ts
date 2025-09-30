@@ -62,13 +62,6 @@ export async function complete(
 	const resolvedModelType = contextChatData?.modelType ?? "gpt-4o";
 	const resolvedEnableKnowledge = contextChatData?.enableKnowledge ?? 2;
 
-	// TODO: Remove this after debugging
-	logger.info({
-		message: "Resolved enable knowledge",
-		rawEnableKnowledge: contextChatData?.enableKnowledge,
-		resolvedEnableKnowledge,
-	});
-
 	const historyMessages = adaptProtectedMessagesToModelMessages(chatHistory);
 
 	let scope: ChatMessagesScope = "general";
