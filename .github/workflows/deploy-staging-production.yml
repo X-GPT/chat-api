@@ -26,6 +26,11 @@ env:
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
+  # Compose files
+  MYMEMO_COMPOSE_DIR: /etc/mymemo/chat-api
+  STAGING_COMPOSE_FILE: /etc/mymemo/chat-api/compose.staging.yaml
+  PROD_COMPOSE_FILE: /etc/mymemo/chat-api/compose.production.yaml
+
 jobs:
   test:
     name: Run Tests
@@ -193,11 +198,10 @@ jobs:
             sudo docker pull "$API_IMAGE"
             sudo docker pull "$WORKER_IMAGE"
 
-            # Move compose file to workspace
-            sudo -n mkdir -p /home/deploy/chat-api
-            sudo -n mv /tmp/chat-api/compose.staging.yaml /home/deploy/chat-api/
-            sudo -n chown deploy:deploy /home/deploy/chat-api/compose.staging.yaml
-            cd /home/deploy/chat-api
+            # Install/update compose file in shared config location
+            sudo -n mkdir -p /etc/mymemo/chat-api
+            sudo -n mv /tmp/chat-api/compose.staging.yaml "${{ env.MYMEMO_COMPOSE_DIR }}/compose.staging.yaml"
+            sudo -n chmod 644 "${{ env.MYMEMO_COMPOSE_DIR }}/compose.staging.yaml"
 
             # Export environment variables for compose
             export REPO_NAME
@@ -207,10 +211,12 @@ jobs:
             export CONTAINER_PORT
 
             # Stop and remove old containers
-            sudo -n docker compose -f compose.staging.yaml -p chat-api-staging down || true
+            sudo -n IMAGE="$API_IMAGE" WORKER_IMAGE="$WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" REPO_NAME="$REPO_NAME" \
+              docker-compose -f "${{ env.STAGING_COMPOSE_FILE }}" -p chat-api-staging down || true
 
             # Start new containers
-            sudo -n docker compose -f compose.staging.yaml -p chat-api-staging up -d
+            sudo -n IMAGE="$API_IMAGE" WORKER_IMAGE="$WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" REPO_NAME="$REPO_NAME" \
+              docker-compose -f "${{ env.STAGING_COMPOSE_FILE }}" -p chat-api-staging up -d
 
             echo "✅ Staging deployment completed - API on port $HOST_PORT, Worker running"
 
@@ -347,11 +353,10 @@ jobs:
             sudo docker pull "$API_IMAGE"
             sudo docker pull "$WORKER_IMAGE"
 
-            # Move compose file to workspace
-            sudo -n mkdir -p /home/deploy/chat-api
-            sudo -n mv /tmp/chat-api/compose.production.yaml /home/deploy/chat-api/
-            sudo -n chown deploy:deploy /home/deploy/chat-api/compose.production.yaml
-            cd /home/deploy/chat-api
+            # Install/update compose file in shared config location
+            sudo -n mkdir -p /etc/mymemo/chat-api
+            sudo -n mv /tmp/chat-api/compose.production.yaml "${{ env.MYMEMO_COMPOSE_DIR }}/compose.production.yaml"
+            sudo -n chmod 644 "${{ env.MYMEMO_COMPOSE_DIR }}/compose.production.yaml"
 
             # Export environment variables for compose
             export REPO_NAME
@@ -361,10 +366,12 @@ jobs:
             export CONTAINER_PORT
 
             # Stop and remove old containers
-            sudo -n docker compose -f compose.production.yaml -p chat-api-production down || true
+            sudo -n IMAGE="$API_IMAGE" WORKER_IMAGE="$WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" REPO_NAME="$REPO_NAME" \
+              docker-compose -f "${{ env.PROD_COMPOSE_FILE }}" -p chat-api-production down || true
 
             # Start new containers
-            sudo -n docker compose -f compose.production.yaml -p chat-api-production up -d
+            sudo -n IMAGE="$API_IMAGE" WORKER_IMAGE="$WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" REPO_NAME="$REPO_NAME" \
+              docker-compose -f "${{ env.PROD_COMPOSE_FILE }}" -p chat-api-production up -d
 
             echo "✅ Production deployment completed - API on port $HOST_PORT, Worker running"
 
