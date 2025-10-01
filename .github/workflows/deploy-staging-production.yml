@@ -310,9 +310,12 @@ jobs:
         id: set-image
         run: |
           # Use image from staging deployment
-          STAGING_IMAGE="${{ needs.build-and-push.outputs.image_sha_tag }}"
-          echo "📦 Using staging image for production: ${STAGING_IMAGE}"
-          echo "staging_image=${STAGING_IMAGE}" >> $GITHUB_OUTPUT
+          API_STAGING_IMAGE="${{ needs.build-and-push.outputs.image_sha_tag }}"
+          WORKER_STAGING_IMAGE="${{ needs.build-and-push.outputs.worker_image_sha_tag }}"
+          echo "📦 Using api staging image for production: ${API_STAGING_IMAGE}"
+          echo "api_staging_image=${API_STAGING_IMAGE}" >> $GITHUB_OUTPUT
+          echo "📦 Using worker staging image for production: ${WORKER_STAGING_IMAGE}"
+          echo "worker_staging_image=${WORKER_STAGING_IMAGE}" >> $GITHUB_OUTPUT
 
       - name: Copy compose file to EC2
         uses: appleboy/scp-action@v1
@@ -339,8 +342,8 @@ jobs:
             REPO_NAME="${{ env.ECR_REPO }}"
             HOST_PORT="${{ env.PROD_HOST_PORT }}"
             CONTAINER_PORT="${{ env.PROD_CONTAINER_PORT }}"
-            API_IMAGE="${{ steps.set-image.outputs.staging_image }}"
-            WORKER_IMAGE="${{ needs.build-and-push.outputs.worker_image_sha_tag }}"
+            API_IMAGE="${{ steps.set-image.outputs.api_staging_image }}"
+            WORKER_IMAGE="${{ steps.set-image.outputs.worker_staging_image }}"
 
             echo "🚀 Deploying staging images to production: API=$API_IMAGE, Worker=$WORKER_IMAGE"
 
