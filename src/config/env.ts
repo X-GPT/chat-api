@@ -1,3 +1,5 @@
+import invariant from "tiny-invariant";
+
 const DEFAULT_PROTECTED_API_ORIGIN = "http://127.0.0.1";
 const DEFAULT_PROTECTED_API_PREFIX = "/beta-api";
 
@@ -174,4 +176,14 @@ export const getProtectedSummariesEndpoint = (ids: Array<string | number>) => {
 	}
 
 	return url.toString();
+};
+
+export const getSqsQueueUrl = () => {
+	invariant(Bun.env.SQS_QUEUE_URL, "SQS_QUEUE_URL is required");
+	return Bun.env.SQS_QUEUE_URL;
+};
+
+export const getSqsRegion = () => {
+	invariant(Bun.env.AWS_REGION, "AWS_REGION is required");
+	return Bun.env.AWS_REGION;
 };

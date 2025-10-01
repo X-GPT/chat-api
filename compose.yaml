@@ -8,3 +8,13 @@ services:
       # -/etc/mymemo/chat-api.env
       - .env
     restart: always
+
+  ingest-worker:
+    container_name: ingest-worker
+    build:
+      context: .
+      dockerfile: Dockerfile.worker
+    env_file:
+      # -/etc/mymemo/chat-api.env
+      - .env
+    restart: always

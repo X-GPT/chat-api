@@ -1,0 +1,45 @@
+services:
+  chat-api:
+    container_name: preview-${REPO_SLUG}-${BRANCH_SLUG}-api
+    image: ${IMAGE}
+    restart: unless-stopped
+    env_file:
+      - /etc/mymemo/chat-api/env.dev
+    environment:
+      - NODE_ENV=production
+    ports:
+      - "${CONTAINER_PORT}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    mem_limit: 1g
+    mem_reservation: 512m
+    memswap_limit: 2g
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: us-west-2
+        awslogs-group: /apps/chat-api-preview
+        awslogs-stream: ec2-${BRANCH_SLUG}-api
+        awslogs-create-group: "true"
+
+  ingest-worker:
+    container_name: preview-${REPO_SLUG}-${BRANCH_SLUG}-worker
+    image: ${WORKER_IMAGE}
+    restart: unless-stopped
+    env_file:
+      - /etc/mymemo/chat-api/env.dev
+    environment:
+      - NODE_ENV=production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    mem_limit: 1g
+    mem_reservation: 512m
+    memswap_limit: 2g
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: us-west-2
+        awslogs-group: /apps/chat-api-preview
+        awslogs-stream: ec2-${BRANCH_SLUG}-worker
+        awslogs-create-group: "true"
+
