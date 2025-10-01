@@ -1,0 +1,42 @@
+services:
+  chat-api:
+    container_name: ${REPO_NAME}-staging-api
+    image: ${API_IMAGE}
+    restart: unless-stopped
+    env_file:
+      - /etc/mymemo/chat-api/env.dev
+    environment:
+      - NODE_ENV=production
+    ports:
+      - "${HOST_PORT}:${CONTAINER_PORT}"
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    mem_limit: 2g
+    mem_reservation: 1536m
+    memswap_limit: 2g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+  ingest-worker:
+    container_name: ${REPO_NAME}-staging-worker
+    image: ${WORKER_IMAGE}
+    restart: unless-stopped
+    env_file:
+      - /etc/mymemo/chat-api/env.dev
+    environment:
+      - NODE_ENV=production
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    mem_limit: 1g
+    mem_reservation: 512m
+    memswap_limit: 2g
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+

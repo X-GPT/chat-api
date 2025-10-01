@@ -4,16 +4,8 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
 
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: "PR number to deploy. Leave default for normal deployments."
-        required: false
-        default: ""
-        type: string
-
 concurrency:
-  group: preview-deploy-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+  group: preview-deploy-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
@@ -34,13 +26,15 @@ env:
 
 jobs:
   build-and-push:
-    name: Build and Push Docker Image
+    name: Build and Push Docker Images
     runs-on: ubuntu-latest
     if: github.event.action != 'closed'
     outputs:
       registry: ${{ steps.ecr-login.outputs.registry }}
       image_sha_tag: ${{ steps.meta.outputs.image_sha_tag }}
       image_pr_tag: ${{ steps.meta.outputs.image_pr_tag }}
+      worker_image_sha_tag: ${{ steps.meta.outputs.worker_image_sha_tag }}
+      worker_image_pr_tag: ${{ steps.meta.outputs.worker_image_pr_tag }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -67,14 +61,23 @@ jobs:
           REG="${{ steps.ecr-login.outputs.registry }}"
           REPO="${{ env.ECR_REPO }}"
           PR_NUMBER="${{ github.event.pull_request.number }}"
+
+          # API image tags
           echo "image_sha_tag=${REG}/${REPO}:pr-${PR_NUMBER}-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
           echo "image_pr_tag=${REG}/${REPO}:pr-${PR_NUMBER}" >> "$GITHUB_OUTPUT"
 
-      - name: Ensure ECR repository exists
+          # Worker image tags
+          echo "worker_image_sha_tag=${REG}/${REPO}-worker:pr-${PR_NUMBER}-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "worker_image_pr_tag=${REG}/${REPO}-worker:pr-${PR_NUMBER}" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure ECR repositories exist
         run: |
           set -euo pipefail
           REPO="${{ env.ECR_REPO }}"
+          WORKER_REPO="${REPO}-worker"
           REGION="${{ env.AWS_REGION }}"
+
+          # Create API repository
           if ! aws ecr describe-repositories --repository-names "$REPO" --region "$REGION" >/dev/null 2>&1; then
             echo "Creating ECR repository: $REPO in $REGION"
             aws ecr create-repository \
@@ -84,20 +87,39 @@ jobs:
               --region "$REGION" >/dev/null
           fi
 
-      # Build + push + cache
-      - name: Build & Push image (with cache)
+          # Create Worker repository
+          if ! aws ecr describe-repositories --repository-names "$WORKER_REPO" --region "$REGION" >/dev/null 2>&1; then
+            echo "Creating ECR repository: $WORKER_REPO in $REGION"
+            aws ecr create-repository \
+              --repository-name "$WORKER_REPO" \
+              --image-scanning-configuration scanOnPush=true \
+              --encryption-configuration encryptionType=AES256 \
+              --region "$REGION" >/dev/null
+          fi
+
+      - name: Build & Push API image (with cache)
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: ./Dockerfile
           push: true
-          # keep your tags
           tags: |
             ${{ steps.meta.outputs.image_sha_tag }}
             ${{ steps.meta.outputs.image_pr_tag }}
-          # enable BuildKit cache persisted by GitHub Actions
-          # tells BuildKit to use GitHub Actions cache storage.
           cache-from: type=registry,ref=${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPO }}:build-cache
           cache-to: type=registry,ref=${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPO }}:build-cache,mode=max
+
+      - name: Build & Push Worker image (with cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.worker
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.worker_image_sha_tag }}
+            ${{ steps.meta.outputs.worker_image_pr_tag }}
+          cache-from: type=registry,ref=${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPO }}-worker:build-cache
+          cache-to: type=registry,ref=${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPO }}-worker:build-cache,mode=max
 
   deploy-preview:
     name: Deploy Preview Environment
@@ -109,14 +131,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Copy preview scripts and template to EC2
+      - name: Copy preview scripts and compose file to EC2
         uses: appleboy/scp-action@v1
         with:
           host: ${{ env.EC2_HOST }}
           username: ${{ env.EC2_USER }}
           key: ${{ env.EC2_SSH_KEY }}
           port: 22
-          source: "scripts/chat-api-preview-deploy.sh,scripts/chat-api-preview-destroy.sh,infra/nginx/templates/chat-api-preview-template.conf"
+          source: "scripts/chat-api-preview-deploy-compose.sh,scripts/chat-api-preview-destroy-compose.sh,compose.preview.yaml,infra/nginx/templates/chat-api-preview-template.conf"
           target: "/tmp/chat-api/"
 
       - name: Deploy Preview on EC2
@@ -134,6 +156,7 @@ jobs:
             AWS_REGION="${{ env.AWS_REGION }}"
             CONTAINER_PORT="${{ env.CONTAINER_PORT }}"
             IMAGE="${{ needs.build-and-push.outputs.image_pr_tag }}"
+            WORKER_IMAGE="${{ needs.build-and-push.outputs.worker_image_pr_tag }}"
             PR_NUMBER="${{ github.event.pull_request.number }}"
             BRANCH_SLUG="pr-$PR_NUMBER"
             REPO_SLUG="${{ github.event.repository.name }}"
@@ -143,21 +166,26 @@ jobs:
             aws ecr get-login-password --region "$AWS_REGION" \
               | sudo docker login --username AWS --password-stdin "$REGISTRY"
 
-            # Move scripts to /usr/local/bin and make them executable
-            sudo -n mv /tmp/chat-api/scripts/chat-api-preview-deploy.sh /usr/local/bin/
-            sudo -n mv /tmp/chat-api/scripts/chat-api-preview-destroy.sh /usr/local/bin/
-            sudo -n chmod +x /usr/local/bin/chat-api-preview-deploy.sh
-            sudo -n chmod +x /usr/local/bin/chat-api-preview-destroy.sh
+            # Install/update scripts in /usr/local/bin
+            sudo -n mv /tmp/chat-api/scripts/chat-api-preview-deploy-compose.sh /usr/local/bin/
+            sudo -n mv /tmp/chat-api/scripts/chat-api-preview-destroy-compose.sh /usr/local/bin/
+            sudo -n chmod +x /usr/local/bin/chat-api-preview-deploy-compose.sh
+            sudo -n chmod +x /usr/local/bin/chat-api-preview-destroy-compose.sh
 
-            # Move template to nginx templates directory
+            # Install/update compose file in shared config location
+            sudo -n mkdir -p /etc/mymemo/chat-api
+            sudo -n mv /tmp/chat-api/compose.preview.yaml /etc/mymemo/chat-api/
+            sudo -n chmod 644 /etc/mymemo/chat-api/compose.preview.yaml
+
+            # Install/update nginx template
             sudo -n mkdir -p /etc/nginx/templates/chat-api
             sudo -n mv /tmp/chat-api/infra/nginx/templates/chat-api-preview-template.conf /etc/nginx/templates/chat-api/
 
             # Ensure state directory structure exists
             sudo -n mkdir -p /var/preview
 
-            # Deploy preview using the script
-            chat-api-preview-deploy.sh "$BRANCH_SLUG" "$IMAGE" "$CONTAINER_PORT" "$REPO_SLUG"
+            # Deploy preview using the compose script (no need to cd anywhere)
+            chat-api-preview-deploy-compose.sh "$BRANCH_SLUG" "$IMAGE" "$WORKER_IMAGE" "$CONTAINER_PORT" "$REPO_SLUG"
 
       - name: Comment preview URL on PR
         uses: marocchino/sticky-pull-request-comment@v2
@@ -191,14 +219,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Copy preview-destroy script to EC2
+      - name: Copy preview-destroy script and compose file to EC2
         uses: appleboy/scp-action@v1
         with:
           host: ${{ env.EC2_HOST }}
           username: ${{ env.EC2_USER }}
           key: ${{ env.EC2_SSH_KEY }}
           port: 22
-          source: "scripts/chat-api-preview-destroy.sh"
+          source: "scripts/chat-api-preview-destroy-compose.sh,compose.preview.yaml"
           target: "/tmp/chat-api/"
 
       - name: Destroy Preview on EC2
@@ -216,9 +244,14 @@ jobs:
             BRANCH_SLUG="pr-$PR_NUMBER"
             REPO_SLUG="${{ github.event.repository.name }}"
 
-            # Move script to /usr/local/bin and make it executable
-            sudo -n mv /tmp/chat-api/scripts/chat-api-preview-destroy.sh /usr/local/bin/
-            sudo -n chmod +x /usr/local/bin/chat-api-preview-destroy.sh
+            # Install/update script in /usr/local/bin
+            sudo -n mv /tmp/chat-api/scripts/chat-api-preview-destroy-compose.sh /usr/local/bin/
+            sudo -n chmod +x /usr/local/bin/chat-api-preview-destroy-compose.sh
 
-            # Destroy preview using the script
-            chat-api-preview-destroy.sh "$BRANCH_SLUG" "$REPO_SLUG"
+            # Install/update compose file in shared config location
+            sudo -n mkdir -p /etc/mymemo/chat-api
+            sudo -n mv /tmp/chat-api/compose.preview.yaml /etc/mymemo/chat-api/
+            sudo -n chmod 644 /etc/mymemo/chat-api/compose.preview.yaml
+
+            # Destroy preview using the compose script (no need to cd anywhere)
+            chat-api-preview-destroy-compose.sh "$BRANCH_SLUG" "$REPO_SLUG"

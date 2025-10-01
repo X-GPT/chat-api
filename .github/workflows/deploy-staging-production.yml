@@ -16,16 +16,12 @@ env:
   EC2_SSH_KEY: ${{ secrets.EC2_SSH_KEY }}
 
   # Staging Environment
-  STAGING_CONTAINER_NAME: ${{ github.event.repository.name }}-staging
   STAGING_HOST_PORT: 8094
   STAGING_CONTAINER_PORT: 3000
-  STAGING_NODE_ENV: production
 
   # Production Environment
-  PROD_CONTAINER_NAME: ${{ github.event.repository.name }}-production
   PROD_HOST_PORT: 8095
   PROD_CONTAINER_PORT: 3000
-  PROD_NODE_ENV: production
 
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -55,13 +51,15 @@ jobs:
         run: bun test
 
   build-and-push:
-    name: Build and Push Docker Image
+    name: Build and Push Docker Images
     runs-on: ubuntu-latest
     needs: test
     outputs:
       registry: ${{ steps.ecr-login.outputs.registry }}
       image_sha_tag: ${{ steps.meta.outputs.image_sha_tag }}
       image_latest_tag: ${{ steps.meta.outputs.image_latest_tag }}
+      worker_image_sha_tag: ${{ steps.meta.outputs.worker_image_sha_tag }}
+      worker_image_latest_tag: ${{ steps.meta.outputs.worker_image_latest_tag }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -87,14 +85,23 @@ jobs:
         run: |
           REG="${{ steps.ecr-login.outputs.registry }}"
           REPO="${{ env.ECR_REPO }}"
+
+          # API image tags
           echo "image_sha_tag=${REG}/${REPO}:staging-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
           echo "image_latest_tag=${REG}/${REPO}:staging-latest" >> "$GITHUB_OUTPUT"
 
-      - name: Ensure ECR repository exists
+          # Worker image tags
+          echo "worker_image_sha_tag=${REG}/${REPO}-worker:staging-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "worker_image_latest_tag=${REG}/${REPO}-worker:staging-latest" >> "$GITHUB_OUTPUT"
+
+      - name: Ensure ECR repositories exist
         run: |
           set -euo pipefail
           REPO="${{ env.ECR_REPO }}"
+          WORKER_REPO="${REPO}-worker"
           REGION="${{ env.AWS_REGION }}"
+
+          # Create API repository
           if ! aws ecr describe-repositories --repository-names "$REPO" --region "$REGION" >/dev/null 2>&1; then
             echo "Creating ECR repository: $REPO in $REGION"
             aws ecr create-repository \
@@ -104,20 +111,39 @@ jobs:
               --region "$REGION" >/dev/null
           fi
 
-      # Build + push + cache
-      - name: Build & Push image (with cache)
+          # Create Worker repository
+          if ! aws ecr describe-repositories --repository-names "$WORKER_REPO" --region "$REGION" >/dev/null 2>&1; then
+            echo "Creating ECR repository: $WORKER_REPO in $REGION"
+            aws ecr create-repository \
+              --repository-name "$WORKER_REPO" \
+              --image-scanning-configuration scanOnPush=true \
+              --encryption-configuration encryptionType=AES256 \
+              --region "$REGION" >/dev/null
+          fi
+
+      - name: Build & Push API image (with cache)
         uses: docker/build-push-action@v6
         with:
           context: .
+          file: ./Dockerfile
           push: true
-          # keep your tags
           tags: |
             ${{ steps.meta.outputs.image_sha_tag }}
             ${{ steps.meta.outputs.image_latest_tag }}
-          # enable BuildKit cache persisted by GitHub Actions
-          # tells BuildKit to use GitHub Actions cache storage.
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+      - name: Build & Push Worker image (with cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.worker
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.worker_image_sha_tag }}
+            ${{ steps.meta.outputs.worker_image_latest_tag }}
+          cache-from: type=gha,scope=worker
+          cache-to: type=gha,mode=max,scope=worker
 
   deploy-to-staging:
     name: Deploy to Staging EC2
@@ -125,6 +151,19 @@ jobs:
     timeout-minutes: 20
     needs: build-and-push
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
+      - name: Copy compose file to EC2
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ env.EC2_HOST }}
+          username: ${{ env.EC2_USER }}
+          key: ${{ env.EC2_SSH_KEY }}
+          port: 22
+          source: "compose.staging.yaml"
+          target: "/tmp/chat-api/"
+
       - name: Deploy on Staging EC2
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -137,41 +176,47 @@ jobs:
 
             # Settings from workflow
             AWS_REGION="${{ env.AWS_REGION }}"
-            CONTAINER_NAME="${{ env.STAGING_CONTAINER_NAME }}"
+            REPO_NAME="${{ env.ECR_REPO }}"
             HOST_PORT="${{ env.STAGING_HOST_PORT }}"
             CONTAINER_PORT="${{ env.STAGING_CONTAINER_PORT }}"
-            NODE_ENV="${{ env.STAGING_NODE_ENV }}"
-            IMAGE="${{ needs.build-and-push.outputs.image_sha_tag }}"
+            API_IMAGE="${{ needs.build-and-push.outputs.image_sha_tag }}"
+            WORKER_IMAGE="${{ needs.build-and-push.outputs.worker_image_sha_tag }}"
 
-            echo "🚀 Deploying to staging: $IMAGE"
+            echo "🚀 Deploying to staging: API=$API_IMAGE, Worker=$WORKER_IMAGE"
 
-            REGISTRY="${IMAGE%%/*}"
+            # Login to ECR
+            REGISTRY="${API_IMAGE%%/*}"
             aws ecr get-login-password --region "$AWS_REGION" \
               | sudo docker login --username AWS --password-stdin "$REGISTRY"
 
-            # Pull the new image
-            sudo docker pull "$IMAGE"
+            # Pull the new images
+            sudo docker pull "$API_IMAGE"
+            sudo docker pull "$WORKER_IMAGE"
 
-            # Stop/remove old container if exists
-            sudo docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+            # Move compose file to workspace
+            sudo -n mkdir -p /home/deploy/chat-api
+            sudo -n mv /tmp/chat-api/compose.staging.yaml /home/deploy/chat-api/
+            sudo -n chown deploy:deploy /home/deploy/chat-api/compose.staging.yaml
+            cd /home/deploy/chat-api
 
-            # Run new container
-            sudo docker run -d \
-              --name "$CONTAINER_NAME" \
-              --restart unless-stopped \
-              --env-file /etc/mymemo/chat-api/env.dev \
-              -e NODE_ENV="$NODE_ENV" \
-              -p "$HOST_PORT:$CONTAINER_PORT" \
-              --add-host=host.docker.internal:host-gateway \
-              --memory=2g \
-              --memory-reservation=1536m \
-              --memory-swap=2g \
-              --log-driver json-file \
-              --log-opt max-size=10m \
-              --log-opt max-file=5 \
-              "$IMAGE"
+            # Export environment variables for compose
+            export REPO_NAME
+            export API_IMAGE
+            export WORKER_IMAGE
+            export HOST_PORT
+            export CONTAINER_PORT
 
-            echo "✅ Staging deployment completed on port $HOST_PORT"
+            # Stop and remove old containers
+            sudo -n docker compose -f compose.staging.yaml -p chat-api-staging down || true
+
+            # Start new containers
+            sudo -n docker compose -f compose.staging.yaml -p chat-api-staging up -d
+
+            echo "✅ Staging deployment completed - API on port $HOST_PORT, Worker running"
+
+            # Show container status
+            echo "📋 Staging Container Status:"
+            sudo docker ps --filter name="${REPO_NAME}-staging" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 
             # Clean up old images (keep some for rollback)
             sudo docker image prune -f --filter "until=24h"
@@ -191,7 +236,9 @@ jobs:
           script: |
             set -euxo pipefail
 
-            CONTAINER_NAME="${{ env.STAGING_CONTAINER_NAME }}"
+            REPO_NAME="${{ env.ECR_REPO }}"
+            API_CONTAINER_NAME="${REPO_NAME}-staging-api"
+            WORKER_CONTAINER_NAME="${REPO_NAME}-staging-worker"
             HOST_PORT="${{ env.STAGING_HOST_PORT }}"
 
             echo "🔍 Running staging health checks..."
@@ -199,7 +246,7 @@ jobs:
             # Health check - test basic API endpoint
             for i in {1..30}; do
               if curl -fsS "http://127.0.0.1:${HOST_PORT}/" | grep -q "Hello Hono!"; then
-                echo "🚀 Staging service healthy ✅ - Root endpoint responding"
+                echo "🚀 Staging API service healthy ✅ - Root endpoint responding"
 
                 # Additional check for API endpoint
                 if curl -fsS "http://127.0.0.1:${HOST_PORT}/v1/chat" -X POST \
@@ -209,14 +256,26 @@ jobs:
                 else
                   echo "⚠️ Staging API endpoints responding but may have issues"
                 fi
+
+                # Check worker container is running
+                if sudo docker ps --format '{{.Names}}' | grep -q "^$WORKER_CONTAINER_NAME$"; then
+                  echo "🚀 Staging Worker container running ✅"
+                else
+                  echo "⚠️ Staging Worker container not running"
+                  sudo docker logs "$WORKER_CONTAINER_NAME" || true
+                fi
+
                 exit 0
               fi
               echo "Waiting for staging health... ($i/30)"; sleep 2
             done
 
             echo "❌ Staging service failed health check, dumping logs"
-            sudo docker logs "$CONTAINER_NAME" || true
-            sudo docker inspect "$CONTAINER_NAME" --format 'Exit={{.State.ExitCode}} OOM={{.State.OOMKilled}} Error={{.State.Error}}' || true
+            echo "API logs:"
+            sudo docker logs "$API_CONTAINER_NAME" || true
+            sudo docker inspect "$API_CONTAINER_NAME" --format 'Exit={{.State.ExitCode}} OOM={{.State.OOMKilled}} Error={{.State.Error}}' || true
+            echo "Worker logs:"
+            sudo docker logs "$WORKER_CONTAINER_NAME" || true
             exit 1
 
   deploy-to-production:
@@ -227,6 +286,9 @@ jobs:
     # Only deploy to production after staging smoke test succeeds
     if: always() && needs.staging-smoke-test.result == 'success'
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4.3.1
         with:
@@ -246,6 +308,16 @@ jobs:
           echo "📦 Using staging image for production: ${STAGING_IMAGE}"
           echo "staging_image=${STAGING_IMAGE}" >> $GITHUB_OUTPUT
 
+      - name: Copy compose file to EC2
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ env.EC2_HOST }}
+          username: ${{ env.EC2_USER }}
+          key: ${{ env.EC2_SSH_KEY }}
+          port: 22
+          source: "compose.production.yaml"
+          target: "/tmp/chat-api/"
+
       - name: Deploy on Production EC2
         uses: appleboy/ssh-action@v1.2.0
         with:
@@ -258,47 +330,47 @@ jobs:
 
             # Settings from workflow
             AWS_REGION="${{ env.AWS_REGION }}"
-            CONTAINER_NAME="${{ env.PROD_CONTAINER_NAME }}"
+            REPO_NAME="${{ env.ECR_REPO }}"
             HOST_PORT="${{ env.PROD_HOST_PORT }}"
             CONTAINER_PORT="${{ env.PROD_CONTAINER_PORT }}"
-            NODE_ENV="${{ env.PROD_NODE_ENV }}"
-            IMAGE="${{ steps.set-image.outputs.staging_image }}"
+            API_IMAGE="${{ steps.set-image.outputs.staging_image }}"
+            WORKER_IMAGE="${{ needs.build-and-push.outputs.worker_image_sha_tag }}"
 
-            echo "🚀 Deploying staging image to production: $IMAGE"
+            echo "🚀 Deploying staging images to production: API=$API_IMAGE, Worker=$WORKER_IMAGE"
 
-            REGISTRY="${IMAGE%%/*}"
+            # Login to ECR
+            REGISTRY="${API_IMAGE%%/*}"
             aws ecr get-login-password --region "$AWS_REGION" \
               | sudo docker login --username AWS --password-stdin "$REGISTRY"
 
-            # Pull the staging image for production use
-            sudo docker pull "$IMAGE"
+            # Pull the staging images for production use
+            sudo docker pull "$API_IMAGE"
+            sudo docker pull "$WORKER_IMAGE"
 
-            # Stop/remove old container if exists
-            sudo docker rm -f "$CONTAINER_NAME" 2>/dev/null || true
+            # Move compose file to workspace
+            sudo -n mkdir -p /home/deploy/chat-api
+            sudo -n mv /tmp/chat-api/compose.production.yaml /home/deploy/chat-api/
+            sudo -n chown deploy:deploy /home/deploy/chat-api/compose.production.yaml
+            cd /home/deploy/chat-api
 
-            # Run new container with production settings
-            sudo docker run -d \
-              --name "$CONTAINER_NAME" \
-              --restart unless-stopped \
-              --env-file /etc/mymemo/chat-api/env.prod \
-              -e NODE_ENV="$NODE_ENV" \
-              -p "$HOST_PORT:$CONTAINER_PORT" \
-              --add-host=host.docker.internal:host-gateway \
-              --memory=4g \
-              --memory-reservation=3g \
-              --memory-swap=6g \
-              --log-driver=awslogs \
-              --log-opt awslogs-region=us-west-2 \
-              --log-opt awslogs-group=/apps/chat-api \
-              --log-opt awslogs-stream=ec2-$CONTAINER_NAME \
-              --log-opt awslogs-create-group=true \
-              "$IMAGE"
+            # Export environment variables for compose
+            export REPO_NAME
+            export API_IMAGE
+            export WORKER_IMAGE
+            export HOST_PORT
+            export CONTAINER_PORT
 
-            echo "✅ Production deployment completed on port $HOST_PORT"
+            # Stop and remove old containers
+            sudo -n docker compose -f compose.production.yaml -p chat-api-production down || true
+
+            # Start new containers
+            sudo -n docker compose -f compose.production.yaml -p chat-api-production up -d
+
+            echo "✅ Production deployment completed - API on port $HOST_PORT, Worker running"
 
             # Show container status
             echo "📋 Production Container Status:"
-            sudo docker ps --filter name="${CONTAINER_NAME}" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+            sudo docker ps --filter name="${REPO_NAME}-production" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
 
             # Clean up old images (keep more for production rollback)
             sudo docker image prune -f --filter "until=48h"
@@ -318,7 +390,9 @@ jobs:
           script: |
             set -euxo pipefail
 
-            CONTAINER_NAME="${{ env.PROD_CONTAINER_NAME }}"
+            REPO_NAME="${{ env.ECR_REPO }}"
+            API_CONTAINER_NAME="${REPO_NAME}-production-api"
+            WORKER_CONTAINER_NAME="${REPO_NAME}-production-worker"
             HOST_PORT="${{ env.PROD_HOST_PORT }}"
 
             echo "🔍 Running production health checks..."
@@ -326,23 +400,36 @@ jobs:
             # Health check - test basic API endpoint
             for i in {1..30}; do
               if curl -fsS "http://127.0.0.1:${HOST_PORT}/" | grep -q "Hello Hono!"; then
-                echo "🚀 Production service healthy ✅ - Root endpoint responding"
+                echo "🚀 Production API service healthy ✅ - Root endpoint responding"
 
                 # Additional check for API endpoint
                 if curl -fsS "http://127.0.0.1:${HOST_PORT}/v1/chat" -X POST \
                   -H "Content-Type: application/json" \
                   -d '{"messages":[]}' > /dev/null 2>&1; then
                   echo "🚀 Production API endpoints healthy ✅"
-                  echo "🎉 Production deployment completed successfully!"
                 else
                   echo "⚠️ Production API endpoints responding but may have issues"
                 fi
+
+                # Check worker container is running
+                if sudo docker ps --format '{{.Names}}' | grep -q "^$WORKER_CONTAINER_NAME$"; then
+                  echo "🚀 Production Worker container running ✅"
+                  echo "🎉 Production deployment completed successfully!"
+                else
+                  echo "⚠️ Production Worker container not running"
+                  sudo docker logs "$WORKER_CONTAINER_NAME" || true
+                fi
+
                 exit 0
               fi
               echo "Waiting for production health... ($i/30)"; sleep 2
             done
 
             echo "❌ Production service failed health check, dumping logs"
-            sudo docker logs "$CONTAINER_NAME" || true
-            sudo docker inspect "$CONTAINER_NAME" --format 'Exit={{.State.ExitCode}} OOM={{.State.OOMKilled}} Error={{.State.Error}}' || true
+            echo "API logs:"
+            sudo docker logs "$API_CONTAINER_NAME" || true
+            sudo docker inspect "$API_CONTAINER_NAME" --format 'Exit={{.State.ExitCode}} OOM={{.State.OOMKilled}} Error={{.State.Error}}' || true
+            echo "Worker logs:"
+            sudo docker logs "$WORKER_CONTAINER_NAME" || true
             exit 1
+
