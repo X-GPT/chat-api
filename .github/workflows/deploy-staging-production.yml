@@ -61,8 +61,8 @@ jobs:
     needs: test
     outputs:
       registry: ${{ steps.ecr-login.outputs.registry }}
-      image_sha_tag: ${{ steps.meta.outputs.image_sha_tag }}
-      image_latest_tag: ${{ steps.meta.outputs.image_latest_tag }}
+      api_image_sha_tag: ${{ steps.meta.outputs.image_sha_tag }}
+      api_image_latest_tag: ${{ steps.meta.outputs.image_latest_tag }}
       worker_image_sha_tag: ${{ steps.meta.outputs.worker_image_sha_tag }}
       worker_image_latest_tag: ${{ steps.meta.outputs.worker_image_latest_tag }}
     steps:
@@ -92,8 +92,8 @@ jobs:
           REPO="${{ env.ECR_REPO }}"
 
           # API image tags
-          echo "image_sha_tag=${REG}/${REPO}:staging-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
-          echo "image_latest_tag=${REG}/${REPO}:staging-latest" >> "$GITHUB_OUTPUT"
+          echo "api_image_sha_tag=${REG}/${REPO}:staging-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "api_image_latest_tag=${REG}/${REPO}:staging-latest" >> "$GITHUB_OUTPUT"
 
           # Worker image tags
           echo "worker_image_sha_tag=${REG}/${REPO}-worker:staging-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
@@ -133,8 +133,8 @@ jobs:
           file: ./Dockerfile
           push: true
           tags: |
-            ${{ steps.meta.outputs.image_sha_tag }}
-            ${{ steps.meta.outputs.image_latest_tag }}
+            ${{ steps.meta.outputs.api_image_sha_tag }}
+            ${{ steps.meta.outputs.api_image_latest_tag }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
@@ -184,7 +184,7 @@ jobs:
             REPO_NAME="${{ env.ECR_REPO }}"
             HOST_PORT="${{ env.STAGING_HOST_PORT }}"
             CONTAINER_PORT="${{ env.STAGING_CONTAINER_PORT }}"
-            API_IMAGE="${{ needs.build-and-push.outputs.image_sha_tag }}"
+            API_IMAGE="${{ needs.build-and-push.outputs.api_image_sha_tag }}"
             WORKER_IMAGE="${{ needs.build-and-push.outputs.worker_image_sha_tag }}"
 
             echo "🚀 Deploying to staging: API=$API_IMAGE, Worker=$WORKER_IMAGE"
@@ -211,11 +211,11 @@ jobs:
             export CONTAINER_PORT
 
             # Stop and remove old containers
-            sudo -n IMAGE="$API_IMAGE" WORKER_IMAGE="$WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" REPO_NAME="$REPO_NAME" \
+            sudo -n API_IMAGE="$API_IMAGE" WORKER_IMAGE="$WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" REPO_NAME="$REPO_NAME" \
               docker-compose -f "${{ env.STAGING_COMPOSE_FILE }}" -p chat-api-staging down || true
 
             # Start new containers
-            sudo -n IMAGE="$API_IMAGE" WORKER_IMAGE="$WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" REPO_NAME="$REPO_NAME" \
+            sudo -n API_IMAGE="$API_IMAGE" WORKER_IMAGE="$WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" REPO_NAME="$REPO_NAME" \
               docker-compose -f "${{ env.STAGING_COMPOSE_FILE }}" -p chat-api-staging up -d
 
             echo "✅ Staging deployment completed - API on port $HOST_PORT, Worker running"
@@ -310,7 +310,7 @@ jobs:
         id: set-image
         run: |
           # Use image from staging deployment
-          API_STAGING_IMAGE="${{ needs.build-and-push.outputs.image_sha_tag }}"
+          API_STAGING_IMAGE="${{ needs.build-and-push.outputs.api_image_sha_tag }}"
           WORKER_STAGING_IMAGE="${{ needs.build-and-push.outputs.worker_image_sha_tag }}"
           echo "📦 Using api staging image for production: ${API_STAGING_IMAGE}"
           echo "api_staging_image=${API_STAGING_IMAGE}" >> $GITHUB_OUTPUT
@@ -369,11 +369,11 @@ jobs:
             export CONTAINER_PORT
 
             # Stop and remove old containers
-            sudo -n IMAGE="$API_IMAGE" WORKER_IMAGE="$WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" REPO_NAME="$REPO_NAME" \
+            sudo -n API_IMAGE="$API_IMAGE" WORKER_IMAGE="$WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" REPO_NAME="$REPO_NAME" \
               docker-compose -f "${{ env.PROD_COMPOSE_FILE }}" -p chat-api-production down || true
 
             # Start new containers
-            sudo -n IMAGE="$API_IMAGE" WORKER_IMAGE="$WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" REPO_NAME="$REPO_NAME" \
+            sudo -n API_IMAGE="$API_IMAGE" WORKER_IMAGE="$WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" REPO_NAME="$REPO_NAME" \
               docker-compose -f "${{ env.PROD_COMPOSE_FILE }}" -p chat-api-production up -d
 
             echo "✅ Production deployment completed - API on port $HOST_PORT, Worker running"
