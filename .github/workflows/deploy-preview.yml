@@ -139,14 +139,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Copy preview scripts and templates to EC2
+      - name: Copy preview scripts and compose file to EC2
         uses: appleboy/scp-action@v1
         with:
           host: ${{ env.EC2_HOST }}
           username: ${{ env.EC2_USER }}
           key: ${{ env.EC2_SSH_KEY }}
           port: 22
-          source: "scripts/chat-api-preview-deploy-compose.sh,scripts/chat-api-preview-destroy-compose.sh,compose.preview.template.yaml,infra/nginx/templates/chat-api-preview-template.conf"
+          source: "scripts/chat-api-preview-deploy-compose.sh,scripts/chat-api-preview-destroy-compose.sh,compose.preview.yaml,infra/nginx/templates/chat-api-preview-template.conf"
           target: "/tmp/chat-api/"
 
       - name: Deploy Preview on EC2
@@ -180,12 +180,12 @@ jobs:
             sudo -n chmod +x /usr/local/bin/chat-api-preview-deploy-compose.sh
             sudo -n chmod +x /usr/local/bin/chat-api-preview-destroy-compose.sh
 
-            # Move compose template to workspace directory
+            # Move compose file to workspace directory
             sudo -n mkdir -p /home/deploy/chat-api
-            sudo -n mv /tmp/chat-api/compose.preview.template.yaml /home/deploy/chat-api/
-            sudo -n chown deploy:deploy /home/deploy/chat-api/compose.preview.template.yaml
+            sudo -n mv /tmp/chat-api/compose.preview.yaml /home/deploy/chat-api/
+            sudo -n chown deploy:deploy /home/deploy/chat-api/compose.preview.yaml
 
-            # Move template to nginx templates directory
+            # Move compose file to nginx templates directory
             sudo -n mkdir -p /etc/nginx/templates/chat-api
             sudo -n mv /tmp/chat-api/infra/nginx/templates/chat-api-preview-template.conf /etc/nginx/templates/chat-api/
 
@@ -230,14 +230,14 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v5
 
-      - name: Copy preview-destroy script and compose template to EC2
+      - name: Copy preview-destroy script and compose file to EC2
         uses: appleboy/scp-action@v1
         with:
           host: ${{ env.EC2_HOST }}
           username: ${{ env.EC2_USER }}
           key: ${{ env.EC2_SSH_KEY }}
           port: 22
-          source: "scripts/chat-api-preview-destroy-compose.sh,compose.preview.template.yaml"
+          source: "scripts/chat-api-preview-destroy-compose.sh,compose.preview.yaml"
           target: "/tmp/chat-api/"
 
       - name: Destroy Preview on EC2
@@ -261,8 +261,8 @@ jobs:
 
             # Move compose template to workspace directory (needed for compose down)
             sudo -n mkdir -p /home/deploy/chat-api
-            sudo -n mv /tmp/chat-api/compose.preview.template.yaml /home/deploy/chat-api/
-            sudo -n chown deploy:deploy /home/deploy/chat-api/compose.preview.template.yaml
+            sudo -n mv /tmp/chat-api/compose.preview.yaml /home/deploy/chat-api/
+            sudo -n chown deploy:deploy /home/deploy/chat-api/compose.preview.yaml
 
             # Change to workspace directory for docker compose
             cd /home/deploy/chat-api
