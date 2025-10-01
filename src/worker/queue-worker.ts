@@ -5,11 +5,12 @@ import {
 } from "@aws-sdk/client-sqs";
 import pLimit from "p-limit";
 import invariant from "tiny-invariant";
-import { getSqsQueueUrl, getSqsRegion } from "@/config/env";
+import { workerEnv } from "@/config/env";
 import { SQSMessageSchema, type SummaryEvent } from "./events.schema";
+import { logger } from "./logger";
 
-const QUEUE_URL = getSqsQueueUrl();
-const REGION = getSqsRegion();
+const QUEUE_URL = workerEnv.SQS_QUEUE_URL;
+const REGION = workerEnv.AWS_REGION;
 
 // tune these
 const MAX_BATCH = 10; // SQS max
@@ -22,12 +23,15 @@ const sqs = new SQSClient({ region: REGION });
 type WorkResult = { receiptHandle: string; ok: boolean };
 
 async function handleSummaryEvent(event: SummaryEvent): Promise<void> {
-	console.log(`Processing summary ${event.action}:`, {
-		id: event.id,
-		memberCode: event.memberCode,
-		teamCode: event.teamCode,
-		action: event.action,
-	});
+	logger.info(
+		{
+			id: event.id,
+			memberCode: event.memberCode,
+			teamCode: event.teamCode,
+			action: event.action,
+		},
+		`Processing summary ${event.action}`,
+	);
 
 	switch (event.action) {
 		case "CREATED":
@@ -54,17 +58,17 @@ async function handleMessage(
 	try {
 		parsed = JSON.parse(body);
 	} catch (_err) {
-		console.error("Invalid JSON in message body:", body);
+		logger.error({ body }, "Invalid JSON in message body");
 		throw new Error("INVALID_JSON");
 	}
 
 	// Validate against schema
 	const result = SQSMessageSchema.safeParse(parsed);
 	if (!result.success) {
-		console.error("Message validation failed:", {
-			body,
-			errors: result.error.issues,
-		});
+		logger.error(
+			{ body, errors: result.error.issues },
+			"Message validation failed",
+		);
 		throw new Error("INVALID_MESSAGE_SCHEMA");
 	}
 
@@ -110,7 +114,7 @@ async function processBatch() {
 					await handleMessage(m.Body, receiptHandle);
 					return { receiptHandle, ok: true };
 				} catch (err) {
-					console.error("Message failed:", err);
+					logger.error({ receiptHandle, err }, "Message failed");
 					return { receiptHandle, ok: false };
 				}
 			}),
@@ -137,24 +141,24 @@ async function processBatch() {
 				}),
 			);
 		} catch (err) {
-			console.error("Failed to delete messages:", err);
+			logger.error({ toDelete, err }, "Failed to delete messages");
 			// Messages will be reprocessed - ensure idempotency in handlers
 		}
 	}
 }
 
 async function run({ signal }: { signal: AbortSignal }) {
-	console.log("SQS worker starting...");
+	logger.info("SQS worker starting...");
 	while (!signal.aborted) {
 		try {
 			await processBatch();
 		} catch (e) {
-			console.error("Batch error:", e);
+			logger.error({ e }, "Batch error");
 			// small backoff after unexpected errors
 			await new Promise((r) => setTimeout(r, 2000));
 		}
 	}
-	console.log("SQS worker stopped.");
+	logger.info("SQS worker stopped.");
 }
 
 export async function runWorker({ signal }: { signal: AbortSignal }) {

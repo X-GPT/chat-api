@@ -3,6 +3,8 @@
  * Worker entry point for SQS queue processing
  * Run separately from the API server for independent scaling
  */
+// Import env config to validate required environment variables at module load time
+import "./config/env";
 import { runWorker } from "./worker/queue-worker";
 
 const controller = new AbortController();

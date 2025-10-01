@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import { requestId } from "hono/request-id";
 import { pinoLogger } from "hono-pino";
+// Import apiEnv to validate required environment variables at module load time
+import "./config/env";
 import routes from "./routes";
 
 const app = new Hono();
