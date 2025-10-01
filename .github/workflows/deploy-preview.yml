@@ -4,16 +4,8 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, closed]
 
-  workflow_dispatch:
-    inputs:
-      pr_number:
-        description: "PR number to deploy. Leave default for normal deployments."
-        required: false
-        default: ""
-        type: string
-
 concurrency:
-  group: preview-deploy-${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+  group: preview-deploy-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
 permissions:
