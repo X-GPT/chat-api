@@ -1,5 +1,6 @@
 import * as z from "zod";
 import {
+	apiEnv,
 	type ChatMessagesScope,
 	getProtectedChatContextEndpoint,
 	getProtectedChatEndpoint,
@@ -19,7 +20,7 @@ export interface FetchOptions {
 
 const defaultHeaders = {
 	"content-type": "application/json",
-	Authorization: `Bearer ${Bun.env.PROTECTED_API_TOKEN}`,
+	Authorization: `Bearer ${apiEnv.PROTECTED_API_TOKEN}`,
 };
 
 const buildHeaders = (options?: FetchOptions) => {

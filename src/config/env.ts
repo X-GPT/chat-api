@@ -3,6 +3,44 @@ import invariant from "tiny-invariant";
 const DEFAULT_PROTECTED_API_ORIGIN = "http://127.0.0.1";
 const DEFAULT_PROTECTED_API_PREFIX = "/beta-api";
 
+/**
+ * Environment variables for the API server
+ * All variables are validated at module load time
+ */
+export const apiEnv = (() => {
+	invariant(Bun.env.OPENAI_API_KEY, "OPENAI_API_KEY is required");
+	invariant(Bun.env.ANTHROPIC_API_KEY, "ANTHROPIC_API_KEY is required");
+	invariant(Bun.env.PROTECTED_API_TOKEN, "PROTECTED_API_TOKEN is required");
+
+	return {
+		OPENAI_API_KEY: Bun.env.OPENAI_API_KEY,
+		ANTHROPIC_API_KEY: Bun.env.ANTHROPIC_API_KEY,
+		PROTECTED_API_ORIGIN:
+			Bun.env.PROTECTED_API_ORIGIN || DEFAULT_PROTECTED_API_ORIGIN,
+		PROTECTED_API_PREFIX:
+			Bun.env.PROTECTED_API_PREFIX ||
+			Bun.env.API_PREFIX ||
+			DEFAULT_PROTECTED_API_PREFIX,
+		PROTECTED_API_TOKEN: Bun.env.PROTECTED_API_TOKEN,
+		LOG_LEVEL: Bun.env.LOG_LEVEL || "info",
+	} as const;
+})();
+
+/**
+ * Environment variables for the worker
+ * All variables are validated at module load time
+ */
+export const workerEnv = (() => {
+	invariant(Bun.env.SQS_QUEUE_URL, "SQS_QUEUE_URL is required");
+	invariant(Bun.env.AWS_REGION, "AWS_REGION is required");
+
+	return {
+		SQS_QUEUE_URL: Bun.env.SQS_QUEUE_URL,
+		AWS_REGION: Bun.env.AWS_REGION,
+		LOG_LEVEL: Bun.env.LOG_LEVEL || "info",
+	} as const;
+})();
+
 const sanitizePrefix = (value: string) => {
 	const trimmed = value.trim();
 	const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
@@ -14,15 +52,11 @@ const sanitizePrefix = (value: string) => {
 };
 
 export const getProtectedApiOrigin = () => {
-	return Bun.env.PROTECTED_API_ORIGIN ?? DEFAULT_PROTECTED_API_ORIGIN;
+	return apiEnv.PROTECTED_API_ORIGIN;
 };
 
 export const getProtectedApiPrefix = () => {
-	const rawPrefix =
-		Bun.env.PROTECTED_API_PREFIX ??
-		Bun.env.API_PREFIX ??
-		DEFAULT_PROTECTED_API_PREFIX;
-	return sanitizePrefix(rawPrefix);
+	return sanitizePrefix(apiEnv.PROTECTED_API_PREFIX);
 };
 
 export const getProtectedChatEndpoint = () => {
@@ -176,14 +210,4 @@ export const getProtectedSummariesEndpoint = (ids: Array<string | number>) => {
 	}
 
 	return url.toString();
-};
-
-export const getSqsQueueUrl = () => {
-	invariant(Bun.env.SQS_QUEUE_URL, "SQS_QUEUE_URL is required");
-	return Bun.env.SQS_QUEUE_URL;
-};
-
-export const getSqsRegion = () => {
-	invariant(Bun.env.AWS_REGION, "AWS_REGION is required");
-	return Bun.env.AWS_REGION;
 };

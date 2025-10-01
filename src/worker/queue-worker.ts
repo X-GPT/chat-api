@@ -5,12 +5,12 @@ import {
 } from "@aws-sdk/client-sqs";
 import pLimit from "p-limit";
 import invariant from "tiny-invariant";
-import { getSqsQueueUrl, getSqsRegion } from "@/config/env";
+import { workerEnv } from "@/config/env";
 import { SQSMessageSchema, type SummaryEvent } from "./events.schema";
 import { logger } from "./logger";
 
-const QUEUE_URL = getSqsQueueUrl();
-const REGION = getSqsRegion();
+const QUEUE_URL = workerEnv.SQS_QUEUE_URL;
+const REGION = workerEnv.AWS_REGION;
 
 // tune these
 const MAX_BATCH = 10; // SQS max
