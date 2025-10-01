@@ -9,7 +9,7 @@ import { z } from "zod";
  *   "id": 12345,
  *   "memberCode": "user123",
  *   "teamCode": "team456",
- *   "parseContent": "This is the parsed summary content...",
+ *   "parseContent": "This is the parsed summary content...", // nullable
  *   "action": "CREATED",
  *   "timestamp": "2025-10-01T12:30:45.123Z"
  * }
@@ -19,7 +19,7 @@ export const SummaryEventSchema = z.object({
 	id: z.number(),
 	memberCode: z.string(),
 	teamCode: z.string().nullable(),
-	parseContent: z.string(),
+	parseContent: z.string().nullable(),
 	action: z.enum(["CREATED", "UPDATED", "DELETED"]),
 	timestamp: z.iso.datetime(), // ISO 8601 format from Java's @JsonFormat
 });
@@ -37,7 +37,7 @@ export type SummaryEvent = z.infer<typeof SummaryEventSchema>;
  *     "id": 12345,
  *     "memberCode": "user123",
  *     "teamCode": "team456",
- *     "parseContent": "This is the parsed summary content...",
+ *     "parseContent": "This is the parsed summary content...", // nullable
  *     "action": "CREATED",
  *     "timestamp": "2025-10-01T12:30:45.123Z"
  *   }
