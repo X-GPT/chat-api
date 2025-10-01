@@ -61,8 +61,8 @@ jobs:
     needs: test
     outputs:
       registry: ${{ steps.ecr-login.outputs.registry }}
-      api_image_sha_tag: ${{ steps.meta.outputs.image_sha_tag }}
-      api_image_latest_tag: ${{ steps.meta.outputs.image_latest_tag }}
+      api_image_sha_tag: ${{ steps.meta.outputs.api_image_sha_tag }}
+      api_image_latest_tag: ${{ steps.meta.outputs.api_image_latest_tag }}
       worker_image_sha_tag: ${{ steps.meta.outputs.worker_image_sha_tag }}
       worker_image_latest_tag: ${{ steps.meta.outputs.worker_image_latest_tag }}
     steps:
