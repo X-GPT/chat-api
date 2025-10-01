@@ -25,7 +25,7 @@ export WORKER_IMAGE="placeholder"
 export CONTAINER_PORT="3000"
 
 echo "Stopping and removing containers via docker compose"
-sudo -n docker-compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" down -v || echo "Compose project not found or already removed"
+sudo -E -n docker-compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" down -v || echo "Compose project not found or already removed"
 
 # Double-check containers are gone
 API_CONTAINER="preview-$REPO_SLUG-$BRANCH_SLUG-api"
