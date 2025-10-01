@@ -45,10 +45,10 @@ sudo -n docker pull "$IMAGE" || { echo "Failed to pull API image"; exit 1; }
 sudo -n docker pull "$WORKER_IMAGE" || { echo "Failed to pull worker image"; exit 1; }
 
 echo "Stopping existing compose project if any"
-sudo -n docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" down || true
+sudo -n docker-compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" down || true
 
 echo "Starting new container via docker compose"
-sudo -n docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" up -d || {
+sudo -n docker-compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" up -d || {
   echo "Failed to start Docker container via compose";
   exit 1;
 }
