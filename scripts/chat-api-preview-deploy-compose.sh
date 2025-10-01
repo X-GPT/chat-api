@@ -45,11 +45,11 @@ sudo -n docker pull "$IMAGE" || { echo "Failed to pull API image"; exit 1; }
 sudo -n docker pull "$WORKER_IMAGE" || { echo "Failed to pull worker image"; exit 1; }
 
 echo "Stopping existing compose project if any"
-sudo -n IMAGE="$IMAGE" WORKER_IMAGE="$WORKER_IMAGE" CONTAINER_PORT="$CONTAINER_PORT" REPO_SLUG="$REPO_SLUG" BRANCH_SLUG="$BRANCH_SLUG" \
+sudo -n API_IMAGE="$IMAGE" WORKER_IMAGE="$WORKER_IMAGE" CONTAINER_PORT="$CONTAINER_PORT" REPO_SLUG="$REPO_SLUG" BRANCH_SLUG="$BRANCH_SLUG" \
   docker-compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" down || true
 
 echo "Starting new container via docker compose"
-sudo -n IMAGE="$IMAGE" WORKER_IMAGE="$WORKER_IMAGE" CONTAINER_PORT="$CONTAINER_PORT" REPO_SLUG="$REPO_SLUG" BRANCH_SLUG="$BRANCH_SLUG" \
+sudo -n API_IMAGE="$IMAGE" WORKER_IMAGE="$WORKER_IMAGE" CONTAINER_PORT="$CONTAINER_PORT" REPO_SLUG="$REPO_SLUG" BRANCH_SLUG="$BRANCH_SLUG" \
   docker-compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" up -d || {
   echo "Failed to start Docker container via compose";
   exit 1;

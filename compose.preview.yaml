@@ -1,7 +1,7 @@
 services:
   chat-api:
     container_name: preview-${REPO_SLUG}-${BRANCH_SLUG}-api
-    image: ${IMAGE}
+    image: ${API_IMAGE}
     restart: unless-stopped
     env_file:
       - /etc/mymemo/chat-api/env.dev
