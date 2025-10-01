@@ -12,7 +12,8 @@ if [[ ! "$BRANCH_SLUG" =~ ^[a-z0-9-]+$ ]]; then
 fi
 
 PROJECT_NAME="preview-$REPO_SLUG-$BRANCH_SLUG"
-COMPOSE_FILE="compose.preview.yaml"
+# Use absolute path to compose file in shared location
+COMPOSE_FILE="/etc/mymemo/chat-api/compose.preview.yaml"
 CONF="/etc/nginx/conf.d/$REPO_SLUG-$BRANCH_SLUG.conf"
 STATE_DIR="/var/preview/$REPO_SLUG/$BRANCH_SLUG"
 
@@ -24,7 +25,6 @@ export WORKER_IMAGE="placeholder"
 export CONTAINER_PORT="3000"
 
 echo "Stopping and removing containers via docker compose"
-cd "$(dirname "$0")/.." || exit 1
 sudo -n docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" down -v || echo "Compose project not found or already removed"
 
 # Double-check containers are gone

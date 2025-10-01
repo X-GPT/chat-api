@@ -30,7 +30,8 @@ sudo -n mkdir -p "$STATE_DIR" || { echo "Failed to create state directory"; exit
 API_CONTAINER="preview-$REPO_SLUG-$BRANCH_SLUG-api"
 WORKER_CONTAINER="preview-$REPO_SLUG-$BRANCH_SLUG-worker"
 PROJECT_NAME="preview-$REPO_SLUG-$BRANCH_SLUG"
-COMPOSE_FILE="compose.preview.yaml"
+# Use absolute path to compose file in shared location
+COMPOSE_FILE="/etc/mymemo/chat-api/compose.preview.yaml"
 
 # Export variables for docker compose
 export REPO_SLUG
@@ -44,7 +45,6 @@ sudo -n docker pull "$IMAGE" || { echo "Failed to pull API image"; exit 1; }
 sudo -n docker pull "$WORKER_IMAGE" || { echo "Failed to pull worker image"; exit 1; }
 
 echo "Stopping existing compose project if any"
-cd "$(dirname "$0")/.." || exit 1
 sudo -n docker compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" down || true
 
 echo "Starting new container via docker compose"
