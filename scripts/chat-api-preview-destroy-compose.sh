@@ -12,7 +12,7 @@ if [[ ! "$BRANCH_SLUG" =~ ^[a-z0-9-]+$ ]]; then
 fi
 
 PROJECT_NAME="preview-$REPO_SLUG-$BRANCH_SLUG"
-COMPOSE_FILE="compose.preview.template.yaml"
+COMPOSE_FILE="compose.preview.yaml"
 CONF="/etc/nginx/conf.d/$REPO_SLUG-$BRANCH_SLUG.conf"
 STATE_DIR="/var/preview/$REPO_SLUG/$BRANCH_SLUG"
 

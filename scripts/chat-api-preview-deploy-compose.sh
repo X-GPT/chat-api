@@ -30,7 +30,7 @@ sudo -n mkdir -p "$STATE_DIR" || { echo "Failed to create state directory"; exit
 API_CONTAINER="preview-$REPO_SLUG-$BRANCH_SLUG-api"
 WORKER_CONTAINER="preview-$REPO_SLUG-$BRANCH_SLUG-worker"
 PROJECT_NAME="preview-$REPO_SLUG-$BRANCH_SLUG"
-COMPOSE_FILE="compose.preview.template.yaml"
+COMPOSE_FILE="compose.preview.yaml"
 
 # Export variables for docker compose
 export REPO_SLUG
