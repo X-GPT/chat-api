@@ -1,20 +1,20 @@
 services:
   chat-api:
     container_name: chat-api
-    build: .
+    build:
+      context: ./apps/chat-api
+      dockerfile: Dockerfile
     ports:
       - 3000:3000
     env_file:
-      # -/etc/mymemo/chat-api.env
-      - .env
+      - ./apps/chat-api/.env
     restart: always
 
   ingest-worker:
     container_name: ingest-worker
     build:
-      context: .
+      context: ./apps/chat-api
       dockerfile: Dockerfile.worker
     env_file:
-      # -/etc/mymemo/chat-api.env
-      - .env
+      - ./apps/chat-api/.env
     restart: always
