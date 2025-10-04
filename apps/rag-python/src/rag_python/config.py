@@ -49,6 +49,12 @@ class Settings(BaseSettings):
     worker_max_retries: int = 3
     worker_shutdown_timeout: int = 30  # Graceful shutdown timeout
 
+    # Qdrant Configuration
+    qdrant_url: str = "https://your-cluster.qdrant.io"
+    qdrant_api_key: str | None = None
+    qdrant_collection_name: str = "documents"
+    qdrant_prefer_grpc: bool = False
+
 
 @lru_cache
 def get_settings() -> Settings:

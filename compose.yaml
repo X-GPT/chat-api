@@ -10,11 +10,26 @@ services:
       - ./apps/chat-api/.env
     restart: always
 
-  ingest-worker:
-    container_name: ingest-worker
+  rag-api:
+    container_name: rag-api
     build:
-      context: ./apps/chat-api
-      dockerfile: Dockerfile.worker
+      context: ./apps/rag-python
+      dockerfile: Dockerfile
+      target: api
+    ports:
+      - "8000:8000"
     env_file:
-      - ./apps/chat-api/.env
+      - ./apps/rag-python/.env
     restart: always
+
+  rag-worker:
+    container_name: rag-worker
+    build:
+      context: ./apps/rag-python
+      dockerfile: Dockerfile
+      target: worker
+    env_file:
+      - ./apps/rag-python/.env
+    restart: always
+    deploy:
+      replicas: 1  # Scale as needed

@@ -22,25 +22,40 @@ services:
         awslogs-stream: ec2-${REPO_NAME}-production-api
         awslogs-create-group: "true"
 
-  ingest-worker:
-    container_name: ${REPO_NAME}-production-worker
-    image: ${WORKER_IMAGE}
+  rag-api:
+    container_name: ${REPO_NAME}-production-rag-api
+    image: ${RAG_API_IMAGE}
     restart: unless-stopped
     env_file:
-      - /etc/mymemo/chat-api/env.prod
-    environment:
-      - NODE_ENV=production
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - /etc/mymemo/rag-python/env.prod
+    ports:
+      - "${RAG_API_PORT}:8000"
     mem_limit: 2g
     mem_reservation: 1536m
-    memswap_limit: 4g
     logging:
       driver: awslogs
       options:
         awslogs-region: us-west-2
-        awslogs-group: /apps/chat-api
+        awslogs-group: /apps/rag-python
+        awslogs-stream: ec2-${REPO_NAME}-production-api
+        awslogs-create-group: "true"
+
+  rag-worker:
+    container_name: ${REPO_NAME}-production-rag-worker
+    image: ${RAG_WORKER_IMAGE}
+    restart: unless-stopped
+    env_file:
+      - /etc/mymemo/rag-python/env.prod
+    mem_limit: 2g
+    mem_reservation: 1536m
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: us-west-2
+        awslogs-group: /apps/rag-python
         awslogs-stream: ec2-${REPO_NAME}-production-worker
         awslogs-create-group: "true"
+    deploy:
+      replicas: 3  # 3 workers for production scale
 
 

@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.env
+.env.local
+tests/
+scripts/
+.git/
+# Exclude markdown files except README.md (required by pyproject.toml)
+*.md
+!README.md
+
