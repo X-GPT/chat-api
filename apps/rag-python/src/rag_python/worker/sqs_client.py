@@ -50,7 +50,7 @@ class SQSClient:
         wait_time_seconds = wait_time_seconds or self.settings.sqs_wait_time_seconds
 
         try:
-            async with self.session.client("sqs") as sqs:
+            async with self.session.client("sqs") as sqs:  # type: ignore
                 response = await sqs.receive_message(
                     QueueUrl=self.settings.sqs_queue_url,
                     MaxNumberOfMessages=max_messages,
@@ -62,7 +62,7 @@ class SQSClient:
                 messages = response.get("Messages", [])
                 if messages:
                     logger.info(f"Received {len(messages)} messages from SQS")
-                return messages
+                return messages  # type: ignore
 
         except ClientError as e:
             logger.error(f"Failed to receive messages from SQS: {e}")
@@ -85,7 +85,7 @@ class SQSClient:
             return False
 
         try:
-            async with self.session.client("sqs") as sqs:
+            async with self.session.client("sqs") as sqs:  # type: ignore
                 await sqs.delete_message(
                     QueueUrl=self.settings.sqs_queue_url,
                     ReceiptHandle=receipt_handle,
@@ -113,7 +113,7 @@ class SQSClient:
             return {"successful": [], "failed": []}
 
         try:
-            async with self.session.client("sqs") as sqs:
+            async with self.session.client("sqs") as sqs:  # type: ignore
                 entries = [
                     {"Id": str(idx), "ReceiptHandle": handle}
                     for idx, handle in enumerate(receipt_handles)
@@ -121,7 +121,7 @@ class SQSClient:
 
                 response = await sqs.delete_message_batch(
                     QueueUrl=self.settings.sqs_queue_url,
-                    Entries=entries,
+                    Entries=entries,  # type: ignore
                 )
 
                 successful = response.get("Successful", [])
@@ -149,7 +149,7 @@ class SQSClient:
             return False
 
         try:
-            async with self.session.client("sqs") as sqs:
+            async with self.session.client("sqs") as sqs:  # type: ignore
                 await sqs.change_message_visibility(
                     QueueUrl=self.settings.sqs_queue_url,
                     ReceiptHandle=receipt_handle,
@@ -180,7 +180,7 @@ class SQSClient:
             if isinstance(message_body, dict):
                 message_body = json.dumps(message_body)
 
-            async with self.session.client("sqs") as sqs:
+            async with self.session.client("sqs") as sqs:  # type: ignore
                 params: dict[str, Any] = {
                     "QueueUrl": self.settings.sqs_queue_url,
                     "MessageBody": message_body,

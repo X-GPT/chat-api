@@ -8,8 +8,8 @@ from pydantic import ValidationError
 
 from rag_python.config import Settings
 from rag_python.core.logging import get_logger
-from rag_python.schemas.events import BaseEvent, SQSMessageMetadata
-from rag_python.worker.handlers import EventHandlerRegistry
+from rag_python.schemas.events import SQSMessage, SQSMessageMetadata
+from rag_python.worker.handlers import MessageHandlerRegistry
 from rag_python.worker.sqs_client import SQSClient
 
 logger = get_logger(__name__)
@@ -26,7 +26,7 @@ class MessageProcessor:
         """
         self.settings = settings
         self.sqs_client = SQSClient(settings)
-        self.handler_registry = EventHandlerRegistry()
+        self.handler_registry = MessageHandlerRegistry()
 
     def _parse_message_body(self, body: str) -> dict[str, Any] | None:
         """Parse message body JSON.
@@ -59,20 +59,23 @@ class MessageProcessor:
             approximate_receive_count=int(attributes.get("ApproximateReceiveCount", 0)),
         )
 
-    async def _validate_and_parse_event(self, body_data: dict[str, Any]) -> BaseEvent | None:
-        """Validate and parse event data.
+    async def _validate_and_parse_message(self, body_data: dict[str, Any]) -> SQSMessage | None:
+        """Validate and parse SQS message data.
 
         Args:
             body_data: Parsed message body data.
 
         Returns:
-            BaseEvent | None: Validated event or None if invalid.
+            SQSMessage | None: Validated message or None if invalid.
         """
         try:
-            event = BaseEvent(**body_data)
-            return event
+            # Try to parse as SummaryLifecycleMessage (expand as more types are added)
+            from rag_python.schemas.events import SummaryLifecycleMessage
+
+            message = SummaryLifecycleMessage(**body_data)
+            return message
         except ValidationError as e:
-            logger.error(f"Failed to validate event: {e}")
+            logger.error(f"Failed to validate message: {e}")
             return None
 
     async def process_message(self, message: dict[str, Any]) -> tuple[bool, str]:
@@ -98,33 +101,37 @@ class MessageProcessor:
             logger.error(f"Invalid message body for message {metadata.message_id}")
             return False, receipt_handle
 
-        # Validate and parse event
-        event = await self._validate_and_parse_event(body_data)
-        if not event:
-            logger.error(f"Invalid event format for message {metadata.message_id}")
+        # Validate and parse message
+        sqs_message = await self._validate_and_parse_message(body_data)
+        if not sqs_message:
+            logger.error(f"Invalid message format for message {metadata.message_id}")
             return False, receipt_handle
 
         # Get appropriate handler
-        handler = self.handler_registry.get_handler(event.event_type)
+        handler = self.handler_registry.get_handler(sqs_message.type)
         if not handler:
-            logger.error(f"No handler found for event type: {event.event_type}")
+            logger.error(f"No handler found for message type: {sqs_message.type}")
             return False, receipt_handle
 
-        # Process event with handler
+        # Process message with handler
         try:
-            success = await handler.handle(event)
+            success = await handler.handle(sqs_message)
             if success:
                 logger.info(
-                    f"Successfully processed event {event.event_id} (type: {event.event_type})"
+                    f"Successfully processed message {metadata.message_id} "
+                    f"(type: {sqs_message.type})"
                 )
                 return True, receipt_handle
             else:
-                logger.warning(f"Handler returned False for event {event.event_id}")
+                logger.warning(
+                    f"Handler returned False for message {metadata.message_id} "
+                    f"(type: {sqs_message.type})"
+                )
                 return False, receipt_handle
 
         except Exception as e:
             logger.error(
-                f"Error processing event {event.event_id}: {e}",
+                f"Error processing message {metadata.message_id} (type: {sqs_message.type}): {e}",
                 exc_info=True,
             )
             return False, receipt_handle
@@ -146,7 +153,7 @@ class MessageProcessor:
         results = await asyncio.gather(*tasks, return_exceptions=True)
 
         # Separate successful and failed messages
-        successful_receipts = []
+        successful_receipts: list[str] = []
         failed_count = 0
 
         for result in results:
@@ -154,6 +161,7 @@ class MessageProcessor:
                 logger.error(f"Exception during message processing: {result}")
                 failed_count += 1
             else:
+                assert isinstance(result, tuple)  # Type narrowing for type checker
                 success, receipt_handle = result
                 if success:
                     successful_receipts.append(receipt_handle)

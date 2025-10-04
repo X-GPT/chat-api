@@ -1,116 +1,147 @@
 """Event handlers for processing SQS messages."""
 
+from typing import Protocol
+
 from rag_python.core.logging import get_logger
-from rag_python.schemas.events import BaseEvent, EventType
+from rag_python.schemas.events import SQSMessage, SummaryEvent, SummaryLifecycleMessage
 
 logger = get_logger(__name__)
 
 
-class EventHandler:
-    """Base event handler class."""
+class MessageHandler(Protocol):
+    """Protocol for message handlers."""
 
-    async def handle(self, event: BaseEvent) -> bool:
-        """Handle an event.
+    async def handle(self, message: SQSMessage) -> bool:
+        """Handle a message.
 
         Args:
-            event: The event to handle.
+            message: The message to handle.
 
         Returns:
             bool: True if handled successfully, False otherwise.
         """
-        raise NotImplementedError
+        ...
 
 
-class HelloEventHandler(EventHandler):
-    """Handler for hello events."""
+class SummaryLifecycleHandler:
+    """Handler for summary lifecycle events."""
 
-    async def handle(self, event: BaseEvent) -> bool:
-        """Handle hello event.
+    async def handle(self, message: SummaryLifecycleMessage) -> bool:
+        """Handle summary lifecycle message.
 
         Args:
-            event: The hello event.
+            message: The summary lifecycle message.
 
         Returns:
             bool: True if successful.
         """
-        logger.info(f"Processing hello event: {event.event_id}")
-        logger.info(f"Payload: {event.payload}")
+        event = message.data
+        logger.info(
+            f"Processing summary lifecycle event: {event.action.value} for summary ID {event.id}"
+        )
 
-        # Your business logic here
-        message = event.payload.get("message", "No message")
-        logger.info(f"Hello message: {message}")
+        # Handle different actions
+        if event.action.value == "CREATED":
+            return await self._handle_created(event)
+        elif event.action.value == "UPDATED":
+            return await self._handle_updated(event)
+        elif event.action.value == "DELETED":
+            return await self._handle_deleted(event)
+        else:
+            logger.warning(f"Unknown action: {event.action}")
+            return False
 
-        return True
-
-
-class TaskCreatedHandler(EventHandler):
-    """Handler for task created events."""
-
-    async def handle(self, event: BaseEvent) -> bool:
-        """Handle task created event.
+    async def _handle_created(self, event: SummaryEvent) -> bool:
+        """Handle CREATED action.
 
         Args:
-            event: The task created event.
+            event: The summary event.
 
         Returns:
             bool: True if successful.
         """
-        logger.info(f"Processing task.created event: {event.event_id}")
+        logger.info(
+            f"Summary created - ID: {event.id}, Member: {event.member_code}, "
+            f"Team: {event.team_code}"
+        )
 
         # Your business logic here
-        # Example: Create a task, send notifications, etc.
+        # Example: Index the summary content, create embeddings, etc.
+        if event.parse_content:
+            logger.info(f"Content preview: {event.parse_content[:100]}...")
+            # TODO: Process the content (e.g., create embeddings, index in vector DB)
 
         return True
 
-
-class TaskCompletedHandler(EventHandler):
-    """Handler for task completed events."""
-
-    async def handle(self, event: BaseEvent) -> bool:
-        """Handle task completed event.
+    async def _handle_updated(self, event: SummaryEvent) -> bool:
+        """Handle UPDATED action.
 
         Args:
-            event: The task completed event.
+            event: The summary event.
 
         Returns:
             bool: True if successful.
         """
-        logger.info(f"Processing task.completed event: {event.event_id}")
+        logger.info(
+            f"Summary updated - ID: {event.id}, Member: {event.member_code}, "
+            f"Team: {event.team_code}"
+        )
 
         # Your business logic here
-        # Example: Update status, send notifications, cleanup, etc.
+        # Example: Update embeddings, re-index content, etc.
+        if event.parse_content:
+            logger.info(f"Updated content preview: {event.parse_content[:100]}...")
+            # TODO: Update the content (e.g., update embeddings, re-index in vector DB)
+
+        return True
+
+    async def _handle_deleted(self, event: SummaryEvent) -> bool:
+        """Handle DELETED action.
+
+        Args:
+            event: The summary event.
+
+        Returns:
+            bool: True if successful.
+        """
+        logger.info(
+            f"Summary deleted - ID: {event.id}, Member: {event.member_code}, "
+            f"Team: {event.team_code}"
+        )
+
+        # Your business logic here
+        # Example: Remove from index, delete embeddings, cleanup, etc.
+        # TODO: Delete from vector DB, remove index entries, etc.
 
         return True
 
 
-class EventHandlerRegistry:
-    """Registry for event handlers."""
+class MessageHandlerRegistry:
+    """Registry for message handlers."""
 
     def __init__(self):
         """Initialize handler registry."""
-        self._handlers: dict[EventType, EventHandler] = {
-            EventType.HELLO: HelloEventHandler(),
-            EventType.TASK_CREATED: TaskCreatedHandler(),
-            EventType.TASK_COMPLETED: TaskCompletedHandler(),
+        self._handlers: dict[str, MessageHandler] = {
+            "summary:lifecycle": SummaryLifecycleHandler(),
         }
 
-    def get_handler(self, event_type: EventType) -> EventHandler | None:
-        """Get handler for an event type.
+    def get_handler(self, message_type: str) -> MessageHandler | None:
+        """Get handler for a message type.
 
         Args:
-            event_type: The event type.
+            message_type: The message type (e.g., "summary:lifecycle").
 
         Returns:
-            EventHandler | None: The handler or None if not found.
+            MessageHandler | None: The handler or None if not found.
         """
-        return self._handlers.get(event_type)
+        return self._handlers.get(message_type)
 
-    def register_handler(self, event_type: EventType, handler: EventHandler) -> None:
+    def register_handler(self, message_type: str, handler: MessageHandler) -> None:
         """Register a new handler.
 
         Args:
-            event_type: The event type.
+            message_type: The message type (e.g., "summary:lifecycle").
             handler: The handler instance.
         """
-        self._handlers[event_type] = handler
-        logger.info(f"Registered handler for event type: {event_type}")
+        self._handlers[message_type] = handler
+        logger.info(f"Registered handler for message type: {message_type}")

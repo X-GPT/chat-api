@@ -2,47 +2,91 @@
 
 from datetime import datetime
 from enum import Enum
-from typing import Any
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
 
-class EventType(str, Enum):
-    """Available event types."""
+class SummaryAction(str, Enum):
+    """Summary lifecycle actions."""
 
-    HELLO = "hello"
-    TASK_CREATED = "task.created"
-    TASK_COMPLETED = "task.completed"
-    # Add more event types as needed
+    CREATED = "CREATED"
+    UPDATED = "UPDATED"
+    DELETED = "DELETED"
 
 
-class BaseEvent(BaseModel):
-    """Base event schema that all events should inherit from."""
+class SummaryEvent(BaseModel):
+    """Summary lifecycle event schema matching SummaryEventDTO from Java backend.
 
-    event_type: EventType = Field(..., description="Type of the event")
-    event_id: str = Field(..., description="Unique event identifier")
-    timestamp: datetime = Field(default_factory=datetime.utcnow, description="Event timestamp")
-    payload: dict[str, Any] = Field(default_factory=dict, description="Event payload data")
+    Example event:
+    ```json
+    {
+        "id": 12345,
+        "memberCode": "user123",
+        "teamCode": "team456",
+        "parseContent": "This is the parsed summary content...",
+        "action": "CREATED",
+        "timestamp": "2025-10-01T12:30:45.123Z"
+    }
+    ```
+    """
+
+    id: int
+    member_code: str = Field(..., alias="memberCode")
+    team_code: str | None = Field(None, alias="teamCode")
+    parse_content: str | None = Field(None, alias="parseContent")
+    action: SummaryAction
+    timestamp: datetime
 
     model_config = {
+        "populate_by_name": True,  # Allow both alias and field name
         "json_schema_extra": {
             "examples": [
                 {
-                    "event_type": "hello",
-                    "event_id": "evt_123456",
-                    "timestamp": "2024-01-01T00:00:00Z",
-                    "payload": {"message": "Hello from SQS"},
+                    "id": 12345,
+                    "memberCode": "user123",
+                    "teamCode": "team456",
+                    "parseContent": "This is the parsed summary content...",
+                    "action": "CREATED",
+                    "timestamp": "2025-10-01T12:30:45.123Z",
                 }
             ]
-        }
+        },
     }
 
 
-class HelloEvent(BaseEvent):
-    """Hello event for testing."""
+class SummaryLifecycleMessage(BaseModel):
+    """SQS message wrapper for summary lifecycle events.
 
-    event_type: EventType = Field(default=EventType.HELLO, description="Event type")
-    payload: dict[str, str] = Field(..., description="Hello message payload")
+    Example SQS message body:
+    ```json
+    {
+        "type": "summary:lifecycle",
+        "data": {
+            "id": 12345,
+            "memberCode": "user123",
+            "teamCode": "team456",
+            "parseContent": "This is the parsed summary content...",
+            "action": "CREATED",
+            "timestamp": "2025-10-01T12:30:45.123Z"
+        }
+    }
+    ```
+    """
+
+    type: Literal["summary:lifecycle"] = Field(..., description="Message type discriminator")
+    data: SummaryEvent
+
+
+# Add more message types here as needed
+# class FileIngestMessage(BaseModel):
+#     type: Literal["ingest:file"]
+#     data: FileIngestEvent
+
+
+# Union type for all SQS messages (discriminated by 'type' field)
+# Will become Union[SummaryLifecycleMessage, ...] as more types are added
+SQSMessage = SummaryLifecycleMessage
 
 
 class SQSMessageMetadata(BaseModel):

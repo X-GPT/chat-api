@@ -1,13 +1,17 @@
 """Tests for SQS worker functionality."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from rag_python.config import Settings
-from rag_python.schemas.events import BaseEvent, EventType
-from rag_python.worker.handlers import EventHandlerRegistry, HelloEventHandler
+from rag_python.schemas.events import (
+    SummaryAction,
+    SummaryEvent,
+    SummaryLifecycleMessage,
+)
+from rag_python.worker.handlers import MessageHandlerRegistry, SummaryLifecycleHandler
 from rag_python.worker.processor import MessageProcessor
 from rag_python.worker.sqs_client import SQSClient
 
@@ -35,29 +39,32 @@ def message_processor(mock_settings):
     return MessageProcessor(mock_settings)
 
 
-def test_event_handler_registry():
-    """Test event handler registry."""
-    registry = EventHandlerRegistry()
+def test_message_handler_registry():
+    """Test message handler registry."""
+    registry = MessageHandlerRegistry()
 
     # Check that default handlers are registered
-    assert registry.get_handler(EventType.HELLO) is not None
-    assert registry.get_handler(EventType.TASK_CREATED) is not None
-    assert registry.get_handler(EventType.TASK_COMPLETED) is not None
+    assert registry.get_handler("summary:lifecycle") is not None
 
 
 @pytest.mark.asyncio
-async def test_hello_event_handler():
-    """Test hello event handler."""
-    handler = HelloEventHandler()
+async def test_summary_lifecycle_handler():
+    """Test summary lifecycle handler."""
+    handler = SummaryLifecycleHandler()
 
-    event = BaseEvent(
-        event_type=EventType.HELLO,
-        event_id="test-123",
-        timestamp=datetime.utcnow(),
-        payload={"message": "Test message"},
+    message = SummaryLifecycleMessage(
+        type="summary:lifecycle",
+        data=SummaryEvent(
+            id=12345,
+            member_code="user123",
+            team_code="team456",
+            parse_content="This is a test summary content",
+            action=SummaryAction.CREATED,
+            timestamp=datetime.now(timezone.utc),
+        ),
     )
 
-    result = await handler.handle(event)
+    result = await handler.handle(message)
     assert result is True
 
 
@@ -70,10 +77,10 @@ def test_sqs_client_initialization(sqs_client, mock_settings):
 @pytest.mark.asyncio
 async def test_message_processor_parse_message_body(message_processor):
     """Test message body parsing."""
-    valid_json = '{"event_type": "hello", "event_id": "123"}'
+    valid_json = '{"type": "summary:lifecycle", "data": {"id": 123}}'
     result = message_processor._parse_message_body(valid_json)
     assert result is not None
-    assert result["event_type"] == "hello"
+    assert result["type"] == "summary:lifecycle"
 
     invalid_json = "not a json"
     result = message_processor._parse_message_body(invalid_json)
@@ -81,19 +88,25 @@ async def test_message_processor_parse_message_body(message_processor):
 
 
 @pytest.mark.asyncio
-async def test_message_processor_validate_event(message_processor):
-    """Test event validation."""
-    valid_event_data = {
-        "event_type": "hello",
-        "event_id": "test-123",
-        "timestamp": datetime.utcnow().isoformat(),
-        "payload": {"message": "test"},
+async def test_message_processor_validate_message(message_processor):
+    """Test message validation."""
+    valid_message_data = {
+        "type": "summary:lifecycle",
+        "data": {
+            "id": 12345,
+            "memberCode": "user123",
+            "teamCode": "team456",
+            "parseContent": "Test content",
+            "action": "CREATED",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
     }
 
-    event = await message_processor._validate_and_parse_event(valid_event_data)
-    assert event is not None
-    assert event.event_type == EventType.HELLO
-    assert event.event_id == "test-123"
+    message = await message_processor._validate_and_parse_message(valid_message_data)
+    assert message is not None
+    assert message.type == "summary:lifecycle"
+    assert message.data.id == 12345
+    assert message.data.member_code == "user123"
 
 
 @pytest.mark.asyncio
