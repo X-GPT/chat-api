@@ -69,9 +69,9 @@ def create_app() -> FastAPI:
     app.middleware("http")(security_headers_middleware)
 
     # Register exception handlers
-    app.add_exception_handler(AppException, app_exception_handler)
-    app.add_exception_handler(HTTPException, http_exception_handler)
-    app.add_exception_handler(Exception, unhandled_exception_handler)
+    app.add_exception_handler(AppException, app_exception_handler)  # type: ignore
+    app.add_exception_handler(HTTPException, http_exception_handler)  # type: ignore
+    app.add_exception_handler(Exception, unhandled_exception_handler)  # type: ignore
 
     # Include API router with versioning
     app.include_router(api_router, prefix=settings.api_v1_prefix)

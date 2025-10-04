@@ -1,0 +1,10 @@
+{
+  "folders": [
+    { "path": "." },
+    { "path": "apps/chat-api" },
+    { "path": "apps/rag-python" }
+  ],
+  "settings": {
+    "python.defaultInterpreterPath": "apps/rag-python/.venv/bin/python"
+  }
+}

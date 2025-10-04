@@ -24,5 +24,8 @@
 		"source.organizeImports.biome": "explicit",
 		"source.fixAll.eslint": "never"
 	},
-	"prettier.enable": false
+	"prettier.enable": false,
+	"[python]": {
+		"editor.defaultFormatter": "charliermarsh.ruff"
+	}
 }
