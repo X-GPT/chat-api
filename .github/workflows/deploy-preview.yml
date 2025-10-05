@@ -156,7 +156,7 @@ jobs:
             AWS_REGION="${{ env.AWS_REGION }}"
             CONTAINER_PORT="${{ env.CONTAINER_PORT }}"
             IMAGE="${{ needs.build-and-push.outputs.image_pr_tag }}"
-            WORKER_IMAGE="${{ needs.build-and-push.outputs.worker_image_pr_tag }}"
+            RAG_IMAGE="${{ needs.build-and-push.outputs.worker_image_pr_tag }}"
             PR_NUMBER="${{ github.event.pull_request.number }}"
             BRANCH_SLUG="pr-$PR_NUMBER"
             REPO_SLUG="${{ github.event.repository.name }}"
@@ -185,7 +185,7 @@ jobs:
             sudo -n mkdir -p /var/preview
 
             # Deploy preview using the compose script (no need to cd anywhere)
-            chat-api-preview-deploy-compose.sh "$BRANCH_SLUG" "$IMAGE" "$WORKER_IMAGE" "$CONTAINER_PORT" "$REPO_SLUG"
+            chat-api-preview-deploy-compose.sh "$BRANCH_SLUG" "$IMAGE" "$RAG_IMAGE" "$CONTAINER_PORT" "$REPO_SLUG"
 
       - name: Comment preview URL on PR
         uses: marocchino/sticky-pull-request-comment@v2
