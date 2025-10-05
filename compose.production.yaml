@@ -56,6 +56,6 @@ services:
         awslogs-stream: ec2-${REPO_NAME}-production-worker
         awslogs-create-group: "true"
     deploy:
-      replicas: 3  # 3 workers for production scale
+      replicas: 1  # 1 workers for production scale
 
 

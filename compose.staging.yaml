@@ -54,6 +54,6 @@ services:
         awslogs-stream: ec2-${REPO_NAME}-staging-worker
         awslogs-create-group: "true"
     deploy:
-      replicas: 2  # 2 workers for staging
+      replicas: 1  # 1 workers for staging
 
 
