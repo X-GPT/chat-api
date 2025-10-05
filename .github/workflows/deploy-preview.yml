@@ -112,8 +112,8 @@ jobs:
       - name: Build & Push Worker image (with cache)
         uses: docker/build-push-action@v6
         with:
-          context: ./apps/chat-api
-          file: ./apps/chat-api/Dockerfile.worker
+          context: ./apps/rag-python
+          file: ./apps/rag-python/Dockerfile
           push: true
           tags: |
             ${{ steps.meta.outputs.worker_image_sha_tag }}
