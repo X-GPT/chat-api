@@ -1,20 +1,34 @@
 services:
   chat-api:
     container_name: chat-api
-    build: .
+    build:
+      context: ./apps/chat-api
+      dockerfile: Dockerfile
     ports:
       - 3000:3000
     env_file:
-      # -/etc/mymemo/chat-api.env
-      - .env
+      - ./apps/chat-api/.env
     restart: always
 
-  ingest-worker:
-    container_name: ingest-worker
+  rag-api:
+    container_name: rag-api
     build:
-      context: .
-      dockerfile: Dockerfile.worker
+      context: ./apps/rag-python
+      dockerfile: Dockerfile
+      target: api
+    ports:
+      - "8000:8000"
     env_file:
-      # -/etc/mymemo/chat-api.env
-      - .env
+      - ./apps/rag-python/.env
     restart: always
+
+  rag-worker:
+    container_name: rag-worker
+    build:
+      context: ./apps/rag-python
+      dockerfile: Dockerfile
+      target: worker
+    env_file:
+      - ./apps/rag-python/.env
+    restart: always
+    # To scale rag-worker locally, use: docker-compose up --scale rag-worker=N

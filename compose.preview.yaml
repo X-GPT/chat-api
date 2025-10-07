@@ -22,24 +22,37 @@ services:
         awslogs-stream: ec2-${BRANCH_SLUG}-api
         awslogs-create-group: "true"
 
-  ingest-worker:
-    container_name: preview-${REPO_SLUG}-${BRANCH_SLUG}-worker
-    image: ${WORKER_IMAGE}
+  rag-api:
+    container_name: preview-${REPO_SLUG}-${BRANCH_SLUG}-rag-api
+    image: ${RAG_API_IMAGE}
     restart: unless-stopped
     env_file:
-      - /etc/mymemo/chat-api/env.dev
-    environment:
-      - NODE_ENV=production
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    mem_limit: 1g
-    mem_reservation: 512m
-    memswap_limit: 2g
+      - /etc/mymemo/rag-python/env.dev
+    ports:
+      - "8000"
+    mem_limit: 512m
+    mem_reservation: 256m
     logging:
       driver: awslogs
       options:
         awslogs-region: us-west-2
-        awslogs-group: /apps/chat-api-preview
+        awslogs-group: /apps/rag-python-preview
+        awslogs-stream: ec2-${BRANCH_SLUG}-api
+        awslogs-create-group: "true"
+
+  rag-worker:
+    container_name: preview-${REPO_SLUG}-${BRANCH_SLUG}-rag-worker
+    image: ${RAG_WORKER_IMAGE}
+    restart: unless-stopped
+    env_file:
+      - /etc/mymemo/rag-python/env.dev
+    mem_limit: 512m
+    mem_reservation: 256m
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: us-west-2
+        awslogs-group: /apps/rag-python-preview
         awslogs-stream: ec2-${BRANCH_SLUG}-worker
         awslogs-create-group: "true"
 

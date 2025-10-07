@@ -20,23 +20,38 @@ services:
         max-size: "10m"
         max-file: "5"
 
-  ingest-worker:
-    container_name: ${REPO_NAME}-staging-worker
-    image: ${WORKER_IMAGE}
+  rag-api:
+    container_name: ${REPO_NAME}-staging-rag-api
+    image: ${RAG_API_IMAGE}
     restart: unless-stopped
     env_file:
-      - /etc/mymemo/chat-api/env.dev
-    environment:
-      - NODE_ENV=production
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
+      - /etc/mymemo/rag-python/env.staging
+    ports:
+      - "${RAG_API_PORT}:8000"
     mem_limit: 1g
     mem_reservation: 512m
-    memswap_limit: 2g
     logging:
-      driver: json-file
+      driver: awslogs
       options:
-        max-size: "10m"
-        max-file: "5"
+        awslogs-region: us-west-2
+        awslogs-group: /apps/rag-python-staging
+        awslogs-stream: ec2-${REPO_NAME}-staging-api
+        awslogs-create-group: "true"
 
+  rag-worker:
+    container_name: ${REPO_NAME}-staging-rag-worker
+    image: ${RAG_WORKER_IMAGE}
+    restart: unless-stopped
+    env_file:
+      - /etc/mymemo/rag-python/env.staging
+    mem_limit: 1g
+    mem_reservation: 512m
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: us-west-2
+        awslogs-group: /apps/rag-python-staging
+        awslogs-stream: ec2-${REPO_NAME}-staging-worker
+        awslogs-create-group: "true"
 
+# To scale rag-worker locally, use: docker-compose up --scale rag-worker=N
