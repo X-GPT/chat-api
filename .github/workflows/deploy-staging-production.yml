@@ -18,10 +18,12 @@ env:
   # Staging Environment
   STAGING_HOST_PORT: 8094
   STAGING_CONTAINER_PORT: 3000
+  STAGING_RAG_API_PORT: 8096
 
   # Production Environment
   PROD_HOST_PORT: 8095
   PROD_CONTAINER_PORT: 3000
+  PROD_RAG_API_PORT: 8097
 
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -184,10 +186,13 @@ jobs:
             REPO_NAME="${{ env.ECR_REPO }}"
             HOST_PORT="${{ env.STAGING_HOST_PORT }}"
             CONTAINER_PORT="${{ env.STAGING_CONTAINER_PORT }}"
+            RAG_API_PORT="${{ env.STAGING_RAG_API_PORT }}"
             API_IMAGE="${{ needs.build-and-push.outputs.api_image_sha_tag }}"
             WORKER_IMAGE="${{ needs.build-and-push.outputs.worker_image_sha_tag }}"
+            RAG_API_IMAGE="${{ needs.build-and-push.outputs.worker_image_sha_tag }}"
+            RAG_WORKER_IMAGE="${{ needs.build-and-push.outputs.worker_image_sha_tag }}"
 
-            echo "🚀 Deploying to staging: API=$API_IMAGE, Worker=$WORKER_IMAGE"
+            echo "🚀 Deploying to staging: API=$API_IMAGE, RAG=$RAG_API_IMAGE, Worker=$RAG_WORKER_IMAGE"
 
             # Login to ECR
             REGISTRY="${API_IMAGE%%/*}"
@@ -196,7 +201,7 @@ jobs:
 
             # Pull the new images
             sudo docker pull "$API_IMAGE"
-            sudo docker pull "$WORKER_IMAGE"
+            sudo docker pull "$RAG_API_IMAGE"
 
             # Install/update compose file in shared config location
             sudo -n mkdir -p /etc/mymemo/chat-api
@@ -206,16 +211,18 @@ jobs:
             # Export environment variables for compose
             export REPO_NAME
             export API_IMAGE
-            export WORKER_IMAGE
+            export RAG_API_IMAGE
+            export RAG_WORKER_IMAGE
             export HOST_PORT
             export CONTAINER_PORT
+            export RAG_API_PORT
 
             # Stop and remove old containers
-            sudo -n API_IMAGE="$API_IMAGE" WORKER_IMAGE="$WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" REPO_NAME="$REPO_NAME" \
+            sudo -n API_IMAGE="$API_IMAGE" RAG_API_IMAGE="$RAG_API_IMAGE" RAG_WORKER_IMAGE="$RAG_WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" RAG_API_PORT="$RAG_API_PORT" REPO_NAME="$REPO_NAME" \
               docker-compose -f "${{ env.STAGING_COMPOSE_FILE }}" -p chat-api-staging down || true
 
             # Start new containers
-            sudo -n API_IMAGE="$API_IMAGE" WORKER_IMAGE="$WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" REPO_NAME="$REPO_NAME" \
+            sudo -n API_IMAGE="$API_IMAGE" RAG_API_IMAGE="$RAG_API_IMAGE" RAG_WORKER_IMAGE="$RAG_WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" RAG_API_PORT="$RAG_API_PORT" REPO_NAME="$REPO_NAME" \
               docker-compose -f "${{ env.STAGING_COMPOSE_FILE }}" -p chat-api-staging up -d
 
             echo "✅ Staging deployment completed - API on port $HOST_PORT, Worker running"
@@ -244,31 +251,41 @@ jobs:
 
             REPO_NAME="${{ env.ECR_REPO }}"
             API_CONTAINER_NAME="${REPO_NAME}-staging-api"
-            WORKER_CONTAINER_NAME="${REPO_NAME}-staging-worker"
+            RAG_API_CONTAINER_NAME="${REPO_NAME}-staging-rag-api"
+            RAG_WORKER_CONTAINER_NAME="${REPO_NAME}-staging-rag-worker"
             HOST_PORT="${{ env.STAGING_HOST_PORT }}"
+            RAG_API_PORT="${{ env.STAGING_RAG_API_PORT }}"
 
             echo "🔍 Running staging health checks..."
 
             # Health check - test basic API endpoint
             for i in {1..30}; do
               if curl -fsS "http://127.0.0.1:${HOST_PORT}/" | grep -q "Hello Hono!"; then
-                echo "🚀 Staging API service healthy ✅ - Root endpoint responding"
+                echo "🚀 Staging Chat API service healthy ✅ - Root endpoint responding"
 
                 # Additional check for API endpoint
                 if curl -fsS "http://127.0.0.1:${HOST_PORT}/v1/chat" -X POST \
                   -H "Content-Type: application/json" \
                   -d '{"messages":[]}' > /dev/null 2>&1; then
-                  echo "🚀 Staging API endpoints healthy ✅"
+                  echo "🚀 Staging Chat API endpoints healthy ✅"
                 else
-                  echo "⚠️ Staging API endpoints responding but may have issues"
+                  echo "⚠️ Staging Chat API endpoints responding but may have issues"
                 fi
 
-                # Check worker container is running
-                if sudo docker ps --format '{{.Names}}' | grep -q "^$WORKER_CONTAINER_NAME$"; then
-                  echo "🚀 Staging Worker container running ✅"
+                # Check RAG API container is running
+                if sudo docker ps --format '{{.Names}}' | grep -q "^$RAG_API_CONTAINER_NAME$"; then
+                  echo "🚀 Staging RAG API container running ✅"
                 else
-                  echo "⚠️ Staging Worker container not running"
-                  sudo docker logs "$WORKER_CONTAINER_NAME" || true
+                  echo "⚠️ Staging RAG API container not running"
+                  sudo docker logs "$RAG_API_CONTAINER_NAME" || true
+                fi
+
+                # Check RAG worker container is running
+                if sudo docker ps --format '{{.Names}}' | grep -q "^$RAG_WORKER_CONTAINER_NAME$"; then
+                  echo "🚀 Staging RAG Worker container running ✅"
+                else
+                  echo "⚠️ Staging RAG Worker container not running"
+                  sudo docker logs "$RAG_WORKER_CONTAINER_NAME" || true
                 fi
 
                 exit 0
@@ -277,11 +294,13 @@ jobs:
             done
 
             echo "❌ Staging service failed health check, dumping logs"
-            echo "API logs:"
+            echo "Chat API logs:"
             sudo docker logs "$API_CONTAINER_NAME" || true
             sudo docker inspect "$API_CONTAINER_NAME" --format 'Exit={{.State.ExitCode}} OOM={{.State.OOMKilled}} Error={{.State.Error}}' || true
-            echo "Worker logs:"
-            sudo docker logs "$WORKER_CONTAINER_NAME" || true
+            echo "RAG API logs:"
+            sudo docker logs "$RAG_API_CONTAINER_NAME" || true
+            echo "RAG Worker logs:"
+            sudo docker logs "$RAG_WORKER_CONTAINER_NAME" || true
             exit 1
 
   deploy-to-production:
@@ -342,10 +361,13 @@ jobs:
             REPO_NAME="${{ env.ECR_REPO }}"
             HOST_PORT="${{ env.PROD_HOST_PORT }}"
             CONTAINER_PORT="${{ env.PROD_CONTAINER_PORT }}"
+            RAG_API_PORT="${{ env.PROD_RAG_API_PORT }}"
             API_IMAGE="${{ steps.set-image.outputs.api_staging_image }}"
             WORKER_IMAGE="${{ steps.set-image.outputs.worker_staging_image }}"
+            RAG_API_IMAGE="${{ steps.set-image.outputs.worker_staging_image }}"
+            RAG_WORKER_IMAGE="${{ steps.set-image.outputs.worker_staging_image }}"
 
-            echo "🚀 Deploying staging images to production: API=$API_IMAGE, Worker=$WORKER_IMAGE"
+            echo "🚀 Deploying staging images to production: API=$API_IMAGE, RAG=$RAG_API_IMAGE, Worker=$RAG_WORKER_IMAGE"
 
             # Login to ECR
             REGISTRY="${API_IMAGE%%/*}"
@@ -354,7 +376,7 @@ jobs:
 
             # Pull the staging images for production use
             sudo docker pull "$API_IMAGE"
-            sudo docker pull "$WORKER_IMAGE"
+            sudo docker pull "$RAG_API_IMAGE"
 
             # Install/update compose file in shared config location
             sudo -n mkdir -p /etc/mymemo/chat-api
@@ -364,16 +386,18 @@ jobs:
             # Export environment variables for compose
             export REPO_NAME
             export API_IMAGE
-            export WORKER_IMAGE
+            export RAG_API_IMAGE
+            export RAG_WORKER_IMAGE
             export HOST_PORT
             export CONTAINER_PORT
+            export RAG_API_PORT
 
             # Stop and remove old containers
-            sudo -n API_IMAGE="$API_IMAGE" WORKER_IMAGE="$WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" REPO_NAME="$REPO_NAME" \
+            sudo -n API_IMAGE="$API_IMAGE" RAG_API_IMAGE="$RAG_API_IMAGE" RAG_WORKER_IMAGE="$RAG_WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" RAG_API_PORT="$RAG_API_PORT" REPO_NAME="$REPO_NAME" \
               docker-compose -f "${{ env.PROD_COMPOSE_FILE }}" -p chat-api-production down || true
 
             # Start new containers
-            sudo -n API_IMAGE="$API_IMAGE" WORKER_IMAGE="$WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" REPO_NAME="$REPO_NAME" \
+            sudo -n API_IMAGE="$API_IMAGE" RAG_API_IMAGE="$RAG_API_IMAGE" RAG_WORKER_IMAGE="$RAG_WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" RAG_API_PORT="$RAG_API_PORT" REPO_NAME="$REPO_NAME" \
               docker-compose -f "${{ env.PROD_COMPOSE_FILE }}" -p chat-api-production up -d
 
             echo "✅ Production deployment completed - API on port $HOST_PORT, Worker running"
@@ -402,32 +426,42 @@ jobs:
 
             REPO_NAME="${{ env.ECR_REPO }}"
             API_CONTAINER_NAME="${REPO_NAME}-production-api"
-            WORKER_CONTAINER_NAME="${REPO_NAME}-production-worker"
+            RAG_API_CONTAINER_NAME="${REPO_NAME}-production-rag-api"
+            RAG_WORKER_CONTAINER_NAME="${REPO_NAME}-production-rag-worker"
             HOST_PORT="${{ env.PROD_HOST_PORT }}"
+            RAG_API_PORT="${{ env.PROD_RAG_API_PORT }}"
 
             echo "🔍 Running production health checks..."
 
             # Health check - test basic API endpoint
             for i in {1..30}; do
               if curl -fsS "http://127.0.0.1:${HOST_PORT}/" | grep -q "Hello Hono!"; then
-                echo "🚀 Production API service healthy ✅ - Root endpoint responding"
+                echo "🚀 Production Chat API service healthy ✅ - Root endpoint responding"
 
                 # Additional check for API endpoint
                 if curl -fsS "http://127.0.0.1:${HOST_PORT}/v1/chat" -X POST \
                   -H "Content-Type: application/json" \
                   -d '{"messages":[]}' > /dev/null 2>&1; then
-                  echo "🚀 Production API endpoints healthy ✅"
+                  echo "🚀 Production Chat API endpoints healthy ✅"
                 else
-                  echo "⚠️ Production API endpoints responding but may have issues"
+                  echo "⚠️ Production Chat API endpoints responding but may have issues"
                 fi
 
-                # Check worker container is running
-                if sudo docker ps --format '{{.Names}}' | grep -q "^$WORKER_CONTAINER_NAME$"; then
-                  echo "🚀 Production Worker container running ✅"
+                # Check RAG API container is running
+                if sudo docker ps --format '{{.Names}}' | grep -q "^$RAG_API_CONTAINER_NAME$"; then
+                  echo "🚀 Production RAG API container running ✅"
+                else
+                  echo "⚠️ Production RAG API container not running"
+                  sudo docker logs "$RAG_API_CONTAINER_NAME" || true
+                fi
+
+                # Check RAG worker container is running
+                if sudo docker ps --format '{{.Names}}' | grep -q "^$RAG_WORKER_CONTAINER_NAME$"; then
+                  echo "🚀 Production RAG Worker container running ✅"
                   echo "🎉 Production deployment completed successfully!"
                 else
-                  echo "⚠️ Production Worker container not running"
-                  sudo docker logs "$WORKER_CONTAINER_NAME" || true
+                  echo "⚠️ Production RAG Worker container not running"
+                  sudo docker logs "$RAG_WORKER_CONTAINER_NAME" || true
                 fi
 
                 exit 0
@@ -436,10 +470,12 @@ jobs:
             done
 
             echo "❌ Production service failed health check, dumping logs"
-            echo "API logs:"
+            echo "Chat API logs:"
             sudo docker logs "$API_CONTAINER_NAME" || true
             sudo docker inspect "$API_CONTAINER_NAME" --format 'Exit={{.State.ExitCode}} OOM={{.State.OOMKilled}} Error={{.State.Error}}' || true
-            echo "Worker logs:"
-            sudo docker logs "$WORKER_CONTAINER_NAME" || true
+            echo "RAG API logs:"
+            sudo docker logs "$RAG_API_CONTAINER_NAME" || true
+            echo "RAG Worker logs:"
+            sudo docker logs "$RAG_WORKER_CONTAINER_NAME" || true
             exit 1
 
