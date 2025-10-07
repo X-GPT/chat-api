@@ -74,9 +74,16 @@ ENV PATH="/app/.venv/bin:$PATH"
 USER nonroot
 WORKDIR /app
 
-# Health check (process check)
+# Health check (check /healthz endpoint)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD pgrep -f "rag_python.worker.worker" || exit 1
+    CMD python -c "import sys; import http.client; \
+try: \
+	conn = http.client.HTTPConnection('localhost', 8080, timeout=5); \
+	conn.request('GET', '/healthz'); \
+	resp = conn.getresponse(); \
+	sys.exit(0) if resp.status == 200 else sys.exit(1); \
+except Exception: \
+	sys.exit(1)"
 
 # Run worker
 CMD ["python", "-m", "rag_python.worker.worker"]
