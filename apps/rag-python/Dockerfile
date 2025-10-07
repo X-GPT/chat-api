@@ -45,14 +45,16 @@ EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import sys; import http.client; \
-try: \
-		conn = http.client.HTTPConnection('localhost', 8000, timeout=5); \
-		conn.request('GET', '/api/v1/health'); \
-		resp = conn.getresponse(); \
-		sys.exit(0) if resp.status == 200 else sys.exit(1); \
-except Exception: \
-		sys.exit(1)"
+    CMD python - <<'PY'
+import sys, urllib.request, os
+port = os.getenv("HEALTH_PORT", "8000")
+endpoint = os.getenv("HEALTH_ENDPOINT", "/api/v1/health")
+try:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}{endpoint}", timeout=5) as r:
+        sys.exit(0 if r.status == 200 else 1)
+except Exception:
+    sys.exit(1)
+PY
 
 # Run FastAPI
 CMD ["fastapi", "run", "src/rag_python/main.py", "--host", "0.0.0.0", "--port", "8000"]
@@ -76,14 +78,16 @@ WORKDIR /app
 
 # Health check (check /healthz endpoint)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import sys; import http.client; \
-try: \
-	conn = http.client.HTTPConnection('localhost', 8080, timeout=5); \
-	conn.request('GET', '/healthz'); \
-	resp = conn.getresponse(); \
-	sys.exit(0) if resp.status == 200 else sys.exit(1); \
-except Exception: \
-	sys.exit(1)"
+    CMD python - <<'PY'
+import sys, urllib.request, os
+port = os.getenv("HEALTH_PORT", "8080")
+endpoint = os.getenv("HEALTH_ENDPOINT", "/healthz")
+try:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}{endpoint}", timeout=5) as r:
+        sys.exit(0 if r.status == 200 else 1)
+except Exception:
+    sys.exit(1)
+PY
 
 # Run worker
 CMD ["python", "-m", "rag_python.worker.worker"]
