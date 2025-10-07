@@ -53,7 +53,5 @@ services:
         awslogs-group: /apps/rag-python-staging
         awslogs-stream: ec2-${REPO_NAME}-staging-worker
         awslogs-create-group: "true"
-    deploy:
-      replicas: 1  # 1 workers for staging
 
-
+# To scale rag-worker locally, use: docker-compose up --scale rag-worker=N

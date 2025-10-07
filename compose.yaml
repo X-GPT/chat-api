@@ -31,5 +31,4 @@ services:
     env_file:
       - ./apps/rag-python/.env
     restart: always
-    deploy:
-      replicas: 1  # Scale as needed
+    # To scale rag-worker locally, use: docker-compose up --scale rag-worker=N

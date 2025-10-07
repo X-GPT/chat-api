@@ -161,7 +161,11 @@ class MessageProcessor:
                 logger.error(f"Exception during message processing: {result}")
                 failed_count += 1
             else:
-                assert isinstance(result, tuple)  # Type narrowing for type checker
+                if not isinstance(result, tuple):
+                    logger.error(f"Invalid result type: {type(result)}")
+                    failed_count += 1
+                    continue
+
                 success, receipt_handle = result
                 if success:
                     successful_receipts.append(receipt_handle)

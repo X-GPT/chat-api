@@ -45,7 +45,14 @@ EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/api/v1/health || exit 1
+    CMD python -c "import sys; import http.client; \
+try: \
+		conn = http.client.HTTPConnection('localhost', 8000, timeout=5); \
+		conn.request('GET', '/api/v1/health'); \
+		resp = conn.getresponse(); \
+		sys.exit(0) if resp.status == 200 else sys.exit(1); \
+except Exception: \
+		sys.exit(1)"
 
 # Run FastAPI
 CMD ["fastapi", "run", "src/rag_python/main.py", "--host", "0.0.0.0", "--port", "8000"]

@@ -3,7 +3,12 @@
 from typing import Protocol
 
 from rag_python.core.logging import get_logger
-from rag_python.schemas.events import SQSMessage, SummaryEvent, SummaryLifecycleMessage
+from rag_python.schemas.events import (
+    SQSMessage,
+    SummaryAction,
+    SummaryEvent,
+    SummaryLifecycleMessage,
+)
 
 logger = get_logger(__name__)
 
@@ -41,11 +46,11 @@ class SummaryLifecycleHandler:
         )
 
         # Handle different actions
-        if event.action.value == "CREATED":
+        if event.action == SummaryAction.CREATED:
             return await self._handle_created(event)
-        elif event.action.value == "UPDATED":
+        elif event.action == SummaryAction.UPDATED:
             return await self._handle_updated(event)
-        elif event.action.value == "DELETED":
+        elif event.action == SummaryAction.DELETED:
             return await self._handle_deleted(event)
         else:
             logger.warning(f"Unknown action: {event.action}")
