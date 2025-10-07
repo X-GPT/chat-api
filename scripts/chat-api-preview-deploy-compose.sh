@@ -5,9 +5,10 @@ set -x
 
 BRANCH_SLUG="$1"         # e.g. "pr-123" (lowercase, non-alnum -> '-')
 IMAGE="$2"               # full ECR image ref for chat-api
-RAG_IMAGE="${3:-$2}"     # full ECR image ref for rag-python (used for both rag-api and rag-worker)
-CONTAINER_PORT="${4:-3000}"
-REPO_SLUG="${5:-chat-api}" # repository identifier to avoid conflicts
+RAG_API_IMAGE="${3:-$2}" # full ECR image ref for rag-api
+RAG_WORKER_IMAGE="${4:-$3}" # full ECR image ref for rag-worker
+CONTAINER_PORT="${5:-3000}"
+REPO_SLUG="${6:-chat-api}" # repository identifier to avoid conflicts
 
 # Sanitize/validate the slug (lowercase letters, digits, dash)
 if [[ ! "$BRANCH_SLUG" =~ ^[a-z0-9-]+$ ]]; then
@@ -38,19 +39,21 @@ COMPOSE_FILE="/etc/mymemo/chat-api/compose.preview.yaml"
 export REPO_SLUG
 export BRANCH_SLUG
 export IMAGE
-export RAG_IMAGE
+export RAG_API_IMAGE
+export RAG_WORKER_IMAGE
 export CONTAINER_PORT
 
 echo "Pulling Docker images..."
 sudo -n docker pull "$IMAGE" || { echo "Failed to pull chat-api image"; exit 1; }
-sudo -n docker pull "$RAG_IMAGE" || { echo "Failed to pull rag-python image"; exit 1; }
+sudo -n docker pull "$RAG_API_IMAGE" || { echo "Failed to pull rag-api image"; exit 1; }
+sudo -n docker pull "$RAG_WORKER_IMAGE" || { echo "Failed to pull rag-worker image"; exit 1; }
 
 echo "Stopping existing compose project if any"
-sudo -n API_IMAGE="$IMAGE" RAG_API_IMAGE="$RAG_IMAGE" RAG_WORKER_IMAGE="$RAG_IMAGE" CONTAINER_PORT="$CONTAINER_PORT" REPO_SLUG="$REPO_SLUG" BRANCH_SLUG="$BRANCH_SLUG" \
+sudo -n API_IMAGE="$IMAGE" RAG_API_IMAGE="$RAG_API_IMAGE" RAG_WORKER_IMAGE="$RAG_WORKER_IMAGE" CONTAINER_PORT="$CONTAINER_PORT" REPO_SLUG="$REPO_SLUG" BRANCH_SLUG="$BRANCH_SLUG" \
   docker-compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" down || true
 
 echo "Starting new container via docker compose"
-sudo -n API_IMAGE="$IMAGE" RAG_API_IMAGE="$RAG_IMAGE" RAG_WORKER_IMAGE="$RAG_IMAGE" CONTAINER_PORT="$CONTAINER_PORT" REPO_SLUG="$REPO_SLUG" BRANCH_SLUG="$BRANCH_SLUG" \
+sudo -n API_IMAGE="$IMAGE" RAG_API_IMAGE="$RAG_API_IMAGE" RAG_WORKER_IMAGE="$RAG_WORKER_IMAGE" CONTAINER_PORT="$CONTAINER_PORT" REPO_SLUG="$REPO_SLUG" BRANCH_SLUG="$BRANCH_SLUG" \
   docker-compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" up -d || {
   echo "Failed to start Docker container via compose";
   exit 1;
@@ -123,5 +126,8 @@ echo "Containers:"
 echo "  - $API_CONTAINER (port $PORT)"
 echo "  - $RAG_API_CONTAINER"
 echo "  - $RAG_WORKER_CONTAINER"
+echo "Images:"
+echo "  - Chat API: $IMAGE"
+echo "  - RAG API: $RAG_API_IMAGE"
+echo "  - RAG Worker: $RAG_WORKER_IMAGE"
 echo "========================================="
-

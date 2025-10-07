@@ -10,6 +10,7 @@ dependencies = [
     "ruff>=0.13.3",
     "aioboto3>=15.0.0",
     "boto3>=1.39.11",
+    "aiohttp>=3.11.0",
 ]
 
 [build-system]
@@ -42,4 +43,3 @@ packages = ["src/rag_python"]
 
 [tool.uv.sources]
 types-aioboto3-custom = { path = "vendored/types_aioboto3_custom-15.1.0-py3-none-any.whl" }
-
