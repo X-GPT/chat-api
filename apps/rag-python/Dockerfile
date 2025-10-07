@@ -45,16 +45,16 @@ EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python - <<'PY'
+  CMD sh -c 'python - "$@" <<EOF
 import sys, urllib.request, os
 port = os.getenv("HEALTH_PORT", "8000")
 endpoint = os.getenv("HEALTH_ENDPOINT", "/api/v1/health")
 try:
-    with urllib.request.urlopen(f"http://127.0.0.1:{port}{endpoint}", timeout=5) as r:
+    with urllib.request.urlopen(f"http://127.0.0.1:{port}{endpoint}", timeout=3) as r:
         sys.exit(0 if r.status == 200 else 1)
 except Exception:
     sys.exit(1)
-PY
+EOF'
 
 # Run FastAPI
 CMD ["fastapi", "run", "src/rag_python/main.py", "--host", "0.0.0.0", "--port", "8000"]
@@ -78,7 +78,7 @@ WORKDIR /app
 
 # Health check (check /healthz endpoint)
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python - <<'PY'
+    CMD sh -c 'python - "$@" <<EOF
 import sys, urllib.request, os
 port = os.getenv("HEALTH_PORT", "8080")
 endpoint = os.getenv("HEALTH_ENDPOINT", "/healthz")
@@ -87,7 +87,7 @@ try:
         sys.exit(0 if r.status == 200 else 1)
 except Exception:
     sys.exit(1)
-PY
+EOF'
 
 # Run worker
 CMD ["python", "-m", "rag_python.worker.worker"]
