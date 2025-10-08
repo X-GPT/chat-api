@@ -48,7 +48,8 @@ class QdrantService:
             ValueError: If required Qdrant configuration is missing or invalid.
         """
         self.settings = settings
-        self.collection_name = settings.qdrant_collection_name
+        self.children_collection_name = settings.qdrant_children_collection
+        self.parents_collection_name = settings.qdrant_parents_collection
         self.vector_size = 1536  # text-embedding-3-small dimension
 
         # Validate required Qdrant configuration early
@@ -68,10 +69,9 @@ class QdrantService:
             prefer_grpc=settings.qdrant_prefer_grpc,
         )
 
-        # Initialize QdrantVectorStore with hybrid search enabled
-        # Both client and aclient are needed for proper initialization
-        self.vector_store = QdrantVectorStore(
-            collection_name=self.collection_name,
+        # Initialize children vector store with hybrid search enabled
+        self.children_vector_store = QdrantVectorStore(
+            collection_name=self.children_collection_name,
             client=self.client,
             aclient=self.aclient,
             enable_hybrid=True,
@@ -79,9 +79,19 @@ class QdrantService:
             batch_size=20,
         )
 
+        # Initialize parents vector store (no hybrid, just dense embeddings)
+        self.parents_vector_store = QdrantVectorStore(
+            collection_name=self.parents_collection_name,
+            client=self.client,
+            aclient=self.aclient,
+            enable_hybrid=False,
+            batch_size=20,
+        )
+
         logger.info(
-            f"Qdrant vector store initialized with hybrid search "
-            f"for collection: {self.collection_name}"
+            f"Qdrant vector stores initialized: "
+            f"children={self.children_collection_name} (hybrid search), "
+            f"parents={self.parents_collection_name} (dense only)"
         )
 
     def _validate_config(self) -> None:
@@ -105,9 +115,9 @@ class QdrantService:
         if not self.settings.qdrant_api_key:
             errors.append("QDRANT_API_KEY is not set")
 
-        # Check collection name
-        if not self.collection_name:
-            errors.append("QDRANT_COLLECTION_NAME is not set")
+        # Check collection prefix
+        if not self.settings.qdrant_collection_prefix:
+            errors.append("QDRANT_COLLECTION_PREFIX is not set")
 
         if errors:
             error_msg = "Qdrant configuration validation failed:\n" + "\n".join(
@@ -117,40 +127,58 @@ class QdrantService:
             raise ValueError(error_msg)
 
     async def collection_exists(self) -> bool:
-        """Check if the collection exists."""
-        return await self.aclient.collection_exists(collection_name=self.collection_name)
+        """Check if both collections exist."""
+        children_exists = await self.aclient.collection_exists(
+            collection_name=self.children_collection_name
+        )
+        parents_exists = await self.aclient.collection_exists(
+            collection_name=self.parents_collection_name
+        )
+        return children_exists and parents_exists
 
     async def ensure_collection_exists(self) -> None:
-        """Ensure the collection exists with proper configuration.
+        """Ensure both collections exist with proper configuration.
 
-        QdrantVectorStore automatically creates the collection with hybrid search
-        configuration when adding documents, so we just verify it's accessible.
+        QdrantVectorStore automatically creates collections with proper
+        configuration when adding documents, so we just verify they're accessible.
         """
         try:
-            # Check if collection exists
+            # Check if collections exist
             collections = await self.aclient.get_collections()
             collection_names = [c.name for c in collections.collections]
 
-            if self.collection_name in collection_names:
-                logger.info(f"Collection {self.collection_name} already exists")
+            # Check children collection
+            if self.children_collection_name in collection_names:
+                logger.info(f"Collection {self.children_collection_name} already exists")
             else:
                 logger.info(
-                    f"Collection {self.collection_name} will be created on first document insert"
+                    f"Collection {self.children_collection_name} "
+                    f"will be created on first document insert"
+                )
+
+            # Check parents collection
+            if self.parents_collection_name in collection_names:
+                logger.info(f"Collection {self.parents_collection_name} already exists")
+            else:
+                logger.info(
+                    f"Collection {self.parents_collection_name} "
+                    f"will be created on first document insert"
                 )
 
         except Exception as e:
-            logger.error(f"Error ensuring collection exists: {e}")
+            logger.error(f"Error ensuring collections exist: {e}")
             raise
 
     async def delete_by_summary_id(self, summary_id: int) -> None:
-        """Delete all points associated with a summary ID.
+        """Delete all points associated with a summary ID from both collections.
 
         Args:
             summary_id: The summary ID to filter by.
         """
         try:
+            # Delete from children collection
             await self.aclient.delete(
-                collection_name=self.collection_name,
+                collection_name=self.children_collection_name,
                 points_selector=Filter(
                     must=[
                         FieldCondition(
@@ -160,23 +188,48 @@ class QdrantService:
                     ]
                 ),
             )
-            logger.info(f"Deleted all points for summary_id: {summary_id}")
+            # Delete from parents collection
+            await self.aclient.delete(
+                collection_name=self.parents_collection_name,
+                points_selector=Filter(
+                    must=[
+                        FieldCondition(
+                            key="summary_id",
+                            match=MatchValue(value=summary_id),
+                        )
+                    ]
+                ),
+            )
+            logger.info(f"Deleted all points for summary_id {summary_id} from both collections")
         except Exception as e:
             logger.error(f"Error deleting points for summary_id {summary_id}: {e}")
             raise
 
-    async def delete_by_ids(self, point_ids: list[ExtendedPointId]) -> None:
-        """Delete points by their IDs.
+    async def delete_by_ids(
+        self,
+        point_ids: list[ExtendedPointId],
+        collection: str = "both",
+    ) -> None:
+        """Delete points by their IDs from specified collection(s).
 
         Args:
             point_ids: List of point IDs to delete.
+            collection: Which collection to delete from ("children", "parents", or "both").
         """
         try:
-            await self.aclient.delete(
-                collection_name=self.collection_name,
-                points_selector=PointIdsList(points=point_ids),
-            )
-            logger.info(f"Deleted {len(point_ids)} points from {self.collection_name}")
+            if collection in ("children", "both"):
+                await self.aclient.delete(
+                    collection_name=self.children_collection_name,
+                    points_selector=PointIdsList(points=point_ids),
+                )
+                logger.info(f"Deleted {len(point_ids)} points from {self.children_collection_name}")
+
+            if collection in ("parents", "both"):
+                await self.aclient.delete(
+                    collection_name=self.parents_collection_name,
+                    points_selector=PointIdsList(points=point_ids),
+                )
+                logger.info(f"Deleted {len(point_ids)} points from {self.parents_collection_name}")
         except Exception as e:
             logger.error(f"Error deleting points by IDs: {e}")
             raise
@@ -187,16 +240,14 @@ class QdrantService:
         member_code: str | None = None,
         limit: int = 10,
         sparse_top_k: int = 10,
-        node_type: str = "child",
     ) -> list[SearchResult]:
-        """Search for similar vectors using hybrid search.
+        """Search for similar vectors using hybrid search on children collection.
 
         Args:
             query_vector: The query vector to search with.
             member_code: Optional member code to filter by.
             limit: Maximum number of results to return.
             sparse_top_k: Number of results from sparse (BM25) search.
-            node_type: Type of node to search (default: "child").
 
         Returns:
             List of search results with scores and payloads.
@@ -219,14 +270,6 @@ class QdrantService:
                         operator=FilterOperator.EQ,
                     )
                 )
-            # Always filter by node_type for child nodes
-            filter_list.append(
-                MetadataFilter(
-                    key="node_type",
-                    value=node_type,
-                    operator=FilterOperator.EQ,
-                )
-            )
 
             metadata_filters = (
                 MetadataFilters(
@@ -246,10 +289,13 @@ class QdrantService:
                 filters=metadata_filters,
             )
 
-            # Perform hybrid search
-            result = await self.vector_store.aquery(query)
+            # Perform hybrid search on children collection
+            result = await self.children_vector_store.aquery(query)
 
-            logger.info(f"Hybrid search found {len(result.nodes) if result.nodes else 0} results")
+            logger.info(
+                f"Hybrid search on children collection found "
+                f"{len(result.nodes) if result.nodes else 0} results"
+            )
 
             # Convert to SearchResult format
             search_results: list[SearchResult] = []
@@ -269,16 +315,24 @@ class QdrantService:
             logger.error(f"Error performing hybrid search: {e}")
             raise
 
-    async def get_collection_info(self) -> CollectionInfo:
+    async def get_collection_info(self, collection: str = "children") -> CollectionInfo:
         """Get collection information.
+
+        Args:
+            collection: Which collection to get info for ("children" or "parents").
 
         Returns:
             Dictionary with collection information.
         """
         try:
-            info = await self.aclient.get_collection(collection_name=self.collection_name)
+            collection_name = (
+                self.children_collection_name
+                if collection == "children"
+                else self.parents_collection_name
+            )
+            info = await self.aclient.get_collection(collection_name=collection_name)
             return CollectionInfo(
-                name=self.collection_name,
+                name=collection_name,
                 vectors_count=info.vectors_count,
                 points_count=info.points_count,
                 status=info.status,
@@ -288,17 +342,17 @@ class QdrantService:
             raise
 
     async def get_node_by_id(self, node_id: str) -> BaseNode | None:
-        """Retrieve a node by its ID (useful for fetching parent nodes).
+        """Retrieve a parent node by its ID.
 
         Args:
-            node_id: The ID of the node to retrieve.
+            node_id: The ID of the parent node to retrieve.
 
         Returns:
-            The node if found, None otherwise.
+            The parent node if found, None otherwise.
         """
         try:
             points = await self.aclient.retrieve(
-                collection_name=self.collection_name,
+                collection_name=self.parents_collection_name,
                 ids=[node_id],
             )
 
@@ -315,5 +369,36 @@ class QdrantService:
             )
             return node
         except Exception as e:
-            logger.error(f"Error retrieving node by ID: {e}")
+            logger.error(f"Error retrieving parent node by ID: {e}")
+            raise
+
+    async def get_child_by_id(self, node_id: str) -> BaseNode | None:
+        """Retrieve a child node by its ID.
+
+        Args:
+            node_id: The ID of the child node to retrieve.
+
+        Returns:
+            The child node if found, None otherwise.
+        """
+        try:
+            points = await self.aclient.retrieve(
+                collection_name=self.children_collection_name,
+                ids=[node_id],
+            )
+
+            if not points:
+                return None
+
+            point = points[0]
+            # Reconstruct node from point payload
+            payload = point.payload if point.payload else {}
+            node = TextNode(
+                id_=str(point.id),
+                text=payload.get("text", ""),
+                metadata=payload,
+            )
+            return node
+        except Exception as e:
+            logger.error(f"Error retrieving child node by ID: {e}")
             raise

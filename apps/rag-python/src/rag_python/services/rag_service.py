@@ -161,7 +161,6 @@ class RAGService:
                     child_node.metadata["chunk_index"] = len(all_child_nodes)
                     child_node.metadata["summary_id"] = summary_id
                     child_node.metadata["member_code"] = member_code
-                    child_node.metadata["node_type"] = "child"
 
                     all_child_nodes.append(child_node)
 
@@ -169,7 +168,6 @@ class RAGService:
                 parent_node.metadata["summary_id"] = summary_id
                 parent_node.metadata["member_code"] = member_code
                 parent_node.metadata["chunk_index"] = parent_idx
-                parent_node.metadata["node_type"] = "parent"
 
                 parent_child_map[parent_id] = {
                     "parent": parent_node,
@@ -185,27 +183,41 @@ class RAGService:
             for parent_id, parent_data in parent_child_map.items():
                 parent_nodes_list.append(parent_data["parent"])
 
-            # Step 4: Store ALL nodes (children + parents) with automatic embedding generation
+            # Step 4: Store child and parent nodes to separate collections
             # VectorStoreIndex will:
             # 1. Generate embeddings for all nodes using embed_model
-            # 2. Store them via the vector store with hybrid indexing (dense + sparse BM25)
-            all_nodes = all_child_nodes + parent_nodes_list
+            # 2. Store them via the vector store with appropriate indexing
 
-            storage_context = StorageContext.from_defaults(
-                vector_store=self.qdrant_service.vector_store
+            # Store child nodes to children collection (with hybrid indexing)
+            children_storage_context = StorageContext.from_defaults(
+                vector_store=self.qdrant_service.children_vector_store
             )
-
-            # Create index - this automatically generates embeddings and stores to Qdrant
-            _index = VectorStoreIndex(
-                nodes=all_nodes,
-                storage_context=storage_context,
+            _children_index = VectorStoreIndex(
+                nodes=all_child_nodes,
+                storage_context=children_storage_context,
                 embed_model=self.embed_model,
                 show_progress=True,
             )
 
             logger.info(
-                f"Stored {len(all_nodes)} nodes to Qdrant "
-                f"({len(all_child_nodes)} children + {len(parent_nodes_list)} parents)"
+                f"Stored {len(all_child_nodes)} child nodes to "
+                f"{self.qdrant_service.children_collection_name}"
+            )
+
+            # Store parent nodes to parents collection (dense embeddings only)
+            parents_storage_context = StorageContext.from_defaults(
+                vector_store=self.qdrant_service.parents_vector_store
+            )
+            _parents_index = VectorStoreIndex(
+                nodes=parent_nodes_list,
+                storage_context=parents_storage_context,
+                embed_model=self.embed_model,
+                show_progress=True,
+            )
+
+            logger.info(
+                f"Stored {len(parent_nodes_list)} parent nodes to "
+                f"{self.qdrant_service.parents_collection_name}"
             )
 
             stats = IngestionStats(
@@ -213,7 +225,7 @@ class RAGService:
                 member_code=member_code,
                 parent_chunks=len(parent_nodes_list),
                 child_chunks=len(all_child_nodes),
-                total_nodes=len(all_nodes),
+                total_nodes=len(all_child_nodes) + len(parent_nodes_list),
                 operation=None,
             )
 

@@ -15,7 +15,7 @@ def settings():
     return Settings(
         qdrant_url="http://localhost:6333",
         qdrant_api_key="test-key",
-        qdrant_collection_name="test-collection",
+        qdrant_collection_prefix="test-collection",
         openai_api_key="test-openai-key",
         openai_embedding_model="text-embedding-3-small",
     )
@@ -26,6 +26,7 @@ def mock_qdrant_service():
     """Create mock Qdrant service."""
     mock_service = MagicMock(spec=QdrantService)
     mock_service.search = AsyncMock()
+    mock_service.get_node_by_id = AsyncMock()
     return mock_service
 
 
@@ -59,8 +60,10 @@ async def test_search_basic(
     mock_qdrant_service: MagicMock,
     mock_embed_model: MagicMock,
 ):
-    """Test basic search functionality."""
-    # Mock search results
+    """Test basic search functionality with parent-based results."""
+    from llama_index.core.schema import TextNode
+
+    # Mock search results (2 children from same parent)
     mock_results = [
         SearchResult(
             id="1_child_0_0",
@@ -71,7 +74,6 @@ async def test_search_basic(
                 "text": "This is a test chunk",
                 "parent_id": "1_parent_0",
                 "chunk_index": 0,
-                "node_type": "child",
             },
         ),
         SearchResult(
@@ -83,11 +85,18 @@ async def test_search_basic(
                 "text": "Another test chunk",
                 "parent_id": "1_parent_0",
                 "chunk_index": 1,
-                "node_type": "child",
             },
         ),
     ]
     mock_qdrant_service.search.return_value = mock_results
+
+    # Mock parent node retrieval
+    mock_parent = TextNode(
+        id_="1_parent_0",
+        text="Full parent text containing both chunks",
+        metadata={"summary_id": 1, "member_code": "user123", "chunk_index": 0},
+    )
+    mock_qdrant_service.get_node_by_id.return_value = mock_parent
 
     # Perform search
     response = await search_service.search(
@@ -102,18 +111,34 @@ async def test_search_basic(
     # Verify Qdrant search was called
     mock_qdrant_service.search.assert_called_once()
 
-    # Verify response structure
+    # Verify parent was fetched
+    mock_qdrant_service.get_node_by_id.assert_called_once_with("1_parent_0")
+
+    # Verify response structure - now returns 1 parent with 2 matching children
     assert response.query == "test query"
-    assert response.total_results == 2
+    assert response.total_results == 1  # 1 parent (not 2 children)
     assert len(response.results) == 1
     assert "1" in response.results
 
     summary_result = response.results["1"]
     assert summary_result.summary_id == 1
     assert summary_result.member_code == "user123"
-    assert summary_result.total_chunks == 2
+    assert summary_result.total_chunks == 1  # 1 parent chunk
     assert summary_result.max_score == 0.9
-    assert len(summary_result.chunks) == 2
+    assert len(summary_result.chunks) == 1
+
+    # Verify parent chunk structure
+    parent_chunk = summary_result.chunks[0]
+    assert parent_chunk.id == "1_parent_0"
+    assert parent_chunk.text == "Full parent text containing both chunks"
+    assert parent_chunk.max_score == 0.9
+    assert len(parent_chunk.matching_children) == 2
+
+    # Verify matching children are included
+    assert parent_chunk.matching_children[0].id == "1_child_0_0"
+    assert parent_chunk.matching_children[0].score == 0.9
+    assert parent_chunk.matching_children[1].id == "1_child_0_1"
+    assert parent_chunk.matching_children[1].score == 0.8
 
 
 @pytest.mark.asyncio
@@ -122,6 +147,8 @@ async def test_search_multiple_summaries(
     mock_qdrant_service: MagicMock,
 ):
     """Test search with results from multiple summaries."""
+    from llama_index.core.schema import TextNode
+
     mock_results = [
         SearchResult(
             id="1_child_0_0",
@@ -132,7 +159,6 @@ async def test_search_multiple_summaries(
                 "text": "Chunk from summary 1",
                 "parent_id": "1_parent_0",
                 "chunk_index": 0,
-                "node_type": "child",
             },
         ),
         SearchResult(
@@ -144,7 +170,6 @@ async def test_search_multiple_summaries(
                 "text": "Chunk from summary 2",
                 "parent_id": "2_parent_0",
                 "chunk_index": 0,
-                "node_type": "child",
             },
         ),
         SearchResult(
@@ -156,29 +181,50 @@ async def test_search_multiple_summaries(
                 "text": "Another chunk from summary 1",
                 "parent_id": "1_parent_0",
                 "chunk_index": 1,
-                "node_type": "child",
             },
         ),
     ]
     mock_qdrant_service.search.return_value = mock_results
 
+    # Mock parent node retrieval for multiple parents
+    def get_parent_by_id(parent_id: str):
+        if parent_id == "1_parent_0":
+            return TextNode(
+                id_="1_parent_0",
+                text="Full parent text from summary 1",
+                metadata={"summary_id": 1, "member_code": "user123", "chunk_index": 0},
+            )
+        elif parent_id == "2_parent_0":
+            return TextNode(
+                id_="2_parent_0",
+                text="Full parent text from summary 2",
+                metadata={"summary_id": 2, "member_code": "user123", "chunk_index": 0},
+            )
+        return None
+
+    mock_qdrant_service.get_node_by_id.side_effect = get_parent_by_id
+
     response = await search_service.search(query="test", limit=10)
 
-    assert response.total_results == 3
+    # With parent-based results: 2 parents (not 3 children)
+    assert response.total_results == 2
     assert len(response.results) == 2
     assert "1" in response.results
     assert "2" in response.results
 
-    # Verify chunks are sorted by score
+    # Verify parent-based results
     summary1 = response.results["1"]
-    assert summary1.total_chunks == 2
+    assert summary1.total_chunks == 1  # 1 parent chunk
     assert summary1.max_score == 0.9
-    assert summary1.chunks[0].score == 0.9
-    assert summary1.chunks[1].score == 0.7
+    # Verify the parent has 2 matching children
+    assert len(summary1.chunks[0].matching_children) == 2
+    assert summary1.chunks[0].matching_children[0].score == 0.9
+    assert summary1.chunks[0].matching_children[1].score == 0.7
 
     summary2 = response.results["2"]
-    assert summary2.total_chunks == 1
+    assert summary2.total_chunks == 1  # 1 parent chunk
     assert summary2.max_score == 0.85
+    assert len(summary2.chunks[0].matching_children) == 1
 
 
 @pytest.mark.asyncio
@@ -187,6 +233,8 @@ async def test_search_with_summary_id_filter(
     mock_qdrant_service: MagicMock,
 ):
     """Test search with summary_id filter."""
+    from llama_index.core.schema import TextNode
+
     mock_results = [
         SearchResult(
             id="1_child_0_0",
@@ -197,7 +245,6 @@ async def test_search_with_summary_id_filter(
                 "text": "Chunk from summary 1",
                 "parent_id": "1_parent_0",
                 "chunk_index": 0,
-                "node_type": "child",
             },
         ),
         SearchResult(
@@ -209,11 +256,28 @@ async def test_search_with_summary_id_filter(
                 "text": "Chunk from summary 2",
                 "parent_id": "2_parent_0",
                 "chunk_index": 0,
-                "node_type": "child",
             },
         ),
     ]
     mock_qdrant_service.search.return_value = mock_results
+
+    # Mock parent node retrieval
+    def get_parent_by_id(parent_id: str):
+        if parent_id == "1_parent_0":
+            return TextNode(
+                id_="1_parent_0",
+                text="Full parent text from summary 1",
+                metadata={"summary_id": 1, "member_code": "user123", "chunk_index": 0},
+            )
+        elif parent_id == "2_parent_0":
+            return TextNode(
+                id_="2_parent_0",
+                text="Full parent text from summary 2",
+                metadata={"summary_id": 2, "member_code": "user123", "chunk_index": 0},
+            )
+        return None
+
+    mock_qdrant_service.get_node_by_id.side_effect = get_parent_by_id
 
     # Search with summary_id filter
     response = await search_service.search(
@@ -250,6 +314,8 @@ async def test_search_with_none_payload(
     mock_qdrant_service: MagicMock,
 ):
     """Test search handles results with None payload gracefully."""
+    from llama_index.core.schema import TextNode
+
     mock_results = [
         SearchResult(id="1", score=0.9, payload=None),
         SearchResult(
@@ -261,11 +327,18 @@ async def test_search_with_none_payload(
                 "text": "Valid chunk",
                 "parent_id": "2_parent_0",
                 "chunk_index": 0,
-                "node_type": "child",
             },
         ),
     ]
     mock_qdrant_service.search.return_value = mock_results
+
+    # Mock parent node retrieval
+    mock_parent = TextNode(
+        id_="2_parent_0",
+        text="Full parent text from summary 2",
+        metadata={"summary_id": 2, "member_code": "user123", "chunk_index": 0},
+    )
+    mock_qdrant_service.get_node_by_id.return_value = mock_parent
 
     response = await search_service.search(query="test", limit=10)
 

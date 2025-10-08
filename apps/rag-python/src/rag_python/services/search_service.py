@@ -1,12 +1,18 @@
 """Search service for hybrid semantic + keyword search."""
 
+import asyncio
 from collections import defaultdict
 
 from llama_index.embeddings.openai import OpenAIEmbedding  # type: ignore
 
 from rag_python.config import Settings
 from rag_python.core.logging import get_logger
-from rag_python.schemas.search import SearchResponse, SearchResultItem, SummaryResults
+from rag_python.schemas.search import (
+    MatchingChild,
+    SearchResponse,
+    SearchResultItem,
+    SummaryResults,
+)
 from rag_python.services.qdrant_service import QdrantService
 
 logger = get_logger(__name__)
@@ -62,73 +68,119 @@ class SearchService:
             # Convert query to embedding
             query_embedding = await self.embed_model.aget_text_embedding(query)
 
-            # Perform hybrid search using QdrantService
+            # Perform hybrid search using QdrantService (searches children collection)
             search_results = await self.qdrant_service.search(
                 query_vector=query_embedding,
                 member_code=member_code,
                 limit=limit,
                 sparse_top_k=sparse_top_k,
-                node_type="child",  # Only search child nodes
             )
 
-            logger.info(f"Found {len(search_results)} raw search results")
+            logger.info(f"Found {len(search_results)} child chunk matches")
 
-            # Aggregate results by summary_id
-            aggregated: dict[int, list[tuple[SearchResultItem, float]]] = defaultdict(list)
+            # Step 1: Group results by parent_id
+            from rag_python.services.qdrant_service import SearchResult
+
+            parent_groups: dict[str, list[tuple[SearchResult, float]]] = defaultdict(list)
 
             for result in search_results:
                 if result.payload is None:
                     continue
 
-                result_summary_id = result.payload.get("summary_id")
+                parent_id = result.payload.get("parent_id")
+                if not parent_id:
+                    logger.warning(f"Child result {result.id} has no parent_id")
+                    continue
+
+                parent_groups[parent_id].append((result, result.score))
+
+            logger.info(f"Grouped results into {len(parent_groups)} unique parents")
+
+            # Step 2: Batch fetch all parent nodes
+            parent_ids = list(parent_groups.keys())
+            parent_nodes = await asyncio.gather(
+                *[self.qdrant_service.get_node_by_id(pid) for pid in parent_ids]
+            )
+
+            # Step 3: Build deduplicated parent-based results
+            parent_results: list[tuple[SearchResultItem, int]] = []
+
+            for parent_id, parent_node in zip(parent_ids, parent_nodes):
+                if not parent_node:
+                    logger.warning(f"Parent node {parent_id} not found")
+                    continue
+
+                child_matches = parent_groups[parent_id]
+
+                # Create MatchingChild objects
+                matching_children = [
+                    MatchingChild(
+                        id=str(child_result.id),
+                        text=(child_result.payload.get("text", "") if child_result.payload else ""),
+                        score=child_score,
+                        chunk_index=(
+                            child_result.payload.get("chunk_index", 0)
+                            if child_result.payload
+                            else 0
+                        ),
+                    )
+                    for child_result, child_score in child_matches
+                ]
+
+                # Sort matching children by score (best first)
+                matching_children.sort(key=lambda x: x.score, reverse=True)
+
+                # Get summary_id from parent metadata
+                result_summary_id = parent_node.metadata.get("summary_id")
                 if result_summary_id is None:
+                    logger.warning(f"Parent {parent_id} has no summary_id")
                     continue
 
                 # Apply summary_id filter if specified
                 if summary_id is not None and result_summary_id != summary_id:
                     continue
 
-                # Create SearchResultItem
-                item = SearchResultItem(
-                    id=str(result.id),
-                    text=result.payload.get("text", ""),
-                    score=result.score,
-                    parent_id=result.payload.get("parent_id"),
-                    chunk_index=result.payload.get("chunk_index", 0),
+                # Create parent-based SearchResultItem
+                parent_item = SearchResultItem(
+                    id=parent_id,
+                    text=parent_node.get_content(),
+                    max_score=max(c.score for c in matching_children),
+                    chunk_index=parent_node.metadata.get("chunk_index", 0),
+                    matching_children=matching_children,
                 )
 
-                aggregated[result_summary_id].append((item, result.score))
+                parent_results.append((parent_item, result_summary_id))
 
-            # Build final response with SummaryResults
+            logger.info(f"Created {len(parent_results)} parent-based results")
+
+            # Step 4: Aggregate by summary_id
+            aggregated: dict[int, list[SearchResultItem]] = defaultdict(list)
+
+            for item, result_summary_id in parent_results:
+                aggregated[result_summary_id].append(item)
+
+            # Step 5: Build final response with SummaryResults
             results_by_summary: dict[str, SummaryResults] = {}
 
-            for sum_id, items_with_scores in aggregated.items():
-                # Sort by score descending
-                items_with_scores.sort(key=lambda x: x[1], reverse=True)
+            for sum_id, items in aggregated.items():
+                # Sort by max_score descending
+                items.sort(key=lambda x: x.max_score, reverse=True)
 
-                # Extract items without scores
-                items = [item for item, _ in items_with_scores]
-                scores = [score for _, score in items_with_scores]
-
-                # Get member_code from first item
-                first_payload = next(
-                    (
-                        r.payload
-                        for r in search_results
-                        if r.payload and r.payload.get("summary_id") == sum_id
-                    ),
-                    None,
-                )
-                member_code_value = (
-                    first_payload.get("member_code", "unknown") if first_payload else "unknown"
-                )
+                # Get member_code from first parent's metadata
+                member_code_value = "unknown"
+                if items:
+                    # Get from parent node metadata (already loaded)
+                    for parent_node in parent_nodes:
+                        if parent_node and parent_node.metadata.get("summary_id") == sum_id:
+                            member_code_value = parent_node.metadata.get("member_code", "unknown")
+                            break
 
                 summary_result = SummaryResults(
                     summary_id=sum_id,
                     member_code=member_code_value,
                     chunks=items,
                     total_chunks=len(items),
-                    max_score=max(scores) if scores else 0.0,
+                    max_score=max(item.max_score for item in items) if items else 0.0,
                 )
 
                 results_by_summary[str(sum_id)] = summary_result

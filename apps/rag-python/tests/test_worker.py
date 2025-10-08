@@ -1,6 +1,6 @@
 """Tests for SQS worker functionality."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -28,20 +28,20 @@ def mock_settings():
 
 
 @pytest.fixture
-def sqs_client(mock_settings):
+def sqs_client(mock_settings: Settings):
     """Create SQS client instance."""
     return SQSClient(mock_settings)
 
 
 @pytest.fixture
-def message_processor(mock_settings):
+def message_processor(mock_settings: Settings):
     """Create message processor instance."""
     return MessageProcessor(mock_settings)
 
 
 def test_message_handler_registry():
     """Test message handler registry."""
-    registry = MessageHandlerRegistry()
+    registry = MessageHandlerRegistry(rag_service=AsyncMock())
 
     # Check that default handlers are registered
     assert registry.get_handler("summary:lifecycle") is not None
@@ -50,45 +50,55 @@ def test_message_handler_registry():
 @pytest.mark.asyncio
 async def test_summary_lifecycle_handler():
     """Test summary lifecycle handler."""
-    handler = SummaryLifecycleHandler()
+    mock_rag_service = AsyncMock()
+    mock_rag_service.ingest_document = AsyncMock(return_value={"chunks_created": 1})
+
+    handler = SummaryLifecycleHandler(rag_service=mock_rag_service)
 
     message = SummaryLifecycleMessage(
         type="summary:lifecycle",
         data=SummaryEvent(
             id=12345,
-            member_code="user123",
-            team_code="team456",
-            parse_content="This is a test summary content",
+            memberCode="user123",
+            teamCode="team456",
+            parseContent="This is a test summary content",
             action=SummaryAction.CREATED,
-            timestamp=datetime.now(timezone.utc),
+            timestamp=datetime.now(UTC),
         ),
     )
 
     result = await handler.handle(message)
     assert result is True
 
+    # Verify ingest_document was called with correct arguments
+    mock_rag_service.ingest_document.assert_called_once_with(
+        summary_id=12345,
+        member_code="user123",
+        content="This is a test summary content",
+    )
 
-def test_sqs_client_initialization(sqs_client, mock_settings):
+
+def test_sqs_client_initialization(sqs_client: SQSClient, mock_settings: Settings):
     """Test SQS client initialization."""
     assert sqs_client.settings == mock_settings
     assert sqs_client.session is not None
 
 
 @pytest.mark.asyncio
-async def test_message_processor_parse_message_body(message_processor):
+async def test_message_processor_parse_message_body(message_processor: MessageProcessor):
     """Test message body parsing."""
     valid_json = '{"type": "summary:lifecycle", "data": {"id": 123}}'
-    result = message_processor._parse_message_body(valid_json)
+    result = message_processor._parse_message_body(valid_json)  # pyright: ignore[reportPrivateUsage]
     assert result is not None
     assert result["type"] == "summary:lifecycle"
 
     invalid_json = "not a json"
-    result = message_processor._parse_message_body(invalid_json)
+    result = message_processor._parse_message_body(invalid_json)  # pyright: ignore[reportPrivateUsage]
     assert result is None
 
 
 @pytest.mark.asyncio
-async def test_message_processor_validate_message(message_processor):
+async def test_message_processor_validate_message(message_processor: MessageProcessor):
     """Test message validation."""
     valid_message_data = {
         "type": "summary:lifecycle",
@@ -98,11 +108,11 @@ async def test_message_processor_validate_message(message_processor):
             "teamCode": "team456",
             "parseContent": "Test content",
             "action": "CREATED",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "timestamp": datetime.now(UTC).isoformat(),
         },
     }
 
-    message = await message_processor._validate_and_parse_message(valid_message_data)
+    message = await message_processor._validate_and_parse_message(valid_message_data)  # pyright: ignore[reportPrivateUsage]
     assert message is not None
     assert message.type == "summary:lifecycle"
     assert message.data.id == 12345
@@ -110,7 +120,7 @@ async def test_message_processor_validate_message(message_processor):
 
 
 @pytest.mark.asyncio
-async def test_message_processor_extract_metadata(message_processor):
+async def test_message_processor_extract_metadata(message_processor: MessageProcessor):
     """Test metadata extraction."""
     sqs_message = {
         "MessageId": "msg-123",
@@ -118,7 +128,7 @@ async def test_message_processor_extract_metadata(message_processor):
         "Attributes": {"ApproximateReceiveCount": "2"},
     }
 
-    metadata = message_processor._extract_metadata(sqs_message)
+    metadata = message_processor._extract_metadata(sqs_message)  # pyright: ignore[reportPrivateUsage]
     assert metadata.message_id == "msg-123"
     assert metadata.receipt_handle == "receipt-456"
     assert metadata.approximate_receive_count == 2
@@ -126,7 +136,7 @@ async def test_message_processor_extract_metadata(message_processor):
 
 @pytest.mark.asyncio
 @patch("rag_python.worker.sqs_client.aioboto3.Session")
-async def test_sqs_receive_messages_empty(mock_session, sqs_client):
+async def test_sqs_receive_messages_empty(mock_session: MagicMock, sqs_client: SQSClient):
     """Test receiving messages when queue is empty."""
     mock_sqs = AsyncMock()
     mock_sqs.receive_message = AsyncMock(return_value={"Messages": []})

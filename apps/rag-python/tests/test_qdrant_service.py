@@ -15,7 +15,7 @@ def settings():
     return Settings(
         qdrant_url="http://localhost:6333",
         qdrant_api_key="test-key",
-        qdrant_collection_name="test-collection",
+        qdrant_collection_prefix="test-collection",
     )
 
 
@@ -31,8 +31,17 @@ def mock_async_qdrant_client():
 
 
 @pytest.fixture
-def mock_vector_store():
-    """Create mock QdrantVectorStore."""
+def mock_children_vector_store():
+    """Create mock children vector store."""
+    mock_store = MagicMock()
+    mock_store.async_add = AsyncMock()
+    mock_store.aquery = AsyncMock()
+    return mock_store
+
+
+@pytest.fixture
+def mock_parents_vector_store():
+    """Create mock parents vector store."""
     mock_store = MagicMock()
     mock_store.async_add = AsyncMock()
     mock_store.aquery = AsyncMock()
@@ -41,7 +50,10 @@ def mock_vector_store():
 
 @pytest.fixture
 def qdrant_service(
-    settings: Settings, mock_async_qdrant_client: MagicMock, mock_vector_store: MagicMock
+    settings: Settings,
+    mock_async_qdrant_client: MagicMock,
+    mock_children_vector_store: MagicMock,
+    mock_parents_vector_store: MagicMock,
 ):
     """Create Qdrant service with mocked clients."""
     with (
@@ -49,10 +61,12 @@ def qdrant_service(
         patch("rag_python.services.qdrant_service.QdrantVectorStore") as mock_store_class,
     ):
         mock_client_class.return_value = mock_async_qdrant_client
-        mock_store_class.return_value = mock_vector_store
+        # Return different stores for children and parents
+        mock_store_class.side_effect = [mock_children_vector_store, mock_parents_vector_store]
         service = QdrantService(settings)
         service.aclient = mock_async_qdrant_client
-        service.vector_store = mock_vector_store
+        service.children_vector_store = mock_children_vector_store
+        service.parents_vector_store = mock_parents_vector_store
         yield service
 
 
@@ -76,13 +90,14 @@ async def test_ensure_collection_exists_new(
 async def test_ensure_collection_exists_already_exists(
     qdrant_service: QdrantService,
 ):
-    """Test when collection already exists."""
+    """Test when collections already exist."""
     from qdrant_client.models import CollectionDescription
 
-    # Mock collection exists
-    mock_collection = CollectionDescription(name="test-collection")
+    # Mock both collections exist
+    mock_children = CollectionDescription(name="test-collection_children")
+    mock_parents = CollectionDescription(name="test-collection_parents")
     qdrant_service.aclient.get_collections = AsyncMock(
-        return_value=CollectionsResponse(collections=[mock_collection])
+        return_value=CollectionsResponse(collections=[mock_children, mock_parents])
     )
 
     await qdrant_service.ensure_collection_exists()
@@ -93,7 +108,7 @@ async def test_ensure_collection_exists_already_exists(
 
 @pytest.mark.asyncio
 async def test_delete_by_summary_id(qdrant_service: QdrantService):
-    """Test deleting points by summary ID."""
+    """Test deleting points by summary ID from both collections."""
     summary_id = 123
 
     # Configure mock
@@ -101,30 +116,31 @@ async def test_delete_by_summary_id(qdrant_service: QdrantService):
 
     await qdrant_service.delete_by_summary_id(summary_id)
 
-    # Verify delete was called with correct filter
-    qdrant_service.aclient.delete.assert_called_once()
-    call_kwargs = qdrant_service.aclient.delete.call_args[1]
-    assert call_kwargs["collection_name"] == "test-collection"
-    assert call_kwargs["points_selector"] is not None
+    # Verify delete was called twice (once for each collection)
+    assert qdrant_service.aclient.delete.call_count == 2
+    call_args_list = qdrant_service.aclient.delete.call_args_list
+    collection_names = {call[1]["collection_name"] for call in call_args_list}
+    assert collection_names == {"test-collection_children", "test-collection_parents"}
 
 
 @pytest.mark.asyncio
 async def test_delete_by_ids(qdrant_service: QdrantService):
-    """Test deleting points by IDs."""
+    """Test deleting points by IDs from both collections."""
     # Configure mock
     qdrant_service.aclient.delete = AsyncMock()
 
     await qdrant_service.delete_by_ids(point_ids=["point1", "point2", "point3"])
 
-    # Verify delete was called
-    qdrant_service.aclient.delete.assert_called_once()
-    call_kwargs = qdrant_service.aclient.delete.call_args[1]
-    assert call_kwargs["collection_name"] == "test-collection"
+    # Verify delete was called twice (default is "both")
+    assert qdrant_service.aclient.delete.call_count == 2
+    call_args_list = qdrant_service.aclient.delete.call_args_list
+    collection_names = {call[1]["collection_name"] for call in call_args_list}
+    assert collection_names == {"test-collection_children", "test-collection_parents"}
 
 
 @pytest.mark.asyncio
 async def test_search_hybrid(qdrant_service: QdrantService):
-    """Test hybrid search for similar vectors."""
+    """Test hybrid search for similar vectors on children collection."""
     from llama_index.core.schema import TextNode
     from llama_index.core.vector_stores import VectorStoreQueryResult
 
@@ -135,14 +151,14 @@ async def test_search_hybrid(qdrant_service: QdrantService):
     mock_node = TextNode(
         id_="node1",
         text="Sample text",
-        metadata={"summary_id": 1, "member_code": "user123", "node_type": "child"},
+        metadata={"summary_id": 1, "member_code": "user123", "parent_id": "parent1"},
     )
     mock_result = VectorStoreQueryResult(
         nodes=[mock_node],
         similarities=[0.95],
         ids=["node1"],
     )
-    qdrant_service.vector_store.aquery = AsyncMock(return_value=mock_result)
+    qdrant_service.children_vector_store.aquery = AsyncMock(return_value=mock_result)
 
     results = await qdrant_service.search(
         query_vector=query_vector,
@@ -151,8 +167,8 @@ async def test_search_hybrid(qdrant_service: QdrantService):
         sparse_top_k=10,
     )
 
-    # Verify hybrid search was called
-    qdrant_service.vector_store.aquery.assert_called_once()
+    # Verify hybrid search was called on children collection
+    qdrant_service.children_vector_store.aquery.assert_called_once()
 
     # Verify results
     assert len(results) == 1
@@ -174,7 +190,7 @@ async def test_search_without_member_filter(qdrant_service: QdrantService):
         similarities=[],
         ids=[],
     )
-    qdrant_service.vector_store.aquery = AsyncMock(return_value=mock_result)
+    qdrant_service.children_vector_store.aquery = AsyncMock(return_value=mock_result)
 
     results = await qdrant_service.search(
         query_vector=query_vector,
@@ -182,8 +198,8 @@ async def test_search_without_member_filter(qdrant_service: QdrantService):
         limit=5,
     )
 
-    # Verify search was called
-    qdrant_service.vector_store.aquery.assert_called_once()
+    # Verify search was called on children collection
+    qdrant_service.children_vector_store.aquery.assert_called_once()
     assert len(results) == 0
 
 
@@ -197,18 +213,23 @@ async def test_get_collection_info(qdrant_service: QdrantService):
     mock_info.status = "green"
     qdrant_service.aclient.get_collection = AsyncMock(return_value=mock_info)
 
+    # Test getting children collection info (default)
     info = await qdrant_service.get_collection_info()
 
     # Verify info
-    assert info.name == "test-collection"
+    assert info.name == "test-collection_children"
     assert info.vectors_count == 100
     assert info.points_count == 50
     assert info.status == "green"
 
+    # Test getting parents collection info
+    info_parents = await qdrant_service.get_collection_info(collection="parents")
+    assert info_parents.name == "test-collection_parents"
+
 
 @pytest.mark.asyncio
 async def test_get_node_by_id(qdrant_service: QdrantService):
-    """Test retrieving a node by ID."""
+    """Test retrieving a parent node by ID."""
     from llama_index.core.schema import TextNode
 
     # Mock retrieved point
@@ -218,18 +239,23 @@ async def test_get_node_by_id(qdrant_service: QdrantService):
         "text": "Parent node text",
         "summary_id": 1,
         "member_code": "user1",
-        "node_type": "parent",
+        "chunk_index": 0,
     }
     qdrant_service.aclient.retrieve = AsyncMock(return_value=[mock_point])
 
     node = await qdrant_service.get_node_by_id("parent_1")
 
-    # Verify node was retrieved
+    # Verify node was retrieved from parents collection
+    qdrant_service.aclient.retrieve.assert_called_once()
+    call_kwargs = qdrant_service.aclient.retrieve.call_args[1]
+    assert call_kwargs["collection_name"] == "test-collection_parents"
+
+    # Verify node content
     assert node is not None
     assert isinstance(node, TextNode)
     assert node.id_ == "parent_1"
     assert node.text == "Parent node text"
-    assert node.metadata["node_type"] == "parent"
+    assert node.metadata["summary_id"] == 1
 
 
 @pytest.mark.asyncio

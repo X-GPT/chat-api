@@ -17,7 +17,7 @@ def settings():
         openai_embedding_model="text-embedding-3-small",
         qdrant_url="http://localhost:6333",
         qdrant_api_key="test-qdrant-key",
-        qdrant_collection_name="test-summaries",
+        qdrant_collection_prefix="test-summaries",
         chunk_size=512,
         chunk_overlap=128,
         parent_chunk_size=2048,
@@ -42,8 +42,9 @@ def qdrant_service(settings: Settings, mock_qdrant_clients: tuple[MagicMock, Mag
     service.ensure_collection_exists = AsyncMock()
     service.collection_exists = AsyncMock(return_value=True)
     service.delete_by_summary_id = AsyncMock()
-    # Mock the vector_store that will be used by VectorStoreIndex
-    service.vector_store = MagicMock()
+    # Mock both vector stores that will be used by VectorStoreIndex
+    service.children_vector_store = MagicMock()
+    service.parents_vector_store = MagicMock()
     return service
 
 
@@ -91,7 +92,7 @@ def mock_semantic_parser():
         parser_instance = MagicMock()
 
         # Make it return a real TextNode so get_content() works naturally
-        def mock_parse(documents: list[Any]) -> list[TextNode]:
+        async def mock_parse(documents: list[Any]) -> list[TextNode]:
             # Return one parent node per document
             nodes: list[TextNode] = []
             for doc in documents:
@@ -99,7 +100,8 @@ def mock_semantic_parser():
                 nodes.append(node)
             return nodes
 
-        parser_instance.get_nodes_from_documents = MagicMock(side_effect=mock_parse)
+        # Mock the ASYNC version which is what the actual code calls
+        parser_instance.aget_nodes_from_documents = AsyncMock(side_effect=mock_parse)
         mock.return_value = parser_instance
         yield mock
 
@@ -162,28 +164,29 @@ async def test_ingest_document(
     # Verify Qdrant methods were called
     qdrant_service.ensure_collection_exists.assert_called_once()  # type: ignore
 
-    # Verify VectorStoreIndex was called once with all nodes
-    mock_vector_store_index.assert_called_once()
-    call_kwargs = mock_vector_store_index.call_args.kwargs
-    all_nodes = call_kwargs["nodes"]
+    # Verify VectorStoreIndex was called TWICE (children + parents)
+    assert mock_vector_store_index.call_count == 2
 
-    # Separate children and parents
-    child_nodes = [n for n in all_nodes if n.metadata.get("node_type") == "child"]
-    parent_nodes = [n for n in all_nodes if n.metadata.get("node_type") == "parent"]
+    # First call is for children, second is for parents
+    children_call_kwargs = mock_vector_store_index.call_args_list[0].kwargs
+    parents_call_kwargs = mock_vector_store_index.call_args_list[1].kwargs
+
+    child_nodes = children_call_kwargs["nodes"]
+    parent_nodes = parents_call_kwargs["nodes"]
 
     assert len(child_nodes) == stats.child_chunks
     assert len(parent_nodes) == stats.parent_chunks
 
+    # Verify child node metadata (no node_type field with two-collection architecture)
     for child_node in child_nodes:
         assert child_node.metadata["summary_id"] == summary_id
         assert child_node.metadata["member_code"] == member_code
         assert "parent_id" in child_node.metadata
-        assert child_node.metadata["node_type"] == "child"
 
+    # Verify parent node metadata (no node_type field with two-collection architecture)
     for parent_node in parent_nodes:
         assert parent_node.metadata["summary_id"] == summary_id
         assert parent_node.metadata["member_code"] == member_code
-        assert parent_node.metadata["node_type"] == "parent"
 
 
 @pytest.mark.asyncio
@@ -207,8 +210,8 @@ async def test_update_document(
     # Verify delete was called
     qdrant_service.delete_by_summary_id.assert_called_once_with(summary_id)  # type: ignore
 
-    # Verify re-ingestion happened (VectorStoreIndex called once with all nodes)
-    assert mock_vector_store_index.call_count >= 1
+    # Verify re-ingestion happened (VectorStoreIndex called twice: children + parents)
+    assert mock_vector_store_index.call_count == 2
 
     # Verify stats
     assert stats.summary_id == summary_id
@@ -279,13 +282,12 @@ async def test_parent_child_relationship(
         content=content,
     )
 
-    # Get all nodes that were passed to VectorStoreIndex
-    call_kwargs = mock_vector_store_index.call_args.kwargs
-    all_nodes = call_kwargs["nodes"]
+    # Get nodes from both VectorStoreIndex calls (children first, parents second)
+    children_call_kwargs = mock_vector_store_index.call_args_list[0].kwargs
+    parents_call_kwargs = mock_vector_store_index.call_args_list[1].kwargs
 
-    # Separate children and parents
-    child_nodes = [n for n in all_nodes if n.metadata.get("node_type") == "child"]
-    parent_nodes = [n for n in all_nodes if n.metadata.get("node_type") == "parent"]
+    child_nodes = children_call_kwargs["nodes"]
+    parent_nodes = parents_call_kwargs["nodes"]
 
     # Verify relationships
     assert len(parent_nodes) > 0
@@ -318,9 +320,11 @@ async def test_member_code_filtering(
         content=content,
     )
 
-    # Get all nodes that were passed to VectorStoreIndex
-    call_kwargs = mock_vector_store_index.call_args.kwargs
-    all_nodes = call_kwargs["nodes"]
+    # Get nodes from both VectorStoreIndex calls (children first, parents second)
+    children_call_kwargs = mock_vector_store_index.call_args_list[0].kwargs
+    parents_call_kwargs = mock_vector_store_index.call_args_list[1].kwargs
+
+    all_nodes = children_call_kwargs["nodes"] + parents_call_kwargs["nodes"]
 
     # Verify all nodes have the member_code
     for node in all_nodes:

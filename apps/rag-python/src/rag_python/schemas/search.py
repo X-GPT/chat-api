@@ -15,14 +15,23 @@ class SearchRequest(BaseModel):
     )
 
 
-class SearchResultItem(BaseModel):
-    """Individual search result item."""
+class MatchingChild(BaseModel):
+    """Child chunk that matched the query."""
 
-    id: str = Field(..., description="Chunk ID")
-    text: str = Field(..., description="Chunk text content")
-    score: float = Field(..., description="Relevance score")
-    parent_id: str | None = Field(None, description="Parent chunk ID")
-    chunk_index: int = Field(..., description="Index of the chunk")
+    id: str = Field(..., description="Child chunk ID")
+    text: str = Field(..., description="Child chunk text that matched")
+    score: float = Field(..., description="Match score")
+    chunk_index: int = Field(..., description="Child chunk index")
+
+
+class SearchResultItem(BaseModel):
+    """Individual search result item (parent context with matching children)."""
+
+    id: str = Field(..., description="Parent ID")
+    text: str = Field(..., description="Full parent text content")
+    max_score: float = Field(..., description="Best score among matching children")
+    chunk_index: int = Field(..., description="Parent chunk index")
+    matching_children: list[MatchingChild] = Field(..., description="Child chunks that matched")
 
 
 class SummaryResults(BaseModel):
