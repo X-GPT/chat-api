@@ -45,10 +45,16 @@ class QdrantService:
 
         Args:
             settings: Application settings.
+
+        Raises:
+            ValueError: If required Qdrant configuration is missing or invalid.
         """
         self.settings = settings
         self.collection_name = settings.qdrant_collection_name
         self.vector_size = 1536  # text-embedding-3-small dimension
+
+        # Validate required Qdrant configuration early
+        self._validate_config()
 
         # Initialize both sync and async Qdrant clients
         # LlamaIndex QdrantVectorStore requires both for initialization
@@ -79,6 +85,38 @@ class QdrantService:
             f"Qdrant vector store initialized with hybrid search "
             f"for collection: {self.collection_name}"
         )
+
+    def _validate_config(self) -> None:
+        """Validate Qdrant configuration.
+
+        Raises:
+            ValueError: If required configuration is missing or invalid.
+        """
+        errors: list[str] = []
+
+        # Check QDRANT_URL
+        if not self.settings.qdrant_url:
+            errors.append("QDRANT_URL is not set")
+        elif self.settings.qdrant_url == "https://your-cluster.qdrant.io":
+            errors.append(
+                "QDRANT_URL is set to the default placeholder value. "
+                "Please set it to your actual Qdrant instance URL"
+            )
+
+        # Check QDRANT_API_KEY
+        if not self.settings.qdrant_api_key:
+            errors.append("QDRANT_API_KEY is not set")
+
+        # Check collection name
+        if not self.collection_name:
+            errors.append("QDRANT_COLLECTION_NAME is not set")
+
+        if errors:
+            error_msg = "Qdrant configuration validation failed:\n" + "\n".join(
+                f"  - {err}" for err in errors
+            )
+            logger.error(error_msg)
+            raise ValueError(error_msg)
 
     async def ensure_collection_exists(self) -> None:
         """Ensure the collection exists with proper configuration.
