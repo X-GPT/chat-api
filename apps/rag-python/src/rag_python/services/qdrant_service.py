@@ -7,7 +7,7 @@ from llama_index.core.vector_stores import VectorStoreQuery
 from llama_index.core.vector_stores.types import VectorStoreQueryMode
 from llama_index.vector_stores.qdrant import QdrantVectorStore  # type: ignore
 from pydantic import BaseModel
-from qdrant_client import AsyncQdrantClient
+from qdrant_client import AsyncQdrantClient, QdrantClient
 from qdrant_client.models import (
     CollectionStatus,
     ExtendedPointId,
@@ -50,7 +50,14 @@ class QdrantService:
         self.collection_name = settings.qdrant_collection_name
         self.vector_size = 1536  # text-embedding-3-small dimension
 
-        # Initialize async Qdrant client
+        # Initialize both sync and async Qdrant clients
+        # LlamaIndex QdrantVectorStore requires both for initialization
+        self.client = QdrantClient(
+            url=settings.qdrant_url,
+            api_key=settings.qdrant_api_key,
+            prefer_grpc=settings.qdrant_prefer_grpc,
+        )
+
         self.aclient = AsyncQdrantClient(
             url=settings.qdrant_url,
             api_key=settings.qdrant_api_key,
@@ -58,8 +65,10 @@ class QdrantService:
         )
 
         # Initialize QdrantVectorStore with hybrid search enabled
+        # Both client and aclient are needed for proper initialization
         self.vector_store = QdrantVectorStore(
             collection_name=self.collection_name,
+            client=self.client,
             aclient=self.aclient,
             enable_hybrid=True,
             fastembed_sparse_model="Qdrant/bm25",

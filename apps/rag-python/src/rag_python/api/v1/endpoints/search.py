@@ -3,7 +3,7 @@
 from fastapi import APIRouter, HTTPException, status
 
 from rag_python.core.logging import get_logger
-from rag_python.dependencies import SearchServiceDep  # pyright: ignore[reportUnknownVariableType]
+from rag_python.dependencies import SearchServiceDep
 from rag_python.schemas.search import SearchRequest, SearchResponse
 
 logger = get_logger(__name__)
