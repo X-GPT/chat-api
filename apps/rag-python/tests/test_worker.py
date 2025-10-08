@@ -24,6 +24,13 @@ def mock_settings():
         aws_region="us-east-1",
         sqs_max_messages=10,
         sqs_wait_time_seconds=20,
+        # Qdrant settings required for MessageProcessor initialization
+        qdrant_url="http://localhost:6333",
+        qdrant_api_key="test-key",
+        qdrant_collection_prefix="test-collection",
+        # OpenAI settings (optional but good to have)
+        openai_api_key="test-openai-key",
+        openai_embedding_model="text-embedding-3-small",
     )
 
 
@@ -34,9 +41,18 @@ def sqs_client(mock_settings: Settings):
 
 
 @pytest.fixture
-def message_processor(mock_settings: Settings):
-    """Create message processor instance."""
-    return MessageProcessor(mock_settings)
+def mock_qdrant_service():
+    """Create mock Qdrant service."""
+    mock_service = MagicMock()
+    return mock_service
+
+
+@pytest.fixture
+def message_processor(mock_settings: Settings, mock_qdrant_service: MagicMock):
+    """Create message processor instance with mocked QdrantService."""
+    with patch("rag_python.worker.processor.QdrantService", return_value=mock_qdrant_service):
+        processor = MessageProcessor(mock_settings)
+        yield processor
 
 
 def test_message_handler_registry():
