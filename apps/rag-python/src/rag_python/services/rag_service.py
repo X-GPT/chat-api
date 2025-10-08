@@ -209,8 +209,11 @@ class RAGService:
         try:
             logger.info(f"Updating document for summary_id={summary_id}")
 
-            # Delete old version
-            await self.delete_document(summary_id)
+            collection_exists = await self.qdrant_service.collection_exists()
+            # If collection exists, delete old version
+            if collection_exists:
+                logger.info("Collection exists, deleting old version")
+                await self.delete_document(summary_id)
 
             # Ingest new version
             stats = await self.ingest_document(summary_id, member_code, content)

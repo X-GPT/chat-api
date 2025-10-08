@@ -118,6 +118,10 @@ class QdrantService:
             logger.error(error_msg)
             raise ValueError(error_msg)
 
+    async def collection_exists(self) -> bool:
+        """Check if the collection exists."""
+        return await self.aclient.collection_exists(collection_name=self.collection_name)
+
     async def ensure_collection_exists(self) -> None:
         """Ensure the collection exists with proper configuration.
 
