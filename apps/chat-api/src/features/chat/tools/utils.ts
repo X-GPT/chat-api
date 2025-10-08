@@ -39,7 +39,7 @@ interface XmlOptions {
 	/** Indentation level (number of tabs). Defaults to 0 */
 	indent?: number;
 	/** Whether to escape content. Defaults to true */
-	escape?: boolean;
+	shouldEscape?: boolean;
 	/** Whether content is already XML (skip escaping). Defaults to false */
 	raw?: boolean;
 }
@@ -63,13 +63,17 @@ interface XmlOptions {
  * @example
  * // Tag with raw XML content (no escaping)
  * xml('items', itemsXml, { raw: true })
+ *
+ * @example
+ * // Disable automatic escaping
+ * xml('text', 'Tom & Jerry', { shouldEscape: false })
  */
 export function xml(
 	tag: string,
 	content?: XmlContent,
 	options: XmlOptions = {},
 ): string {
-	const { indent = 0, escape = true, raw = false } = options;
+	const { indent = 0, shouldEscape = true, raw = false } = options;
 	const tabs = "\t".repeat(indent);
 
 	// Handle empty/null content
@@ -85,16 +89,22 @@ export function xml(
 		}
 
 		// Check if content needs newlines (multi-line nested content)
-		const needsNewlines = content.some(item => item.includes('\n') || item.includes('\t'));
+		const needsNewlines = content.some(
+			(item) => item.includes("\n") || item.includes("\t"),
+		);
 
 		if (needsNewlines) {
-			return `${tabs}<${tag}>\n${content.join('\n')}\n${tabs}</${tag}>`;
+			return `${tabs}<${tag}>\n${content.join("\n")}\n${tabs}</${tag}>`;
 		}
-		return `${tabs}<${tag}>${content.join('')}</${tag}>`;
+		return `${tabs}<${tag}>${content.join("")}</${tag}>`;
 	}
 
 	// Handle string/number content
-	const processedContent = raw ? String(content) : (escape ? escapeXml(content) : String(content));
+	const processedContent = raw
+		? String(content)
+		: shouldEscape
+			? escapeXml(content)
+			: String(content);
 
 	// Single line output
 	return `${tabs}<${tag}>${processedContent}</${tag}>`;

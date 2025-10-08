@@ -78,8 +78,8 @@ describe("xml", () => {
 			);
 		});
 
-		it("can disable escaping with escape: false", () => {
-			expect(xml("text", "Tom & Jerry", { escape: false })).toBe(
+		it("can disable escaping with shouldEscape: false", () => {
+			expect(xml("text", "Tom & Jerry", { shouldEscape: false })).toBe(
 				"<text>Tom & Jerry</text>"
 			);
 		});
@@ -256,8 +256,8 @@ describe("xml", () => {
 	});
 
 	describe("option combinations", () => {
-		it("combines indent and escape options", () => {
-			expect(xml("text", "Tom & Jerry", { indent: 2, escape: false })).toBe(
+		it("combines indent and shouldEscape options", () => {
+			expect(xml("text", "Tom & Jerry", { indent: 2, shouldEscape: false })).toBe(
 				"\t\t<text>Tom & Jerry</text>"
 			);
 		});
@@ -268,8 +268,8 @@ describe("xml", () => {
 			);
 		});
 
-		it("raw option overrides escape option", () => {
-			expect(xml("text", "<tag>", { escape: true, raw: true })).toBe(
+		it("raw option overrides shouldEscape option", () => {
+			expect(xml("text", "<tag>", { shouldEscape: true, raw: true })).toBe(
 				"<text><tag></text>"
 			);
 		});

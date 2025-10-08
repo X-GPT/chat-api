@@ -33,5 +33,6 @@
 	],
 	"cursorpyright.analysis.extraPaths": [
 		"apps/rag-python/src"
-	]
+	],
+	"biome.lsp.bin": "./apps/chat-api/node_modules/@biomejs/cli-darwin-x64/biome"
 }
