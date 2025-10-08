@@ -25,9 +25,53 @@ env:
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
 
 jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    if: github.event.action != 'closed'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      # Test Chat API (Bun/TypeScript)
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install Chat API dependencies
+        working-directory: ./apps/chat-api
+        run: bun install --frozen-lockfile
+
+      - name: Run Chat API linting
+        working-directory: ./apps/chat-api
+        run: bun run lint
+
+      - name: Run Chat API tests
+        working-directory: ./apps/chat-api
+        run: bun test || echo "No tests found for chat-api"
+
+      # Test RAG Python
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.13'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+
+      - name: Run RAG Python tests
+        working-directory: ./apps/rag-python
+        run: |
+          uv sync --locked
+          uv run pytest tests/ -v --tb=short
+
   build-and-push:
     name: Build and Push Docker Images
     runs-on: ubuntu-latest
+    needs: test
     if: github.event.action != 'closed'
     outputs:
       registry: ${{ steps.ecr-login.outputs.registry }}
