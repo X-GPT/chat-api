@@ -3,6 +3,7 @@ import { z } from "zod";
 import { getRagSearchEndpoint } from "@/config/env";
 import type { EventMessage } from "../chat.events";
 import type { ChatLogger } from "../chat.logger";
+import { xml } from "./utils";
 
 // Tool definition for the LLM
 export const searchKnowledgeTool = tool({
@@ -145,68 +146,43 @@ export async function handleSearchKnowledge({
 
 function formatSearchResults(data: SearchResponse): string {
 	if (data.total_results === 0) {
-		return `
-<searchResults>
-	<query>${escapeXml(data.query)}</query>
-	<totalResults>0</totalResults>
-	<message>No results found for this query.</message>
-</searchResults>
-		`.trim();
+		return xml("searchResults", [
+			xml("query", data.query, { indent: 1 }),
+			xml("totalResults", 0, { indent: 1 }),
+			xml("message", "No results found for this query.", { indent: 1 }),
+		]);
 	}
 
-	const summariesXml = Object.entries(data.results)
-		.map(([summaryKey, summary]) => {
-			const chunksXml = summary.chunks
-				.map((chunk) => {
-					const childrenXml = chunk.matching_children
-						.map(
-							(child) => `
-				<matchingChild>
-					<chunkIndex>${child.chunk_index}</chunkIndex>
-					<score>${child.score.toFixed(4)}</score>
-					<text>${escapeXml(child.text)}</text>
-				</matchingChild>`,
-						)
-						.join("");
+	const summaries = Object.entries(data.results).map(([_summaryKey, summary]) => {
+		const chunks = summary.chunks.map((chunk) => {
+			const children = chunk.matching_children.map((child) =>
+				xml("matchingChild", [
+					xml("chunkIndex", child.chunk_index, { indent: 4 }),
+					xml("score", child.score.toFixed(4), { indent: 4 }),
+					xml("text", child.text, { indent: 4 }),
+				], { indent: 3 })
+			);
 
-					return `
-			<chunk>
-				<chunkIndex>${chunk.chunk_index}</chunkIndex>
-				<maxScore>${chunk.max_score.toFixed(4)}</maxScore>
-				<text>${escapeXml(chunk.text)}</text>
-				<matchingChildren>${childrenXml}
-				</matchingChildren>
-			</chunk>`;
-				})
-				.join("");
+			return xml("chunk", [
+				xml("chunkIndex", chunk.chunk_index, { indent: 3 }),
+				xml("maxScore", chunk.max_score.toFixed(4), { indent: 3 }),
+				xml("text", chunk.text, { indent: 3 }),
+				xml("matchingChildren", children, { indent: 3 }),
+			], { indent: 2 });
+		});
 
-			return `
-		<summary>
-			<summaryId>${summary.summary_id}</summaryId>
-			<memberCode>${escapeXml(summary.member_code)}</memberCode>
-			<maxScore>${summary.max_score.toFixed(4)}</maxScore>
-			<totalChunks>${summary.total_chunks}</totalChunks>
-			<chunks>${chunksXml}
-			</chunks>
-		</summary>`;
-		})
-		.join("");
+		return xml("summary", [
+			xml("summaryId", summary.summary_id, { indent: 2 }),
+			xml("memberCode", summary.member_code, { indent: 2 }),
+			xml("maxScore", summary.max_score.toFixed(4), { indent: 2 }),
+			xml("totalChunks", summary.total_chunks, { indent: 2 }),
+			xml("chunks", chunks, { indent: 2 }),
+		], { indent: 1 });
+	});
 
-	return `
-<searchResults>
-	<query>${escapeXml(data.query)}</query>
-	<totalResults>${data.total_results}</totalResults>
-	<summaries>${summariesXml}
-	</summaries>
-</searchResults>
-	`.trim();
-}
-
-function escapeXml(text: string): string {
-	return text
-		.replace(/&/g, "&amp;")
-		.replace(/</g, "&lt;")
-		.replace(/>/g, "&gt;")
-		.replace(/"/g, "&quot;")
-		.replace(/'/g, "&apos;");
+	return xml("searchResults", [
+		xml("query", data.query, { indent: 1 }),
+		xml("totalResults", data.total_results, { indent: 1 }),
+		xml("summaries", summaries, { indent: 1 }),
+	]);
 }
