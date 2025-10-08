@@ -10,9 +10,7 @@ export const searchKnowledgeTool = tool({
 	description:
 		"Search through ingested documents using hybrid semantic and keyword search. Use this to find relevant information from the user's knowledge base.",
 	inputSchema: z.object({
-		query: z
-			.string()
-			.describe("The search query to find relevant information"),
+		query: z.string().describe("The search query to find relevant information"),
 	}),
 });
 
@@ -99,7 +97,11 @@ export async function handleSearchKnowledge({
 		});
 
 		if (!response.ok) {
-			const errorText = await response.text().catch(() => "Unknown error");
+			const errorText = await response
+				.text()
+				.catch(
+					() => `Failed to read error response (status: ${response.status})`,
+				);
 			logger.error({
 				message: "RAG search request failed",
 				status: response.status,
@@ -125,8 +127,7 @@ export async function handleSearchKnowledge({
 		// Format results as XML
 		return formatSearchResults(data);
 	} catch (error) {
-		const errorMessage =
-			error instanceof Error ? error.message : String(error);
+		const errorMessage = error instanceof Error ? error.message : String(error);
 		logger.error({
 			message: "Error during knowledge search",
 			error: errorMessage,
@@ -153,32 +154,46 @@ function formatSearchResults(data: SearchResponse): string {
 		]);
 	}
 
-	const summaries = Object.entries(data.results).map(([_summaryKey, summary]) => {
-		const chunks = summary.chunks.map((chunk) => {
-			const children = chunk.matching_children.map((child) =>
-				xml("matchingChild", [
-					xml("chunkIndex", child.chunk_index, { indent: 4 }),
-					xml("score", child.score.toFixed(4), { indent: 4 }),
-					xml("text", child.text, { indent: 4 }),
-				], { indent: 3 })
+	const summaries = Object.entries(data.results).map(
+		([_summaryKey, summary]) => {
+			const chunks = summary.chunks.map((chunk) => {
+				const children = chunk.matching_children.map((child) =>
+					xml(
+						"matchingChild",
+						[
+							xml("chunkIndex", child.chunk_index, { indent: 4 }),
+							xml("score", child.score.toFixed(4), { indent: 4 }),
+							xml("text", child.text, { indent: 4 }),
+						],
+						{ indent: 3 },
+					),
+				);
+
+				return xml(
+					"chunk",
+					[
+						xml("chunkIndex", chunk.chunk_index, { indent: 3 }),
+						xml("maxScore", chunk.max_score.toFixed(4), { indent: 3 }),
+						xml("text", chunk.text, { indent: 3 }),
+						xml("matchingChildren", children, { indent: 3 }),
+					],
+					{ indent: 2 },
+				);
+			});
+
+			return xml(
+				"summary",
+				[
+					xml("summaryId", summary.summary_id, { indent: 2 }),
+					xml("memberCode", summary.member_code, { indent: 2 }),
+					xml("maxScore", summary.max_score.toFixed(4), { indent: 2 }),
+					xml("totalChunks", summary.total_chunks, { indent: 2 }),
+					xml("chunks", chunks, { indent: 2 }),
+				],
+				{ indent: 1 },
 			);
-
-			return xml("chunk", [
-				xml("chunkIndex", chunk.chunk_index, { indent: 3 }),
-				xml("maxScore", chunk.max_score.toFixed(4), { indent: 3 }),
-				xml("text", chunk.text, { indent: 3 }),
-				xml("matchingChildren", children, { indent: 3 }),
-			], { indent: 2 });
-		});
-
-		return xml("summary", [
-			xml("summaryId", summary.summary_id, { indent: 2 }),
-			xml("memberCode", summary.member_code, { indent: 2 }),
-			xml("maxScore", summary.max_score.toFixed(4), { indent: 2 }),
-			xml("totalChunks", summary.total_chunks, { indent: 2 }),
-			xml("chunks", chunks, { indent: 2 }),
-		], { indent: 1 });
-	});
+		},
+	);
 
 	return xml("searchResults", [
 		xml("query", data.query, { indent: 1 }),
