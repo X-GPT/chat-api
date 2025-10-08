@@ -2,9 +2,9 @@
 
 from typing import TypedDict
 
-from llama_index.core import Document
+from llama_index.core import Document, StorageContext, VectorStoreIndex
 from llama_index.core.node_parser import SemanticSplitterNodeParser, SentenceSplitter
-from llama_index.core.schema import BaseNode, TextNode
+from llama_index.core.schema import BaseNode
 from llama_index.embeddings.openai import OpenAIEmbedding  # type: ignore
 from pydantic import BaseModel
 
@@ -147,39 +147,42 @@ class RAGService:
 
             logger.info(f"Created {len(all_child_nodes)} child nodes")
 
-            # Step 3: Store child nodes with hybrid indexing via QdrantVectorStore
-            # QdrantVectorStore will automatically generate both dense and sparse vectors
-            await self.qdrant_service.add_nodes(all_child_nodes)
-
-            # Step 4: Store parent nodes separately
+            # Step 3: Prepare parent nodes list
             # Parent nodes are stored with metadata but won't be used for direct search
             # They will be retrieved by ID when needed for context expansion
-            parent_nodes_list: list[TextNode] = []
+            parent_nodes_list: list[BaseNode] = []
             for parent_id, parent_data in parent_child_map.items():
-                parent_node = parent_data["parent"]
-                # Create TextNode for parent with all metadata
-                parent_text_node = TextNode(
-                    id_=parent_id,
-                    text=parent_node.get_content(),
-                    metadata={
-                        "summary_id": summary_id,
-                        "member_code": member_code,
-                        "chunk_index": parent_node.metadata.get("chunk_index", 0),
-                        "node_type": "parent",
-                    },
-                )
-                parent_nodes_list.append(parent_text_node)
+                parent_nodes_list.append(parent_data["parent"])
 
-            # Store parent nodes (these will get vectors but we filter them out in search)
-            if parent_nodes_list:
-                await self.qdrant_service.add_nodes(parent_nodes_list)
+            # Step 4: Store ALL nodes (children + parents) with automatic embedding generation
+            # VectorStoreIndex will:
+            # 1. Generate embeddings for all nodes using embed_model
+            # 2. Store them via the vector store with hybrid indexing (dense + sparse BM25)
+            all_nodes = all_child_nodes + parent_nodes_list
+
+            storage_context = StorageContext.from_defaults(
+                vector_store=self.qdrant_service.vector_store
+            )
+
+            # Create index - this automatically generates embeddings and stores to Qdrant
+            _index = VectorStoreIndex(
+                nodes=all_nodes,
+                storage_context=storage_context,
+                embed_model=self.embed_model,
+                show_progress=True,
+            )
+
+            logger.info(
+                f"Stored {len(all_nodes)} nodes to Qdrant "
+                f"({len(all_child_nodes)} children + {len(parent_nodes_list)} parents)"
+            )
 
             stats = IngestionStats(
                 summary_id=summary_id,
                 member_code=member_code,
-                parent_chunks=len(parent_nodes),
+                parent_chunks=len(parent_nodes_list),
                 child_chunks=len(all_child_nodes),
-                total_nodes=len(all_child_nodes) + len(parent_nodes_list),
+                total_nodes=len(all_nodes),
                 operation=None,
             )
 

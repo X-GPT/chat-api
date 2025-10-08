@@ -1,7 +1,5 @@
 """Qdrant vector database service."""
 
-from collections.abc import Sequence
-
 from llama_index.core.schema import BaseNode, TextNode
 from llama_index.core.vector_stores import VectorStoreQuery
 from llama_index.core.vector_stores.types import VectorStoreQueryMode
@@ -142,26 +140,6 @@ class QdrantService:
 
         except Exception as e:
             logger.error(f"Error ensuring collection exists: {e}")
-            raise
-
-    async def add_nodes(
-        self,
-        nodes: Sequence[BaseNode],
-    ) -> list[str]:
-        """Add nodes to the vector store with hybrid indexing.
-
-        Args:
-            nodes: List of nodes to add.
-
-        Returns:
-            List of node IDs that were added.
-        """
-        try:
-            node_ids = await self.vector_store.async_add(nodes=list(nodes))
-            logger.info(f"Added {len(nodes)} nodes with hybrid indexing to {self.collection_name}")
-            return node_ids
-        except Exception as e:
-            logger.error(f"Error adding nodes: {e}")
             raise
 
     async def delete_by_summary_id(self, summary_id: int) -> None:

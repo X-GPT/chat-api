@@ -92,34 +92,6 @@ async def test_ensure_collection_exists_already_exists(
 
 
 @pytest.mark.asyncio
-async def test_add_nodes(qdrant_service: QdrantService):
-    """Test adding nodes to vector store."""
-    from llama_index.core.schema import TextNode
-
-    nodes = [
-        TextNode(
-            id_="node1",
-            text="Sample text 1",
-            metadata={"summary_id": 1, "member_code": "user1", "node_type": "child"},
-        ),
-        TextNode(
-            id_="node2",
-            text="Sample text 2",
-            metadata={"summary_id": 2, "member_code": "user2", "node_type": "child"},
-        ),
-    ]
-
-    # Configure mock return value
-    qdrant_service.vector_store.async_add = AsyncMock(return_value=["node1", "node2"])
-
-    node_ids = await qdrant_service.add_nodes(nodes)
-
-    # Verify add was called with list conversion
-    qdrant_service.vector_store.async_add.assert_called_once_with(nodes=list(nodes))
-    assert node_ids == ["node1", "node2"]
-
-
-@pytest.mark.asyncio
 async def test_delete_by_summary_id(qdrant_service: QdrantService):
     """Test deleting points by summary ID."""
     summary_id = 123
@@ -269,26 +241,3 @@ async def test_get_node_by_id_not_found(qdrant_service: QdrantService):
 
     # Verify None is returned
     assert node is None
-
-
-@pytest.mark.asyncio
-async def test_error_handling(qdrant_service: QdrantService):
-    """Test error handling in Qdrant operations."""
-    from llama_index.core.schema import TextNode
-
-    # Make add raise an exception
-    qdrant_service.vector_store.async_add = AsyncMock(
-        side_effect=Exception("Qdrant connection error")
-    )
-
-    nodes = [
-        TextNode(
-            id_="node1",
-            text="Sample text",
-            metadata={"summary_id": 1},
-        )
-    ]
-
-    # Should raise the exception
-    with pytest.raises(Exception, match="Qdrant connection error"):
-        await qdrant_service.add_nodes(nodes)

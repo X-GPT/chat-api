@@ -1,10 +1,8 @@
 """Tests for RAG service."""
 
-from typing import cast
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from llama_index.core.schema import BaseNode
 
 from rag_python.config import Settings
 from rag_python.services.qdrant_service import QdrantService
@@ -42,8 +40,10 @@ def qdrant_service(settings: Settings, mock_qdrant_clients: tuple[MagicMock, Mag
     service = QdrantService(settings)
     # Mock the methods we'll be calling
     service.ensure_collection_exists = AsyncMock()
-    service.add_nodes = AsyncMock(return_value=["node1", "node2"])
+    service.collection_exists = AsyncMock(return_value=True)
     service.delete_by_summary_id = AsyncMock()
+    # Mock the vector_store that will be used by VectorStoreIndex
+    service.vector_store = MagicMock()
     return service
 
 
@@ -105,11 +105,21 @@ def mock_semantic_parser():
 
 
 @pytest.fixture
+def mock_vector_store_index():
+    """Mock VectorStoreIndex to capture nodes being stored."""
+    with patch("rag_python.services.rag_service.VectorStoreIndex") as mock:
+        mock_instance = MagicMock()
+        mock.return_value = mock_instance
+        yield mock
+
+
+@pytest.fixture
 def rag_service(
     settings: Settings,
     qdrant_service: QdrantService,
     mock_openai_embedding: MagicMock,
     mock_semantic_parser: MagicMock,
+    mock_vector_store_index: MagicMock,
 ):
     """Create RAG service with mocked semantic parser and embedding.
 
@@ -125,6 +135,7 @@ def rag_service(
 async def test_ingest_document(
     rag_service: RAGService,
     qdrant_service: QdrantService,
+    mock_vector_store_index: MagicMock,
 ):
     """Test document ingestion."""
     summary_id = 123
@@ -150,24 +161,25 @@ async def test_ingest_document(
 
     # Verify Qdrant methods were called
     qdrant_service.ensure_collection_exists.assert_called_once()  # type: ignore
-    # add_nodes should be called twice: once for children, once for parents
-    assert qdrant_service.add_nodes.call_count == 2  # type: ignore
 
-    # Verify child nodes were added
-    first_call = qdrant_service.add_nodes.call_args_list[0]  # type: ignore
-    child_nodes = cast(list[BaseNode], first_call.args[0])
+    # Verify VectorStoreIndex was called once with all nodes
+    mock_vector_store_index.assert_called_once()
+    call_kwargs = mock_vector_store_index.call_args.kwargs
+    all_nodes = call_kwargs["nodes"]
+
+    # Separate children and parents
+    child_nodes = [n for n in all_nodes if n.metadata.get("node_type") == "child"]
+    parent_nodes = [n for n in all_nodes if n.metadata.get("node_type") == "parent"]
 
     assert len(child_nodes) == stats.child_chunks
+    assert len(parent_nodes) == stats.parent_chunks
+
     for child_node in child_nodes:
         assert child_node.metadata["summary_id"] == summary_id
         assert child_node.metadata["member_code"] == member_code
         assert "parent_id" in child_node.metadata
         assert child_node.metadata["node_type"] == "child"
 
-    # Verify parent nodes were added
-    second_call = qdrant_service.add_nodes.call_args_list[1]  # type: ignore
-    parent_nodes = cast(list[BaseNode], second_call.args[0])
-    assert len(parent_nodes) == stats.parent_chunks
     for parent_node in parent_nodes:
         assert parent_node.metadata["summary_id"] == summary_id
         assert parent_node.metadata["member_code"] == member_code
@@ -178,6 +190,7 @@ async def test_ingest_document(
 async def test_update_document(
     rag_service: RAGService,
     qdrant_service: QdrantService,
+    mock_vector_store_index: MagicMock,
 ):
     """Test document update."""
     summary_id = 123
@@ -194,8 +207,8 @@ async def test_update_document(
     # Verify delete was called
     qdrant_service.delete_by_summary_id.assert_called_once_with(summary_id)  # type: ignore
 
-    # Verify re-ingestion happened (add_nodes called twice: children + parents)
-    assert qdrant_service.add_nodes.call_count >= 2  # type: ignore
+    # Verify re-ingestion happened (VectorStoreIndex called once with all nodes)
+    assert mock_vector_store_index.call_count >= 1
 
     # Verify stats
     assert stats.summary_id == summary_id
@@ -228,18 +241,19 @@ async def test_delete_document(
 async def test_ingest_document_with_error(
     rag_service: RAGService,
     qdrant_service: QdrantService,
+    mock_vector_store_index: MagicMock,
 ):
     """Test error handling during ingestion."""
-    # Mock Qdrant to raise an error
+    # Mock VectorStoreIndex to raise an error
     qdrant_service.ensure_collection_exists = AsyncMock()
-    qdrant_service.add_nodes = AsyncMock(side_effect=Exception("Qdrant error"))
+    mock_vector_store_index.side_effect = Exception("Vector store error")
 
     summary_id = 123
     member_code = "user123"
     content = "Test content."
 
     # Ingest document should raise exception
-    with pytest.raises(Exception, match="Qdrant error"):
+    with pytest.raises(Exception, match="Vector store error"):
         await rag_service.ingest_document(
             summary_id=summary_id,
             member_code=member_code,
@@ -251,6 +265,7 @@ async def test_ingest_document_with_error(
 async def test_parent_child_relationship(
     rag_service: RAGService,
     qdrant_service: QdrantService,
+    mock_vector_store_index: MagicMock,
 ):
     """Test parent-child relationship is maintained."""
     summary_id = 456
@@ -264,9 +279,13 @@ async def test_parent_child_relationship(
         content=content,
     )
 
-    # Get the nodes that were added (first call is children)
-    child_nodes = cast(list[BaseNode], qdrant_service.add_nodes.call_args_list[0].args[0])  # type: ignore
-    parent_nodes = cast(list[BaseNode], qdrant_service.add_nodes.call_args_list[1].args[0])  # type: ignore
+    # Get all nodes that were passed to VectorStoreIndex
+    call_kwargs = mock_vector_store_index.call_args.kwargs
+    all_nodes = call_kwargs["nodes"]
+
+    # Separate children and parents
+    child_nodes = [n for n in all_nodes if n.metadata.get("node_type") == "child"]
+    parent_nodes = [n for n in all_nodes if n.metadata.get("node_type") == "parent"]
 
     # Verify relationships
     assert len(parent_nodes) > 0
@@ -285,6 +304,7 @@ async def test_parent_child_relationship(
 async def test_member_code_filtering(
     rag_service: RAGService,
     qdrant_service: QdrantService,
+    mock_vector_store_index: MagicMock,
 ):
     """Test member code is properly set for filtering."""
     summary_id = 789
@@ -298,12 +318,10 @@ async def test_member_code_filtering(
         content=content,
     )
 
-    # Get the nodes that were added
-    all_calls = qdrant_service.add_nodes.call_args_list  # type: ignore
-    all_nodes = []
-    for call in all_calls:  # type: ignore
-        all_nodes.extend(call.args[0])  # type: ignore
+    # Get all nodes that were passed to VectorStoreIndex
+    call_kwargs = mock_vector_store_index.call_args.kwargs
+    all_nodes = call_kwargs["nodes"]
 
     # Verify all nodes have the member_code
-    for node in all_nodes:  # type: ignore
-        assert node.metadata["member_code"] == member_code  # type: ignore
+    for node in all_nodes:
+        assert node.metadata["member_code"] == member_code
