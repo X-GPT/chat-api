@@ -1,7 +1,9 @@
 """RAG ingestion service with parent-child chunking."""
 
+import asyncio
 import uuid
-from typing import TypedDict
+from collections.abc import Coroutine
+from typing import Any, TypedDict
 
 from llama_index.core import Document, StorageContext, VectorStoreIndex
 from llama_index.core.node_parser import SemanticSplitterNodeParser, SentenceSplitter
@@ -110,7 +112,7 @@ class RAGService:
             )
 
             # Step 1: Create parent chunks using semantic splitter
-            parent_nodes = self.parent_parser.get_nodes_from_documents([document])
+            parent_nodes = await self.parent_parser.aget_nodes_from_documents([document])
             logger.info(f"Created {len(parent_nodes)} parent nodes")
 
             # Step 2: Create child chunks from each parent
@@ -122,14 +124,8 @@ class RAGService:
 
             parent_child_map: dict[str, ParentChildMap] = {}
 
-            for parent_idx, parent_node in enumerate(parent_nodes):
-                # Generate unique parent ID as UUID (Qdrant requires UUID or int)
-                parent_string_id = f"{summary_id}_parent_{parent_idx}"
-                parent_id = generate_uuid_from_string(parent_string_id)
-                parent_node.id_ = parent_id
-
-                # Create child chunks from this parent
-                child_nodes = self.child_parser.get_nodes_from_documents(
+            child_nodes_tasks: list[Coroutine[Any, Any, list[BaseNode]]] = [
+                self.child_parser.aget_nodes_from_documents(
                     [
                         Document(
                             text=parent_node.get_content(),
@@ -137,6 +133,21 @@ class RAGService:
                         )
                     ]
                 )
+                for parent_node in parent_nodes
+            ]
+
+            child_nodes_per_parent = await asyncio.gather(*child_nodes_tasks)
+
+            for parent_idx, parent_node in enumerate(parent_nodes):
+                # Generate unique parent ID as UUID (Qdrant requires UUID or int)
+                parent_string_id = f"{summary_id}_parent_{parent_idx}"
+                parent_id = generate_uuid_from_string(parent_string_id)
+                parent_node.id_ = parent_id
+
+                # Create child chunks from this parent
+                child_nodes = child_nodes_per_parent[parent_idx]
+                if not child_nodes:
+                    continue
 
                 # Link children to parent
                 for child_idx, child_node in enumerate(child_nodes):
