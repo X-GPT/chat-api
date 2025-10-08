@@ -26,21 +26,6 @@ export const apiEnv = (() => {
 	} as const;
 })();
 
-/**
- * Environment variables for the worker
- * All variables are validated at module load time
- */
-export const workerEnv = (() => {
-	invariant(Bun.env.SQS_QUEUE_URL, "SQS_QUEUE_URL is required");
-	invariant(Bun.env.AWS_REGION, "AWS_REGION is required");
-
-	return {
-		SQS_QUEUE_URL: Bun.env.SQS_QUEUE_URL,
-		AWS_REGION: Bun.env.AWS_REGION,
-		LOG_LEVEL: Bun.env.LOG_LEVEL || "info",
-	} as const;
-})();
-
 const sanitizePrefix = (value: string) => {
 	const trimmed = value.trim();
 	const withLeadingSlash = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;

@@ -2,7 +2,6 @@
 	"name": "chat-api",
 	"scripts": {
 		"dev": "bun run --hot src/index.ts",
-		"dev:worker": "bun run --hot src/worker.ts",
 		"format": "biome format --write",
 		"lint": "biome lint --write"
 	},
@@ -10,7 +9,6 @@
 		"@ai-sdk/anthropic": "^2.0.17",
 		"@ai-sdk/google": "^2.0.15",
 		"@ai-sdk/openai": "^2.0.0-beta.16",
-		"@aws-sdk/client-sqs": "^3.899.0",
 		"@hono/standard-validator": "^0.1.5",
 		"@scalar/hono-api-reference": "^0.9.18",
 		"ai": "^5.0.0-beta.34",

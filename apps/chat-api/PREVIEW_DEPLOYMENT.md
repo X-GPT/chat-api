@@ -8,14 +8,13 @@ The preview deployment system automatically creates isolated preview environment
 
 ### What gets deployed:
 - **API Preview**: Your chat-api service accessible at `https://chat-api-pr-{PR_NUMBER}.preview.mymemo.ai`
-- **Worker Preview**: Background worker service for processing async tasks (ingest-worker)
 
 ## How it works
 
 1. **Automatic Triggers**: When you create, update, or sync a pull request
-2. **Build & Push**: Builds two Docker images (API and Worker) and pushes them to AWS ECR with PR-specific tags
-3. **Deploy**: Uses Docker Compose to deploy both containers to EC2 and configures nginx routing
-4. **Cleanup**: Automatically destroys the preview environment (both containers) when the PR is closed
+2. **Build & Push**: Builds Docker image and pushes to AWS ECR with PR-specific tags
+3. **Deploy**: Uses Docker Compose to deploy the container to EC2 and configures nginx routing
+4. **Cleanup**: Automatically destroys the preview environment when the PR is closed
 
 ## Setup Requirements
 
@@ -74,29 +73,28 @@ Ensure these DNS records point to your EC2 server:
 
 ### `.github/workflows/deploy-preview.yml`
 Main workflow that orchestrates the deployment process with three jobs:
-- **build-and-push**: Builds and pushes both API and worker Docker images to ECR with caching
+- **build-and-push**: Builds and pushes API Docker image to ECR with caching
 - **deploy-preview**: Deploys the preview environment when PR is opened/updated
 - **destroy-preview**: Cleans up the preview environment when PR is closed
 
 ### `compose.preview.yaml`
 Docker Compose configuration that defines:
 - **chat-api** service: API container with automatic port mapping
-- **ingest-worker** service: Background worker container
-- Both services configured with CloudWatch Logs, memory limits, and shared environment file
+- Configured with CloudWatch Logs, memory limits, and shared environment file
 
 ### `scripts/chat-api-preview-deploy-compose.sh`
 Deployment script that:
-- Pulls both Docker images (API and worker) from ECR
-- Uses Docker Compose to manage the multi-container environment
+- Pulls Docker image from ECR
+- Uses Docker Compose to manage the container environment
 - Extracts the dynamically assigned port for the API container
 - Stores deployment state in `/var/preview/{REPO_SLUG}/{BRANCH_SLUG}/`
 - Configures nginx reverse proxy via template substitution
-- Includes comprehensive health checks for both API and worker containers
+- Includes comprehensive health checks for the API container
 - Installs scripts to `/usr/local/bin/` and configs to `/etc/mymemo/chat-api/`
 
 ### `scripts/chat-api-preview-destroy-compose.sh`
 Cleanup script that:
-- Stops and removes both Docker containers via Docker Compose
+- Stops and removes Docker container via Docker Compose
 - Removes nginx configuration from `/etc/nginx/conf.d/`
 - Cleans up state directory
 - Performs verification checks
@@ -116,13 +114,13 @@ Nginx configuration template using placeholder substitution (`__SERVER_NAME__`, 
    - The workflow automatically triggers for all PRs (opened, synchronize, reopened)
 
 2. **The workflow will automatically:**
-   - Build and push Docker images for both API and worker to ECR
-   - Deploy both containers to the preview environment using Docker Compose
+   - Build and push Docker image to ECR
+   - Deploy the container to the preview environment using Docker Compose
    - Comment on the PR with the preview URL
 
 3. **When you close the PR:**
    - The preview environment is automatically destroyed
-   - Both containers are stopped and removed
+   - The container is stopped and removed
    - Nginx configuration is cleaned up
 
 ### Concurrency Control
@@ -145,12 +143,11 @@ View the GitHub Actions logs to see deployment progress and any errors.
 SSH to the EC2 server and check:
 
 ```bash
-# Check running containers (both API and worker)
+# Check running containers
 sudo docker ps --filter "name=preview-chat-api-"
 
 # Check container logs
 sudo docker logs preview-chat-api-pr-123-api
-sudo docker logs preview-chat-api-pr-123-worker
 
 # Or use docker-compose
 sudo docker-compose -f /etc/mymemo/chat-api/compose.preview.yaml \
@@ -158,7 +155,7 @@ sudo docker-compose -f /etc/mymemo/chat-api/compose.preview.yaml \
 
 # Check CloudWatch Logs (if configured)
 # Logs are streamed to: /apps/chat-api-preview
-# Stream names: ec2-pr-{NUMBER}-api and ec2-pr-{NUMBER}-worker
+# Stream name: ec2-pr-{NUMBER}-api
 
 # Check deployment state
 ls -la /var/preview/chat-api/pr-123/
@@ -176,9 +173,8 @@ sudo tail -f /var/log/nginx/chat-api-pr-123.preview.mymemo.ai.error.log
 ### Container Health
 
 The deployment script includes comprehensive health checks:
-- Both containers start successfully with Docker Compose
+- Container starts successfully with Docker Compose
 - API container has proper port mapping and TCP connectivity
-- Worker container is running and healthy
 - Application responds to TCP connection tests on the mapped port
 - Nginx configuration validates successfully
 - End-to-end HTTP proxy verification
@@ -192,7 +188,7 @@ The deployment script includes comprehensive health checks:
 
 ## Resource Cleanup
 
-- Docker containers (API and worker) are automatically removed when PRs are closed
+- Docker container is automatically removed when PRs are closed
 - Docker Compose volumes are removed during cleanup (`-v` flag)
 - Unused Docker images are cleaned up periodically
 - Nginx configurations are removed on cleanup
@@ -201,41 +197,36 @@ The deployment script includes comprehensive health checks:
 
 ### Common Issues
 
-1. **Containers fail to start**
-   - Check Docker images availability: `sudo docker pull <image>`
+1. **Container fails to start**
+   - Check Docker image availability: `sudo docker pull <image>`
    - Verify memory constraints are appropriate (1GB limit, 512MB reservation)
    - Check compose logs: `sudo docker-compose -f /etc/mymemo/chat-api/compose.preview.yaml -p preview-chat-api-pr-<number> logs`
-   - Check individual container logs: `sudo docker logs preview-chat-api-pr-<number>-api`
+   - Check container logs: `sudo docker logs preview-chat-api-pr-<number>-api`
 
-2. **Worker container not running**
-   - Check worker logs: `sudo docker logs preview-chat-api-pr-<number>-worker`
-   - Verify environment file exists: `cat /etc/mymemo/chat-api/env.dev`
-   - Check worker container status: `sudo docker ps -a --filter "name=preview-chat-api-pr-<number>-worker"`
-
-3. **Port extraction fails**
+2. **Port extraction fails**
    - Verify Docker port mapping: `sudo docker port preview-chat-api-pr-<number>-api`
    - Check if API container is actually running and listening
    - Ensure no conflicts with existing containers
    - Verify compose file has correct port configuration
 
-4. **Nginx configuration test fails**
+3. **Nginx configuration test fails**
    - Verify template file exists: `ls /etc/nginx/templates/chat-api/chat-api-preview-template.conf`
    - Check placeholder substitution in generated config: `cat /etc/nginx/conf.d/chat-api-pr-<number>.conf`
    - Validate nginx syntax: `sudo nginx -t`
    - Check for auth endpoint availability at `/beta-api/_auth`
 
-5. **Health check timeout**
+4. **Health check timeout**
    - Check if application starts correctly on port 3000 inside container
    - Verify TCP connectivity to mapped port: `telnet localhost <port>`
    - Check container networking: `sudo docker network inspect bridge`
    - Increase health check timeout if needed (currently 30 seconds)
 
-6. **State directory issues**
+5. **State directory issues**
    - Ensure `/var/preview` directory exists and is writable
    - Check permissions: `sudo ls -la /var/preview/`
    - Verify subdirectories: `ls -la /var/preview/chat-api/`
 
-7. **CloudWatch Logs not appearing**
+6. **CloudWatch Logs not appearing**
    - Verify AWS credentials are configured on EC2 instance
    - Check CloudWatch Logs group exists: `/apps/chat-api-preview`
    - Verify Docker logging driver is properly configured
@@ -246,12 +237,12 @@ The deployment script includes comprehensive health checks:
 If automatic cleanup fails:
 
 ```bash
-# Stop and remove all preview containers using Docker Compose
+# Stop and remove preview container using Docker Compose
 # For a specific PR:
 sudo docker-compose -f /etc/mymemo/chat-api/compose.preview.yaml \
   -p preview-chat-api-pr-<number> down -v
 
-# Stop and remove all preview containers manually
+# Stop and remove preview container manually
 sudo docker ps -a --filter "name=preview-chat-api-" -q | xargs -r sudo docker stop
 sudo docker ps -a --filter "name=preview-chat-api-" -q | xargs -r sudo docker rm
 
