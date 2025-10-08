@@ -13,7 +13,7 @@ from rag_python.schemas.search import (
     SearchResultItem,
     SummaryResults,
 )
-from rag_python.services.qdrant_service import QdrantService
+from rag_python.services.qdrant_service import QdrantService, SearchResult
 
 logger = get_logger(__name__)
 
@@ -79,8 +79,6 @@ class SearchService:
             logger.info(f"Found {len(search_results)} child chunk matches")
 
             # Step 1: Group results by parent_id
-            from rag_python.services.qdrant_service import SearchResult
-
             parent_groups: dict[str, list[tuple[SearchResult, float]]] = defaultdict(list)
 
             for result in search_results:
