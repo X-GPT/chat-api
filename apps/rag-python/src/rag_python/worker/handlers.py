@@ -9,6 +9,7 @@ from rag_python.schemas.events import (
     SummaryEvent,
     SummaryLifecycleMessage,
 )
+from rag_python.services.rag_service import RAGService
 
 logger = get_logger(__name__)
 
@@ -30,6 +31,14 @@ class MessageHandler(Protocol):
 
 class SummaryLifecycleHandler:
     """Handler for summary lifecycle events."""
+
+    def __init__(self, rag_service: RAGService):
+        """Initialize handler with RAG service.
+
+        Args:
+            rag_service: RAG service for document ingestion.
+        """
+        self.rag_service = rag_service
 
     async def handle(self, message: SummaryLifecycleMessage) -> bool:
         """Handle summary lifecycle message.
@@ -70,11 +79,20 @@ class SummaryLifecycleHandler:
             f"Team: {event.team_code}"
         )
 
-        # Your business logic here
-        # Example: Index the summary content, create embeddings, etc.
+        # Ingest document into vector database
         if event.parse_content:
             logger.info(f"Content preview: {event.parse_content[:100]}...")
-            # TODO: Process the content (e.g., create embeddings, index in vector DB)
+
+            try:
+                stats = await self.rag_service.ingest_document(
+                    summary_id=event.id,
+                    member_code=event.member_code,
+                    content=event.parse_content,
+                )
+                logger.info(f"Successfully ingested document: {stats}")
+            except Exception as e:
+                logger.error(f"Failed to ingest document: {e}", exc_info=True)
+                return False
 
         return True
 
@@ -92,11 +110,20 @@ class SummaryLifecycleHandler:
             f"Team: {event.team_code}"
         )
 
-        # Your business logic here
-        # Example: Update embeddings, re-index content, etc.
+        # Update document in vector database
         if event.parse_content:
             logger.info(f"Updated content preview: {event.parse_content[:100]}...")
-            # TODO: Update the content (e.g., update embeddings, re-index in vector DB)
+
+            try:
+                stats = await self.rag_service.update_document(
+                    summary_id=event.id,
+                    member_code=event.member_code,
+                    content=event.parse_content,
+                )
+                logger.info(f"Successfully updated document: {stats}")
+            except Exception as e:
+                logger.error(f"Failed to update document: {e}", exc_info=True)
+                return False
 
         return True
 
@@ -114,9 +141,13 @@ class SummaryLifecycleHandler:
             f"Team: {event.team_code}"
         )
 
-        # Your business logic here
-        # Example: Remove from index, delete embeddings, cleanup, etc.
-        # TODO: Delete from vector DB, remove index entries, etc.
+        # Delete document from vector database
+        try:
+            stats = await self.rag_service.delete_document(summary_id=event.id)
+            logger.info(f"Successfully deleted document: {stats}")
+        except Exception as e:
+            logger.error(f"Failed to delete document: {e}", exc_info=True)
+            return False
 
         return True
 
@@ -124,10 +155,14 @@ class SummaryLifecycleHandler:
 class MessageHandlerRegistry:
     """Registry for message handlers."""
 
-    def __init__(self):
-        """Initialize handler registry."""
+    def __init__(self, rag_service: RAGService):
+        """Initialize handler registry.
+
+        Args:
+            rag_service: RAG service for document ingestion.
+        """
         self._handlers: dict[str, MessageHandler] = {
-            "summary:lifecycle": SummaryLifecycleHandler(),
+            "summary:lifecycle": SummaryLifecycleHandler(rag_service),
         }
 
     def get_handler(self, message_type: str) -> MessageHandler | None:

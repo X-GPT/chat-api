@@ -49,11 +49,34 @@ class Settings(BaseSettings):
     worker_max_retries: int = 3
     worker_shutdown_timeout: int = 30  # Graceful shutdown timeout
 
+    # OpenAI Configuration
+    openai_api_key: str | None = None
+    openai_embedding_model: str = "text-embedding-3-small"
+
     # Qdrant Configuration
     qdrant_url: str = "https://your-cluster.qdrant.io"
     qdrant_api_key: str | None = None
-    qdrant_collection_name: str = "documents"
+    qdrant_collection_prefix: str = "summaries"
     qdrant_prefer_grpc: bool = False
+
+    @property
+    def qdrant_children_collection(self) -> str:
+        """Get the children collection name."""
+        return f"{self.qdrant_collection_prefix}_children"
+
+    @property
+    def qdrant_parents_collection(self) -> str:
+        """Get the parents collection name."""
+        return f"{self.qdrant_collection_prefix}_parents"
+
+    # RAG Configuration
+    chunk_size: int = 512  # Child chunk size
+    chunk_overlap: int = 128
+    parent_chunk_size: int = 2048  # Parent chunk size
+
+    # Hybrid Search Configuration
+    sparse_top_k: int = 10  # Number of results from sparse (BM25) search
+    hybrid_alpha: float = 0.5  # Fusion weight (0.0 = sparse only, 1.0 = dense only)
 
 
 @lru_cache
