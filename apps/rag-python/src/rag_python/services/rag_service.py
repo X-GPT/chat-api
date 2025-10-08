@@ -1,5 +1,6 @@
 """RAG ingestion service with parent-child chunking."""
 
+import uuid
 from typing import TypedDict
 
 from llama_index.core import Document, StorageContext, VectorStoreIndex
@@ -13,6 +14,22 @@ from rag_python.core.logging import get_logger
 from rag_python.services.qdrant_service import QdrantService
 
 logger = get_logger(__name__)
+
+# Namespace UUID for generating deterministic UUIDs from string IDs
+# Using DNS namespace as a base, but any consistent UUID would work
+NAMESPACE_UUID = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
+
+
+def generate_uuid_from_string(string_id: str) -> str:
+    """Generate a deterministic UUID from a string ID.
+
+    Args:
+        string_id: The string ID to convert to UUID.
+
+    Returns:
+        A UUID string that Qdrant will accept as a valid point ID.
+    """
+    return str(uuid.uuid5(NAMESPACE_UUID, string_id))
 
 
 class IngestionStats(BaseModel):
@@ -106,8 +123,9 @@ class RAGService:
             parent_child_map: dict[str, ParentChildMap] = {}
 
             for parent_idx, parent_node in enumerate(parent_nodes):
-                # Generate unique parent ID
-                parent_id = f"{summary_id}_parent_{parent_idx}"
+                # Generate unique parent ID as UUID (Qdrant requires UUID or int)
+                parent_string_id = f"{summary_id}_parent_{parent_idx}"
+                parent_id = generate_uuid_from_string(parent_string_id)
                 parent_node.id_ = parent_id
 
                 # Create child chunks from this parent
@@ -122,10 +140,12 @@ class RAGService:
 
                 # Link children to parent
                 for child_idx, child_node in enumerate(child_nodes):
-                    child_id = f"{summary_id}_child_{parent_idx}_{child_idx}"
+                    # Generate unique child ID as UUID (Qdrant requires UUID or int)
+                    child_string_id = f"{summary_id}_child_{parent_idx}_{child_idx}"
+                    child_id = generate_uuid_from_string(child_string_id)
                     child_node.id_ = child_id
 
-                    # Store parent reference in child metadata
+                    # Store parent reference in child metadata (parent_id is a UUID string)
                     child_node.metadata["parent_id"] = parent_id
                     child_node.metadata["chunk_index"] = len(all_child_nodes)
                     child_node.metadata["summary_id"] = summary_id
