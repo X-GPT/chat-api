@@ -2,6 +2,7 @@ import invariant from "tiny-invariant";
 
 const DEFAULT_PROTECTED_API_ORIGIN = "http://127.0.0.1";
 const DEFAULT_PROTECTED_API_PREFIX = "/beta-api";
+const DEFAULT_RAG_API_ORIGIN = "http://rag-api:8000";
 
 /**
  * Environment variables for the API server
@@ -22,6 +23,7 @@ export const apiEnv = (() => {
 			Bun.env.API_PREFIX ||
 			DEFAULT_PROTECTED_API_PREFIX,
 		PROTECTED_API_TOKEN: Bun.env.PROTECTED_API_TOKEN,
+		RAG_API_ORIGIN: Bun.env.RAG_API_ORIGIN || DEFAULT_RAG_API_ORIGIN,
 		LOG_LEVEL: Bun.env.LOG_LEVEL || "info",
 	} as const;
 })();
@@ -195,4 +197,9 @@ export const getProtectedSummariesEndpoint = (ids: Array<string | number>) => {
 	}
 
 	return url.toString();
+};
+
+export const getRagSearchEndpoint = () => {
+	const origin = apiEnv.RAG_API_ORIGIN;
+	return new URL("/v1/search", origin).toString();
 };

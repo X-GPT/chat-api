@@ -11,6 +11,7 @@ import { buildPrompt, getSystemPrompt } from "../prompts/prompts";
 import { handleListAllFiles } from "../tools/list-all-files";
 import { handleListCollectionFiles } from "../tools/list-collection-files";
 import { handleReadFile } from "../tools/read-file";
+import { handleSearchKnowledge } from "../tools/search-knowledge";
 import { getTools } from "../tools/tools";
 import { handleUpdateCitations } from "../tools/update-citations";
 import { handleUpdatePlan } from "../tools/update-plan";
@@ -60,6 +61,7 @@ function buildSession({
 		scope: config.scope,
 		summaryId: config.summaryId,
 		collectionId: config.collectionId,
+		memberCode: config.memberCode,
 		partnerCode: config.partnerCode,
 		enableKnowledge: config.enableKnowledge,
 		logger,
@@ -93,6 +95,7 @@ export type TurnContext = {
 	scope: ChatMessagesScope;
 	summaryId: string | null;
 	collectionId: string | null;
+	memberCode: string | null;
 	partnerCode: string;
 	enableKnowledge: boolean;
 	logger: ChatLogger;
@@ -284,6 +287,31 @@ async function runTurn(
 								toolCallId: toolCall.toolCallId,
 								type: "tool-result" as const,
 								output: { type: "text" as const, value: toolOutput.message },
+							},
+						],
+					},
+				});
+			} else if (
+				toolCall.toolName === "search_knowledge" &&
+				!toolCall.dynamic
+			) {
+				const toolOutput = await handleSearchKnowledge({
+					query: toolCall.input.query,
+					memberCode: turnContext.memberCode,
+					summaryId: turnContext.summaryId,
+					logger: turnContext.logger,
+					onEvent,
+				});
+				output.push({
+					response: null,
+					nextTurnInput: {
+						role: "tool" as const,
+						content: [
+							{
+								toolName: toolCall.toolName,
+								toolCallId: toolCall.toolCallId,
+								type: "tool-result" as const,
+								output: { type: "text" as const, value: toolOutput },
 							},
 						],
 					},

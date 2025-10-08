@@ -6,6 +6,7 @@ export type Config = {
 	chatKey: string;
 	collectionId: string | null;
 	summaryId: string | null;
+	memberCode: string | null;
 	partnerCode: string;
 	enableKnowledge: boolean;
 	modelId: string;
