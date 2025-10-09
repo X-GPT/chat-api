@@ -141,8 +141,7 @@ async def test_delete_by_ids(qdrant_service: QdrantService):
 @pytest.mark.asyncio
 async def test_search_hybrid(qdrant_service: QdrantService):
     """Test hybrid search for similar vectors on children collection."""
-    from llama_index.core.schema import TextNode
-    from llama_index.core.vector_stores import VectorStoreQueryResult
+    from llama_index.core.schema import NodeWithScore, TextNode
 
     query = "Sample text"
     member_code = "user123"
@@ -153,54 +152,81 @@ async def test_search_hybrid(qdrant_service: QdrantService):
         text="Sample text",
         metadata={"summary_id": 1, "member_code": "user123", "parent_id": "parent1"},
     )
-    mock_result = VectorStoreQueryResult(
-        nodes=[mock_node],
-        similarities=[0.95],
-        ids=["node1"],
-    )
-    qdrant_service.children_vector_store.aquery = AsyncMock(return_value=mock_result)
+    mock_node_with_score = NodeWithScore(node=mock_node, score=0.95)
 
-    results = await qdrant_service.search(
-        query=query,
-        member_code=member_code,
-        limit=10,
-        sparse_top_k=10,
-    )
+    # Mock the embedding model to avoid real API calls
+    with (
+        patch("rag_python.services.qdrant_service.OpenAIEmbedding") as mock_embedding_class,
+        patch("rag_python.services.qdrant_service.VectorStoreIndex") as mock_index_class,
+    ):
+        # Mock embedding instance
+        mock_embedding = MagicMock()
+        mock_embedding.aget_query_embedding = AsyncMock(return_value=[0.1] * 1536)
+        mock_embedding_class.return_value = mock_embedding
 
-    # Verify hybrid search was called on children collection
-    qdrant_service.children_vector_store.aquery.assert_called_once()
+        # Mock retriever
+        mock_retriever = AsyncMock()
+        mock_retriever.aretrieve = AsyncMock(return_value=[mock_node_with_score])
 
-    # Verify results
-    assert len(results) == 1
-    assert results[0].id == "node1"
-    assert results[0].score == 0.95
-    assert results[0].payload is not None
-    assert results[0].payload["summary_id"] == 1
+        # Mock index
+        mock_index = MagicMock()
+        mock_index.as_retriever = MagicMock(return_value=mock_retriever)
+        mock_index_class.from_vector_store.return_value = mock_index
+
+        results = await qdrant_service.search(
+            query=query,
+            member_code=member_code,
+            limit=10,
+            sparse_top_k=10,
+        )
+
+        # Verify embedding was created with correct parameters
+        mock_embedding_class.assert_called_once()
+
+        # Verify retriever was called
+        mock_retriever.aretrieve.assert_called_once_with(query)
+
+        # Verify results
+        assert len(results) == 1
+        assert results[0].id == "node1"
+        assert results[0].score == 0.95
+        assert results[0].payload is not None
+        assert results[0].payload["summary_id"] == 1
 
 
 @pytest.mark.asyncio
 async def test_search_without_member_filter(qdrant_service: QdrantService):
     """Test searching without member code filter."""
-    from llama_index.core.vector_stores import VectorStoreQueryResult
-
     query = "Sample text"
 
-    mock_result = VectorStoreQueryResult(
-        nodes=[],
-        similarities=[],
-        ids=[],
-    )
-    qdrant_service.children_vector_store.aquery = AsyncMock(return_value=mock_result)
+    # Mock the embedding model to avoid real API calls
+    with (
+        patch("rag_python.services.qdrant_service.OpenAIEmbedding") as mock_embedding_class,
+        patch("rag_python.services.qdrant_service.VectorStoreIndex") as mock_index_class,
+    ):
+        # Mock embedding instance
+        mock_embedding = MagicMock()
+        mock_embedding.aget_query_embedding = AsyncMock(return_value=[0.1] * 1536)
+        mock_embedding_class.return_value = mock_embedding
 
-    results = await qdrant_service.search(
-        query=query,
-        member_code=None,
-        limit=5,
-    )
+        # Mock retriever returning no results
+        mock_retriever = AsyncMock()
+        mock_retriever.aretrieve = AsyncMock(return_value=[])
 
-    # Verify search was called on children collection
-    qdrant_service.children_vector_store.aquery.assert_called_once()
-    assert len(results) == 0
+        # Mock index
+        mock_index = MagicMock()
+        mock_index.as_retriever = MagicMock(return_value=mock_retriever)
+        mock_index_class.from_vector_store.return_value = mock_index
+
+        results = await qdrant_service.search(
+            query=query,
+            member_code=None,
+            limit=5,
+        )
+
+        # Verify retriever was called
+        mock_retriever.aretrieve.assert_called_once_with(query)
+        assert len(results) == 0
 
 
 @pytest.mark.asyncio

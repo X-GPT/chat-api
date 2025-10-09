@@ -354,6 +354,7 @@ class QdrantService:
                 similarity_top_k=limit,
                 hybrid_top_k=limit,
             ).aretrieve(query)
+
             logger.info(
                 f"Hybrid search on children collection found {len(result) if result else 0} results"
             )
