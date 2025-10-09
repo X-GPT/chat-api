@@ -16,6 +16,7 @@ def settings():
         qdrant_url="http://localhost:6333",
         qdrant_api_key="test-key",
         qdrant_collection_prefix="test-collection",
+        openai_api_key="test-openai-key",
     )
 
 
@@ -154,8 +155,21 @@ async def test_search_hybrid(qdrant_service: QdrantService):
     )
     mock_node_with_score = NodeWithScore(node=mock_node, score=0.95)
 
-    # Mock VectorStoreIndex to avoid real API calls
-    with patch("rag_python.services.qdrant_service.VectorStoreIndex") as mock_index_class:
+    # Mock both LlamaIndexSettings and VectorStoreIndex to avoid real API calls
+    with (
+        patch("rag_python.services.qdrant_service.LlamaIndexSettings") as mock_settings,
+        patch("rag_python.services.qdrant_service.VectorStoreIndex") as mock_index_class,
+        patch("rag_python.services.qdrant_service.OpenAIEmbedding") as mock_embedding_class,
+    ):
+        # Mock embed_model to avoid OpenAI API key validation
+        mock_embed_model = MagicMock()
+        mock_embed_model.model_name = "text-embedding-3-small"
+        mock_settings.embed_model = mock_embed_model
+
+        # Mock OpenAIEmbedding creation
+        mock_embedding_instance = MagicMock()
+        mock_embedding_class.return_value = mock_embedding_instance
+
         # Mock retriever
         mock_retriever = AsyncMock()
         mock_retriever.aretrieve = AsyncMock(return_value=[mock_node_with_score])
@@ -193,8 +207,21 @@ async def test_search_without_member_filter(qdrant_service: QdrantService):
     """Test searching without member code filter."""
     query = "Sample text"
 
-    # Mock VectorStoreIndex to avoid real API calls
-    with patch("rag_python.services.qdrant_service.VectorStoreIndex") as mock_index_class:
+    # Mock both LlamaIndexSettings and VectorStoreIndex to avoid real API calls
+    with (
+        patch("rag_python.services.qdrant_service.LlamaIndexSettings") as mock_settings,
+        patch("rag_python.services.qdrant_service.VectorStoreIndex") as mock_index_class,
+        patch("rag_python.services.qdrant_service.OpenAIEmbedding") as mock_embedding_class,
+    ):
+        # Mock embed_model to avoid OpenAI API key validation
+        mock_embed_model = MagicMock()
+        mock_embed_model.model_name = "text-embedding-3-small"
+        mock_settings.embed_model = mock_embed_model
+
+        # Mock OpenAIEmbedding creation
+        mock_embedding_instance = MagicMock()
+        mock_embedding_class.return_value = mock_embedding_instance
+
         # Mock retriever returning no results
         mock_retriever = AsyncMock()
         mock_retriever.aretrieve = AsyncMock(return_value=[])
