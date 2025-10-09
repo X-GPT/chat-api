@@ -201,5 +201,5 @@ export const getProtectedSummariesEndpoint = (ids: Array<string | number>) => {
 
 export const getRagSearchEndpoint = () => {
 	const origin = apiEnv.RAG_API_ORIGIN;
-	return new URL("/v1/search", origin).toString();
+	return new URL("/api/v1/search", origin).toString();
 };
