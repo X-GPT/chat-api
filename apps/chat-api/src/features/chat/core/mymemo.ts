@@ -95,7 +95,7 @@ export type TurnContext = {
 	scope: ChatMessagesScope;
 	summaryId: string | null;
 	collectionId: string | null;
-	memberCode: string | null;
+	memberCode: string;
 	partnerCode: string;
 	enableKnowledge: boolean;
 	logger: ChatLogger;

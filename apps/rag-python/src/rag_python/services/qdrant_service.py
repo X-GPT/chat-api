@@ -13,6 +13,7 @@ from qdrant_client.models import (
     Filter,
     MatchValue,
     Payload,
+    PayloadSchemaType,
     PointIdsList,
 )
 
@@ -168,6 +169,63 @@ class QdrantService:
         except Exception as e:
             logger.error(f"Error ensuring collections exist: {e}")
             raise
+
+    async def ensure_payload_indexes(self) -> None:
+        """Ensure payload indexes exist for filterable fields.
+
+        Creates indexes for:
+        - member_code (keyword) - for filtering by member
+        - summary_id (integer) - for filtering by summary
+        """
+        try:
+            # Check if collections exist first
+            collections = await self.aclient.get_collections()
+            collection_names = [c.name for c in collections.collections]
+
+            # Create indexes for children collection (where we do the filtering)
+            if self.children_collection_name in collection_names:
+                logger.info(f"Ensuring payload indexes for {self.children_collection_name}")
+
+                # Create index for member_code (keyword filter)
+                await self.aclient.create_payload_index(
+                    collection_name=self.children_collection_name,
+                    field_name="member_code",
+                    field_schema=PayloadSchemaType.KEYWORD,
+                )
+                logger.info(
+                    f"Created/verified member_code index on {self.children_collection_name}"
+                )
+
+                # Create index for summary_id (integer filter)
+                await self.aclient.create_payload_index(
+                    collection_name=self.children_collection_name,
+                    field_name="summary_id",
+                    field_schema=PayloadSchemaType.INTEGER,
+                )
+                logger.info(f"Created/verified summary_id index on {self.children_collection_name}")
+
+            # Create indexes for parents collection (for consistency)
+            if self.parents_collection_name in collection_names:
+                logger.info(f"Ensuring payload indexes for {self.parents_collection_name}")
+
+                await self.aclient.create_payload_index(
+                    collection_name=self.parents_collection_name,
+                    field_name="member_code",
+                    field_schema=PayloadSchemaType.KEYWORD,
+                )
+                logger.info(f"Created/verified member_code index on {self.parents_collection_name}")
+
+                await self.aclient.create_payload_index(
+                    collection_name=self.parents_collection_name,
+                    field_name="summary_id",
+                    field_schema=PayloadSchemaType.INTEGER,
+                )
+                logger.info(f"Created/verified summary_id index on {self.parents_collection_name}")
+
+        except Exception as e:
+            # Log but don't fail - indexes might already exist
+            logger.warning(f"Note while ensuring payload indexes: {e}")
+            logger.info("Indexes will be created after collections are populated")
 
     async def delete_by_summary_id(self, summary_id: int) -> None:
         """Delete all points associated with a summary ID from both collections.

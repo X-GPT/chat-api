@@ -102,6 +102,9 @@ class RAGService:
             # Ensure collection exists
             await self.qdrant_service.ensure_collection_exists()
 
+            # Ensure payload indexes exist for filterable fields
+            await self.qdrant_service.ensure_payload_indexes()
+
             # Create document
             document = Document(
                 text=content,
