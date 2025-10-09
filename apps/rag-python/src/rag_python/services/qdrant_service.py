@@ -92,6 +92,11 @@ class QdrantService:
             batch_size=20,
         )
 
+        LlamaIndexSettings.embed_model = OpenAIEmbedding(
+            api_key=self.settings.openai_api_key,
+            model=self.settings.openai_embedding_model,
+        )
+
         logger.info(
             f"Qdrant vector stores initialized: "
             f"children={self.children_collection_name} (hybrid search), "
@@ -321,12 +326,6 @@ class QdrantService:
                 MetadataFilter,
                 MetadataFilters,
             )
-
-            if LlamaIndexSettings.embed_model.model_name != self.settings.openai_embedding_model:
-                LlamaIndexSettings.embed_model = OpenAIEmbedding(
-                    api_key=self.settings.openai_api_key,
-                    model=self.settings.openai_embedding_model,
-                )
 
             filter_list: list[MetadataFilter | MetadataFilters] = []
             if member_code:
