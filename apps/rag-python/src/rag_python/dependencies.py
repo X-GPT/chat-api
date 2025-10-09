@@ -1,6 +1,5 @@
 """FastAPI dependency injection utilities."""
 
-from functools import lru_cache
 from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends
@@ -15,12 +14,8 @@ if TYPE_CHECKING:
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
-@lru_cache
-def get_qdrant_service(settings: SettingsDep) -> "QdrantService":
+def get_qdrant_service(settings: Annotated["Settings", Depends(get_settings)]) -> "QdrantService":
     """Get or create a cached QdrantService instance.
-
-    Args:
-        settings: Application settings.
 
     Returns:
         QdrantService instance.
@@ -30,16 +25,11 @@ def get_qdrant_service(settings: SettingsDep) -> "QdrantService":
     return QdrantService(settings)
 
 
-@lru_cache
 def get_search_service(
-    settings: SettingsDep,
+    settings: Annotated["Settings", Depends(get_settings)],
     qdrant_service: Annotated["QdrantService", Depends(get_qdrant_service)],
 ) -> "SearchService":
     """Get a SearchService instance.
-
-    Args:
-        settings: Application settings.
-        qdrant_service: QdrantService instance.
 
     Returns:
         SearchService instance.

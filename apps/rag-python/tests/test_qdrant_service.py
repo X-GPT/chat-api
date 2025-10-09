@@ -16,6 +16,7 @@ def settings():
         qdrant_url="http://localhost:6333",
         qdrant_api_key="test-key",
         qdrant_collection_prefix="test-collection",
+        openai_api_key="test-openai-key",
     )
 
 
@@ -141,10 +142,9 @@ async def test_delete_by_ids(qdrant_service: QdrantService):
 @pytest.mark.asyncio
 async def test_search_hybrid(qdrant_service: QdrantService):
     """Test hybrid search for similar vectors on children collection."""
-    from llama_index.core.schema import TextNode
-    from llama_index.core.vector_stores import VectorStoreQueryResult
+    from llama_index.core.schema import NodeWithScore, TextNode
 
-    query_vector = [0.5] * 1536
+    query = "Sample text"
     member_code = "user123"
 
     # Mock search results
@@ -153,54 +153,93 @@ async def test_search_hybrid(qdrant_service: QdrantService):
         text="Sample text",
         metadata={"summary_id": 1, "member_code": "user123", "parent_id": "parent1"},
     )
-    mock_result = VectorStoreQueryResult(
-        nodes=[mock_node],
-        similarities=[0.95],
-        ids=["node1"],
-    )
-    qdrant_service.children_vector_store.aquery = AsyncMock(return_value=mock_result)
+    mock_node_with_score = NodeWithScore(node=mock_node, score=0.95)
 
-    results = await qdrant_service.search(
-        query_vector=query_vector,
-        member_code=member_code,
-        limit=10,
-        sparse_top_k=10,
-    )
+    # Mock both LlamaIndexSettings and VectorStoreIndex to avoid real API calls
+    with (
+        patch("rag_python.services.qdrant_service.LlamaIndexSettings") as mock_settings,
+        patch("rag_python.services.qdrant_service.VectorStoreIndex") as mock_index_class,
+        patch("rag_python.services.qdrant_service.OpenAIEmbedding") as mock_embedding_class,
+    ):
+        # Mock embed_model to avoid OpenAI API key validation
+        mock_embed_model = MagicMock()
+        mock_embed_model.model_name = "text-embedding-3-small"
+        mock_settings.embed_model = mock_embed_model
 
-    # Verify hybrid search was called on children collection
-    qdrant_service.children_vector_store.aquery.assert_called_once()
+        # Mock OpenAIEmbedding creation
+        mock_embedding_instance = MagicMock()
+        mock_embedding_class.return_value = mock_embedding_instance
 
-    # Verify results
-    assert len(results) == 1
-    assert results[0].id == "node1"
-    assert results[0].score == 0.95
-    assert results[0].payload is not None
-    assert results[0].payload["summary_id"] == 1
+        # Mock retriever
+        mock_retriever = AsyncMock()
+        mock_retriever.aretrieve = AsyncMock(return_value=[mock_node_with_score])
+
+        # Mock index
+        mock_index = MagicMock()
+        mock_index.as_retriever = MagicMock(return_value=mock_retriever)
+        mock_index_class.from_vector_store.return_value = mock_index
+
+        results = await qdrant_service.search(
+            query=query,
+            member_code=member_code,
+            limit=10,
+            sparse_top_k=10,
+        )
+
+        # Verify VectorStoreIndex was created from vector store
+        mock_index_class.from_vector_store.assert_called_once_with(
+            qdrant_service.children_vector_store
+        )
+
+        # Verify retriever was called with correct query
+        mock_retriever.aretrieve.assert_called_once_with(query)
+
+        # Verify results
+        assert len(results) == 1
+        assert results[0].id == "node1"
+        assert results[0].score == 0.95
+        assert results[0].payload is not None
+        assert results[0].payload["summary_id"] == 1
 
 
 @pytest.mark.asyncio
 async def test_search_without_member_filter(qdrant_service: QdrantService):
     """Test searching without member code filter."""
-    from llama_index.core.vector_stores import VectorStoreQueryResult
+    query = "Sample text"
 
-    query_vector = [0.5] * 1536
+    # Mock both LlamaIndexSettings and VectorStoreIndex to avoid real API calls
+    with (
+        patch("rag_python.services.qdrant_service.LlamaIndexSettings") as mock_settings,
+        patch("rag_python.services.qdrant_service.VectorStoreIndex") as mock_index_class,
+        patch("rag_python.services.qdrant_service.OpenAIEmbedding") as mock_embedding_class,
+    ):
+        # Mock embed_model to avoid OpenAI API key validation
+        mock_embed_model = MagicMock()
+        mock_embed_model.model_name = "text-embedding-3-small"
+        mock_settings.embed_model = mock_embed_model
 
-    mock_result = VectorStoreQueryResult(
-        nodes=[],
-        similarities=[],
-        ids=[],
-    )
-    qdrant_service.children_vector_store.aquery = AsyncMock(return_value=mock_result)
+        # Mock OpenAIEmbedding creation
+        mock_embedding_instance = MagicMock()
+        mock_embedding_class.return_value = mock_embedding_instance
 
-    results = await qdrant_service.search(
-        query_vector=query_vector,
-        member_code=None,
-        limit=5,
-    )
+        # Mock retriever returning no results
+        mock_retriever = AsyncMock()
+        mock_retriever.aretrieve = AsyncMock(return_value=[])
 
-    # Verify search was called on children collection
-    qdrant_service.children_vector_store.aquery.assert_called_once()
-    assert len(results) == 0
+        # Mock index
+        mock_index = MagicMock()
+        mock_index.as_retriever = MagicMock(return_value=mock_retriever)
+        mock_index_class.from_vector_store.return_value = mock_index
+
+        results = await qdrant_service.search(
+            query=query,
+            member_code=None,
+            limit=5,
+        )
+
+        # Verify retriever was called with correct query
+        mock_retriever.aretrieve.assert_called_once_with(query)
+        assert len(results) == 0
 
 
 @pytest.mark.asyncio
@@ -230,16 +269,33 @@ async def test_get_collection_info(qdrant_service: QdrantService):
 @pytest.mark.asyncio
 async def test_get_node_by_id(qdrant_service: QdrantService):
     """Test retrieving a parent node by ID."""
+    import json
+
     from llama_index.core.schema import TextNode
 
-    # Mock retrieved point
+    # Mock retrieved point with LlamaIndex's actual storage format
+    # LlamaIndex stores node content as JSON in "_node_content" field
     mock_point = MagicMock()
     mock_point.id = "parent_1"
-    mock_point.payload = {
+    node_content = {
+        "id_": "parent_1",
         "text": "Parent node text",
+        "metadata": {
+            "summary_id": 1,
+            "member_code": "user1",
+            "chunk_index": 0,
+        },
+        "embedding": None,
+    }
+    mock_point.payload = {
+        "_node_content": json.dumps(node_content),
+        "_node_type": "TextNode",
         "summary_id": 1,
         "member_code": "user1",
         "chunk_index": 0,
+        "doc_id": "None",
+        "document_id": "None",
+        "ref_doc_id": "None",
     }
     qdrant_service.aclient.retrieve = AsyncMock(return_value=[mock_point])
 
@@ -267,3 +323,119 @@ async def test_get_node_by_id_not_found(qdrant_service: QdrantService):
 
     # Verify None is returned
     assert node is None
+
+
+@pytest.mark.asyncio
+async def test_get_node_by_id_legacy_format(qdrant_service: QdrantService):
+    """Test retrieving a node with legacy format (no _node_content)."""
+    from llama_index.core.schema import TextNode
+
+    # Mock retrieved point with legacy format (text directly in payload)
+    mock_point = MagicMock()
+    mock_point.id = "parent_2"
+    mock_point.payload = {
+        "text": "Legacy parent node text",
+        "summary_id": 2,
+        "member_code": "user2",
+        "chunk_index": 1,
+    }
+    qdrant_service.aclient.retrieve = AsyncMock(return_value=[mock_point])
+
+    node = await qdrant_service.get_node_by_id("parent_2")
+
+    # Verify node content from legacy format
+    assert node is not None
+    assert isinstance(node, TextNode)
+    assert node.id_ == "parent_2"
+    assert node.text == "Legacy parent node text"
+    assert node.metadata["summary_id"] == 2
+    assert node.metadata["member_code"] == "user2"
+
+
+@pytest.mark.asyncio
+async def test_get_child_by_id(qdrant_service: QdrantService):
+    """Test retrieving a child node by ID."""
+    import json
+
+    from llama_index.core.schema import TextNode
+
+    # Mock retrieved point with LlamaIndex's actual storage format
+    mock_point = MagicMock()
+    mock_point.id = "child_1"
+    node_content = {
+        "id_": "child_1",
+        "text": "Child node text content",
+        "metadata": {
+            "summary_id": 1,
+            "member_code": "user1",
+            "parent_id": "parent_1",
+            "chunk_index": 0,
+        },
+        "embedding": None,
+    }
+    mock_point.payload = {
+        "_node_content": json.dumps(node_content),
+        "_node_type": "TextNode",
+        "summary_id": 1,
+        "member_code": "user1",
+        "parent_id": "parent_1",
+        "chunk_index": 0,
+        "doc_id": "None",
+        "document_id": "None",
+        "ref_doc_id": "None",
+    }
+    qdrant_service.aclient.retrieve = AsyncMock(return_value=[mock_point])
+
+    node = await qdrant_service.get_child_by_id("child_1")
+
+    # Verify node was retrieved from children collection
+    qdrant_service.aclient.retrieve.assert_called_once()
+    call_kwargs = qdrant_service.aclient.retrieve.call_args[1]
+    assert call_kwargs["collection_name"] == "test-collection_children"
+
+    # Verify node content
+    assert node is not None
+    assert isinstance(node, TextNode)
+    assert node.id_ == "child_1"
+    assert node.text == "Child node text content"
+    assert node.metadata["summary_id"] == 1
+    assert node.metadata["parent_id"] == "parent_1"
+
+
+@pytest.mark.asyncio
+async def test_get_child_by_id_not_found(qdrant_service: QdrantService):
+    """Test retrieving a child node that doesn't exist."""
+    qdrant_service.aclient.retrieve = AsyncMock(return_value=[])
+
+    node = await qdrant_service.get_child_by_id("nonexistent")
+
+    # Verify None is returned
+    assert node is None
+
+
+@pytest.mark.asyncio
+async def test_get_child_by_id_legacy_format(qdrant_service: QdrantService):
+    """Test retrieving a child node with legacy format (no _node_content)."""
+    from llama_index.core.schema import TextNode
+
+    # Mock retrieved point with legacy format
+    mock_point = MagicMock()
+    mock_point.id = "child_2"
+    mock_point.payload = {
+        "text": "Legacy child node text",
+        "summary_id": 2,
+        "member_code": "user2",
+        "parent_id": "parent_2",
+        "chunk_index": 1,
+    }
+    qdrant_service.aclient.retrieve = AsyncMock(return_value=[mock_point])
+
+    node = await qdrant_service.get_child_by_id("child_2")
+
+    # Verify node content from legacy format
+    assert node is not None
+    assert isinstance(node, TextNode)
+    assert node.id_ == "child_2"
+    assert node.text == "Legacy child node text"
+    assert node.metadata["summary_id"] == 2
+    assert node.metadata["parent_id"] == "parent_2"

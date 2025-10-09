@@ -34,6 +34,18 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """
     # Startup
     logger.info("Starting up RAG Python API")
+
+    # Ensure payload indexes exist on startup (if collections exist)
+    try:
+        from rag_python.dependencies import get_qdrant_service
+
+        qdrant_service = get_qdrant_service()
+        await qdrant_service.ensure_payload_indexes()
+        logger.info("Payload indexes verified on startup")
+    except Exception as e:
+        logger.warning(f"Could not verify payload indexes on startup: {e}")
+        logger.info("Indexes will be created when documents are ingested")
+
     yield
     # Shutdown
     logger.info("Shutting down RAG Python API")

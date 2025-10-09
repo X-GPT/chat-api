@@ -78,6 +78,7 @@ export async function complete(
 		collectionId: normalizeCollectionId,
 		summaryId: normalizedSummaryId,
 		modelId: resolvedModelType,
+		memberCode: resolvedMemberCode,
 		partnerCode: resolvedPartnerCode ?? "",
 		enableKnowledge: resolvedEnableKnowledge === 1,
 	};

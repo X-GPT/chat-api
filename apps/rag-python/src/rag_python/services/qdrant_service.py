@@ -1,8 +1,11 @@
 """Qdrant vector database service."""
 
+import json
+
+from llama_index.core import Settings as LlamaIndexSettings
+from llama_index.core import VectorStoreIndex
 from llama_index.core.schema import BaseNode, TextNode
-from llama_index.core.vector_stores import VectorStoreQuery
-from llama_index.core.vector_stores.types import VectorStoreQueryMode
+from llama_index.embeddings.openai import OpenAIEmbedding  # type: ignore
 from llama_index.vector_stores.qdrant import QdrantVectorStore  # type: ignore
 from pydantic import BaseModel
 from qdrant_client import AsyncQdrantClient, QdrantClient
@@ -13,6 +16,7 @@ from qdrant_client.models import (
     Filter,
     MatchValue,
     Payload,
+    PayloadSchemaType,
     PointIdsList,
 )
 
@@ -87,6 +91,14 @@ class QdrantService:
             enable_hybrid=False,
             batch_size=20,
         )
+
+        self.embed_model = OpenAIEmbedding(
+            api_key=self.settings.openai_api_key,
+            model=self.settings.openai_embedding_model,
+        )
+
+        # Set global LlamaIndex settings once during initialization
+        LlamaIndexSettings.embed_model = self.embed_model
 
         logger.info(
             f"Qdrant vector stores initialized: "
@@ -169,6 +181,63 @@ class QdrantService:
             logger.error(f"Error ensuring collections exist: {e}")
             raise
 
+    async def ensure_payload_indexes(self) -> None:
+        """Ensure payload indexes exist for filterable fields.
+
+        Creates indexes for:
+        - member_code (keyword) - for filtering by member
+        - summary_id (integer) - for filtering by summary
+        """
+        try:
+            # Check if collections exist first
+            collections = await self.aclient.get_collections()
+            collection_names = [c.name for c in collections.collections]
+
+            # Create indexes for children collection (where we do the filtering)
+            if self.children_collection_name in collection_names:
+                logger.info(f"Ensuring payload indexes for {self.children_collection_name}")
+
+                # Create index for member_code (keyword filter)
+                await self.aclient.create_payload_index(
+                    collection_name=self.children_collection_name,
+                    field_name="member_code",
+                    field_schema=PayloadSchemaType.KEYWORD,
+                )
+                logger.info(
+                    f"Created/verified member_code index on {self.children_collection_name}"
+                )
+
+                # Create index for summary_id (integer filter)
+                await self.aclient.create_payload_index(
+                    collection_name=self.children_collection_name,
+                    field_name="summary_id",
+                    field_schema=PayloadSchemaType.INTEGER,
+                )
+                logger.info(f"Created/verified summary_id index on {self.children_collection_name}")
+
+            # Create indexes for parents collection (for consistency)
+            if self.parents_collection_name in collection_names:
+                logger.info(f"Ensuring payload indexes for {self.parents_collection_name}")
+
+                await self.aclient.create_payload_index(
+                    collection_name=self.parents_collection_name,
+                    field_name="member_code",
+                    field_schema=PayloadSchemaType.KEYWORD,
+                )
+                logger.info(f"Created/verified member_code index on {self.parents_collection_name}")
+
+                await self.aclient.create_payload_index(
+                    collection_name=self.parents_collection_name,
+                    field_name="summary_id",
+                    field_schema=PayloadSchemaType.INTEGER,
+                )
+                logger.info(f"Created/verified summary_id index on {self.parents_collection_name}")
+
+        except Exception as e:
+            # Log but don't fail - indexes might already exist
+            logger.warning(f"Warning while ensuring payload indexes: {e}")
+            logger.info("Indexes will be created after collections are populated")
+
     async def delete_by_summary_id(self, summary_id: int) -> None:
         """Delete all points associated with a summary ID from both collections.
 
@@ -236,7 +305,7 @@ class QdrantService:
 
     async def search(
         self,
-        query_vector: list[float],
+        query: str,
         member_code: str | None = None,
         limit: int = 10,
         sparse_top_k: int = 10,
@@ -244,7 +313,7 @@ class QdrantService:
         """Search for similar vectors using hybrid search on children collection.
 
         Args:
-            query_vector: The query vector to search with.
+            query: The query string to search with.
             member_code: Optional member code to filter by.
             limit: Maximum number of results to return.
             sparse_top_k: Number of results from sparse (BM25) search.
@@ -280,31 +349,27 @@ class QdrantService:
                 else None
             )
 
-            # Create vector store query for hybrid search
-            query = VectorStoreQuery(
-                query_embedding=query_vector,
-                similarity_top_k=limit,
-                mode=VectorStoreQueryMode.HYBRID,
-                sparse_top_k=sparse_top_k,
-                filters=metadata_filters,
-            )
-
             # Perform hybrid search on children collection
-            result = await self.children_vector_store.aquery(query)
+            index = VectorStoreIndex.from_vector_store(self.children_vector_store)  # pyright: ignore[reportUnknownMemberType]
+            result = await index.as_retriever(
+                filters=metadata_filters,
+                sparse_top_k=sparse_top_k,
+                similarity_top_k=limit,
+                hybrid_top_k=limit,
+            ).aretrieve(query)
 
             logger.info(
-                f"Hybrid search on children collection found "
-                f"{len(result.nodes) if result.nodes else 0} results"
+                f"Hybrid search on children collection found {len(result) if result else 0} results"
             )
 
             # Convert to SearchResult format
             search_results: list[SearchResult] = []
-            if result.nodes and result.similarities:
-                for node, score in zip(result.nodes, result.similarities):
+            if result:
+                for node in result:
                     search_results.append(
                         SearchResult(
                             id=node.node_id,
-                            score=score,
+                            score=node.score if node.score else 0.0,
                             payload=node.metadata,
                         )
                     )
@@ -362,14 +427,27 @@ class QdrantService:
             point = points[0]
             # Reconstruct node from point payload
             payload = point.payload if point.payload else {}
+
+            # LlamaIndex stores node content in the "_node_content" field as JSON
+            # If not present, fall back to "text" or "content" fields
+            text_content = ""
+            if "_node_content" in payload:
+                node_data = json.loads(payload["_node_content"])
+                text_content = node_data.get("text", "")
+            else:
+                text_content = payload.get("text", payload.get("content", ""))
+
+            # Extract metadata (excluding internal fields)
+            metadata = {k: v for k, v in payload.items() if not k.startswith("_")}
+
             node = TextNode(
                 id_=str(point.id),
-                text=payload.get("text", ""),
-                metadata=payload,
+                text=text_content,
+                metadata=metadata,
             )
             return node
         except Exception as e:
-            logger.error(f"Error retrieving parent node by ID: {e}")
+            logger.error(f"Error retrieving parent node by ID: {e}", exc_info=True)
             raise
 
     async def get_child_by_id(self, node_id: str) -> BaseNode | None:
@@ -393,12 +471,25 @@ class QdrantService:
             point = points[0]
             # Reconstruct node from point payload
             payload = point.payload if point.payload else {}
+
+            # LlamaIndex stores node content in the "_node_content" field as JSON
+            # If not present, fall back to "text" or "content" fields
+            text_content = ""
+            if "_node_content" in payload:
+                node_data = json.loads(payload["_node_content"])
+                text_content = node_data.get("text", "")
+            else:
+                text_content = payload.get("text", payload.get("content", ""))
+
+            # Extract metadata (excluding internal fields)
+            metadata = {k: v for k, v in payload.items() if not k.startswith("_")}
+
             node = TextNode(
                 id_=str(point.id),
-                text=payload.get("text", ""),
-                metadata=payload,
+                text=text_content,
+                metadata=metadata,
             )
             return node
         except Exception as e:
-            logger.error(f"Error retrieving child node by ID: {e}")
+            logger.error(f"Error retrieving child node by ID: {e}", exc_info=True)
             raise
