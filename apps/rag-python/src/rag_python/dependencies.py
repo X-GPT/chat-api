@@ -16,7 +16,7 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
 @lru_cache
-def get_qdrant_service() -> "QdrantService":
+def get_qdrant_service(settings: Annotated["Settings", Depends(get_settings)]) -> "QdrantService":
     """Get or create a cached QdrantService instance.
 
     Returns:
@@ -24,12 +24,14 @@ def get_qdrant_service() -> "QdrantService":
     """
     from rag_python.services.qdrant_service import QdrantService
 
-    settings = get_settings()
     return QdrantService(settings)
 
 
 @lru_cache
-def get_search_service() -> "SearchService":
+def get_search_service(
+    settings: Annotated["Settings", Depends(get_settings)],
+    qdrant_service: Annotated["QdrantService", Depends(get_qdrant_service)],
+) -> "SearchService":
     """Get a SearchService instance.
 
     Returns:
@@ -37,8 +39,6 @@ def get_search_service() -> "SearchService":
     """
     from rag_python.services.search_service import SearchService
 
-    settings = get_settings()
-    qdrant_service = get_qdrant_service()
     return SearchService(settings, qdrant_service)
 
 

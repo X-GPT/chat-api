@@ -1,9 +1,8 @@
 """RAG ingestion service with parent-child chunking."""
 
 import asyncio
-import uuid
 from collections.abc import Coroutine
-from typing import Any, TypedDict
+from typing import Any
 
 from llama_index.core import Document, StorageContext, VectorStoreIndex
 from llama_index.core.node_parser import SemanticSplitterNodeParser, SentenceSplitter
@@ -16,22 +15,6 @@ from rag_python.core.logging import get_logger
 from rag_python.services.qdrant_service import QdrantService
 
 logger = get_logger(__name__)
-
-# Namespace UUID for generating deterministic UUIDs from string IDs
-# Using DNS namespace as a base, but any consistent UUID would work
-NAMESPACE_UUID = uuid.UUID("6ba7b810-9dad-11d1-80b4-00c04fd430c8")
-
-
-def generate_uuid_from_string(string_id: str) -> str:
-    """Generate a deterministic UUID from a string ID.
-
-    Args:
-        string_id: The string ID to convert to UUID.
-
-    Returns:
-        A UUID string that Qdrant will accept as a valid point ID.
-    """
-    return str(uuid.uuid5(NAMESPACE_UUID, string_id))
 
 
 class IngestionStats(BaseModel):
@@ -121,12 +104,6 @@ class RAGService:
             # Step 2: Create child chunks from each parent
             all_child_nodes: list[BaseNode] = []
 
-            class ParentChildMap(TypedDict):
-                parent: BaseNode
-                children: list[BaseNode]
-
-            parent_child_map: dict[str, ParentChildMap] = {}
-
             child_nodes_tasks: list[Coroutine[Any, Any, list[BaseNode]]] = [
                 self.child_parser.aget_nodes_from_documents(
                     [
@@ -142,25 +119,14 @@ class RAGService:
             child_nodes_per_parent = await asyncio.gather(*child_nodes_tasks)
 
             for parent_idx, parent_node in enumerate(parent_nodes):
-                # Generate unique parent ID as UUID (Qdrant requires UUID or int)
-                parent_string_id = f"{summary_id}_parent_{parent_idx}"
-                parent_id = generate_uuid_from_string(parent_string_id)
-                parent_node.id_ = parent_id
-
                 # Create child chunks from this parent
                 child_nodes = child_nodes_per_parent[parent_idx]
                 if not child_nodes:
                     continue
 
                 # Link children to parent
-                for child_idx, child_node in enumerate(child_nodes):
-                    # Generate unique child ID as UUID (Qdrant requires UUID or int)
-                    child_string_id = f"{summary_id}_child_{parent_idx}_{child_idx}"
-                    child_id = generate_uuid_from_string(child_string_id)
-                    child_node.id_ = child_id
-
-                    # Store parent reference in child metadata (parent_id is a UUID string)
-                    child_node.metadata["parent_id"] = parent_id
+                for child_node in child_nodes:
+                    child_node.metadata["parent_id"] = parent_node.id_
                     child_node.metadata["chunk_index"] = len(all_child_nodes)
                     child_node.metadata["summary_id"] = summary_id
                     child_node.metadata["member_code"] = member_code
@@ -172,21 +138,9 @@ class RAGService:
                 parent_node.metadata["member_code"] = member_code
                 parent_node.metadata["chunk_index"] = parent_idx
 
-                parent_child_map[parent_id] = {
-                    "parent": parent_node,
-                    "children": child_nodes,
-                }
-
             logger.info(f"Created {len(all_child_nodes)} child nodes")
 
-            # Step 3: Prepare parent nodes list
-            # Parent nodes are stored with metadata but won't be used for direct search
-            # They will be retrieved by ID when needed for context expansion
-            parent_nodes_list: list[BaseNode] = []
-            for parent_id, parent_data in parent_child_map.items():
-                parent_nodes_list.append(parent_data["parent"])
-
-            # Step 4: Store child and parent nodes to separate collections
+            # Step 3: Store child and parent nodes to separate collections
             # VectorStoreIndex will:
             # 1. Generate embeddings for all nodes using embed_model
             # 2. Store them via the vector store with appropriate indexing
@@ -212,23 +166,23 @@ class RAGService:
                 vector_store=self.qdrant_service.parents_vector_store
             )
             _parents_index = VectorStoreIndex(
-                nodes=parent_nodes_list,
+                nodes=parent_nodes,
                 storage_context=parents_storage_context,
                 embed_model=self.embed_model,
                 show_progress=True,
             )
 
             logger.info(
-                f"Stored {len(parent_nodes_list)} parent nodes to "
+                f"Stored {len(parent_nodes)} parent nodes to "
                 f"{self.qdrant_service.parents_collection_name}"
             )
 
             stats = IngestionStats(
                 summary_id=summary_id,
                 member_code=member_code,
-                parent_chunks=len(parent_nodes_list),
+                parent_chunks=len(parent_nodes),
                 child_chunks=len(all_child_nodes),
-                total_nodes=len(all_child_nodes) + len(parent_nodes_list),
+                total_nodes=len(all_child_nodes) + len(parent_nodes),
                 operation=None,
             )
 

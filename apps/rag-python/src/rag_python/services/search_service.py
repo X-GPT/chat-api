@@ -65,12 +65,9 @@ class SearchService:
                 f"summary_id={summary_id}, limit={limit}"
             )
 
-            # Convert query to embedding
-            query_embedding = await self.embed_model.aget_text_embedding(query)
-
             # Perform hybrid search using QdrantService (searches children collection)
             search_results = await self.qdrant_service.search(
-                query_vector=query_embedding,
+                query=query,
                 member_code=member_code,
                 limit=limit,
                 sparse_top_k=sparse_top_k,

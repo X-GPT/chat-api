@@ -144,7 +144,7 @@ async def test_search_hybrid(qdrant_service: QdrantService):
     from llama_index.core.schema import TextNode
     from llama_index.core.vector_stores import VectorStoreQueryResult
 
-    query_vector = [0.5] * 1536
+    query = "Sample text"
     member_code = "user123"
 
     # Mock search results
@@ -161,7 +161,7 @@ async def test_search_hybrid(qdrant_service: QdrantService):
     qdrant_service.children_vector_store.aquery = AsyncMock(return_value=mock_result)
 
     results = await qdrant_service.search(
-        query_vector=query_vector,
+        query=query,
         member_code=member_code,
         limit=10,
         sparse_top_k=10,
@@ -183,7 +183,7 @@ async def test_search_without_member_filter(qdrant_service: QdrantService):
     """Test searching without member code filter."""
     from llama_index.core.vector_stores import VectorStoreQueryResult
 
-    query_vector = [0.5] * 1536
+    query = "Sample text"
 
     mock_result = VectorStoreQueryResult(
         nodes=[],
@@ -193,7 +193,7 @@ async def test_search_without_member_filter(qdrant_service: QdrantService):
     qdrant_service.children_vector_store.aquery = AsyncMock(return_value=mock_result)
 
     results = await qdrant_service.search(
-        query_vector=query_vector,
+        query=query,
         member_code=None,
         limit=5,
     )

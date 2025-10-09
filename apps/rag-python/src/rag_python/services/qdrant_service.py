@@ -2,9 +2,9 @@
 
 import json
 
+from llama_index.core import VectorStoreIndex
 from llama_index.core.schema import BaseNode, TextNode
-from llama_index.core.vector_stores import VectorStoreQuery
-from llama_index.core.vector_stores.types import VectorStoreQueryMode
+from llama_index.embeddings.openai import OpenAIEmbedding  # type: ignore
 from llama_index.vector_stores.qdrant import QdrantVectorStore  # type: ignore
 from pydantic import BaseModel
 from qdrant_client import AsyncQdrantClient, QdrantClient
@@ -296,7 +296,7 @@ class QdrantService:
 
     async def search(
         self,
-        query_vector: list[float],
+        query: str,
         member_code: str | None = None,
         limit: int = 10,
         sparse_top_k: int = 10,
@@ -304,7 +304,7 @@ class QdrantService:
         """Search for similar vectors using hybrid search on children collection.
 
         Args:
-            query_vector: The query vector to search with.
+            query: The query string to search with.
             member_code: Optional member code to filter by.
             limit: Maximum number of results to return.
             sparse_top_k: Number of results from sparse (BM25) search.
@@ -340,31 +340,32 @@ class QdrantService:
                 else None
             )
 
-            # Create vector store query for hybrid search
-            query = VectorStoreQuery(
-                query_embedding=query_vector,
-                similarity_top_k=limit,
-                mode=VectorStoreQueryMode.HYBRID,
-                sparse_top_k=sparse_top_k,
-                filters=metadata_filters,
-            )
-
             # Perform hybrid search on children collection
-            result = await self.children_vector_store.aquery(query)
-
+            index = VectorStoreIndex.from_vector_store(  # pyright: ignore[reportUnknownMemberType]
+                self.children_vector_store,
+                embed_model=OpenAIEmbedding(
+                    api_key=self.settings.openai_api_key,
+                    model=self.settings.openai_embedding_model,
+                ),
+            )
+            result = await index.as_retriever(
+                filters=metadata_filters,
+                sparse_top_k=sparse_top_k,
+                similarity_top_k=limit,
+                hybrid_top_k=limit,
+            ).aretrieve(query)
             logger.info(
-                f"Hybrid search on children collection found "
-                f"{len(result.nodes) if result.nodes else 0} results"
+                f"Hybrid search on children collection found {len(result) if result else 0} results"
             )
 
             # Convert to SearchResult format
             search_results: list[SearchResult] = []
-            if result.nodes and result.similarities:
-                for node, score in zip(result.nodes, result.similarities):
+            if result:
+                for node in result:
                     search_results.append(
                         SearchResult(
                             id=node.node_id,
-                            score=score,
+                            score=node.score if node.score else 0.0,
                             payload=node.metadata,
                         )
                     )

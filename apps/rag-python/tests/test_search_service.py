@@ -105,10 +105,6 @@ async def test_search_basic(
         limit=10,
     )
 
-    # Verify embedding was generated
-    mock_embed_model.aget_text_embedding.assert_called_once_with("test query")
-
-    # Verify Qdrant search was called
     mock_qdrant_service.search.assert_called_once()
 
     # Verify parent was fetched
