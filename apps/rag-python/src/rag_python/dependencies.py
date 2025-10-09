@@ -14,28 +14,15 @@ if TYPE_CHECKING:
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
-# Module-level cache for QdrantService singleton
-_qdrant_service_cache: "QdrantService | None" = None
-
-
 def get_qdrant_service(settings: Annotated["Settings", Depends(get_settings)]) -> "QdrantService":
     """Get or create a cached QdrantService instance.
 
     Returns:
         QdrantService instance.
     """
-    global _qdrant_service_cache
+    from rag_python.services.qdrant_service import QdrantService
 
-    if _qdrant_service_cache is None:
-        from rag_python.services.qdrant_service import QdrantService
-
-        _qdrant_service_cache = QdrantService(settings)
-
-    return _qdrant_service_cache
-
-
-# Module-level cache for SearchService singleton
-_search_service_cache: "SearchService | None" = None
+    return QdrantService(settings)
 
 
 def get_search_service(
@@ -47,14 +34,9 @@ def get_search_service(
     Returns:
         SearchService instance.
     """
-    global _search_service_cache
+    from rag_python.services.search_service import SearchService
 
-    if _search_service_cache is None:
-        from rag_python.services.search_service import SearchService
-
-        _search_service_cache = SearchService(settings, qdrant_service)
-
-    return _search_service_cache
+    return SearchService(settings, qdrant_service)
 
 
 # Type aliases for dependency injection
