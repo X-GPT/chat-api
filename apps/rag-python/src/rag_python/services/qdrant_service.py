@@ -1,5 +1,7 @@
 """Qdrant vector database service."""
 
+import json
+
 from llama_index.core.schema import BaseNode, TextNode
 from llama_index.core.vector_stores import VectorStoreQuery
 from llama_index.core.vector_stores.types import VectorStoreQueryMode
@@ -420,14 +422,27 @@ class QdrantService:
             point = points[0]
             # Reconstruct node from point payload
             payload = point.payload if point.payload else {}
+
+            # LlamaIndex stores node content in the "_node_content" field as JSON
+            # If not present, fall back to "text" or "content" fields
+            text_content = ""
+            if "_node_content" in payload:
+                node_data = json.loads(payload["_node_content"])
+                text_content = node_data.get("text", "")
+            else:
+                text_content = payload.get("text", payload.get("content", ""))
+
+            # Extract metadata (excluding internal fields)
+            metadata = {k: v for k, v in payload.items() if not k.startswith("_")}
+
             node = TextNode(
                 id_=str(point.id),
-                text=payload.get("text", ""),
-                metadata=payload,
+                text=text_content,
+                metadata=metadata,
             )
             return node
         except Exception as e:
-            logger.error(f"Error retrieving parent node by ID: {e}")
+            logger.error(f"Error retrieving parent node by ID: {e}", exc_info=True)
             raise
 
     async def get_child_by_id(self, node_id: str) -> BaseNode | None:
@@ -451,12 +466,25 @@ class QdrantService:
             point = points[0]
             # Reconstruct node from point payload
             payload = point.payload if point.payload else {}
+
+            # LlamaIndex stores node content in the "_node_content" field as JSON
+            # If not present, fall back to "text" or "content" fields
+            text_content = ""
+            if "_node_content" in payload:
+                node_data = json.loads(payload["_node_content"])
+                text_content = node_data.get("text", "")
+            else:
+                text_content = payload.get("text", payload.get("content", ""))
+
+            # Extract metadata (excluding internal fields)
+            metadata = {k: v for k, v in payload.items() if not k.startswith("_")}
+
             node = TextNode(
                 id_=str(point.id),
-                text=payload.get("text", ""),
-                metadata=payload,
+                text=text_content,
+                metadata=metadata,
             )
             return node
         except Exception as e:
-            logger.error(f"Error retrieving child node by ID: {e}")
+            logger.error(f"Error retrieving child node by ID: {e}", exc_info=True)
             raise

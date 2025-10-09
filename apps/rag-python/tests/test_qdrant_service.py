@@ -230,16 +230,33 @@ async def test_get_collection_info(qdrant_service: QdrantService):
 @pytest.mark.asyncio
 async def test_get_node_by_id(qdrant_service: QdrantService):
     """Test retrieving a parent node by ID."""
+    import json
+
     from llama_index.core.schema import TextNode
 
-    # Mock retrieved point
+    # Mock retrieved point with LlamaIndex's actual storage format
+    # LlamaIndex stores node content as JSON in "_node_content" field
     mock_point = MagicMock()
     mock_point.id = "parent_1"
-    mock_point.payload = {
+    node_content = {
+        "id_": "parent_1",
         "text": "Parent node text",
+        "metadata": {
+            "summary_id": 1,
+            "member_code": "user1",
+            "chunk_index": 0,
+        },
+        "embedding": None,
+    }
+    mock_point.payload = {
+        "_node_content": json.dumps(node_content),
+        "_node_type": "TextNode",
         "summary_id": 1,
         "member_code": "user1",
         "chunk_index": 0,
+        "doc_id": "None",
+        "document_id": "None",
+        "ref_doc_id": "None",
     }
     qdrant_service.aclient.retrieve = AsyncMock(return_value=[mock_point])
 
@@ -267,3 +284,119 @@ async def test_get_node_by_id_not_found(qdrant_service: QdrantService):
 
     # Verify None is returned
     assert node is None
+
+
+@pytest.mark.asyncio
+async def test_get_node_by_id_legacy_format(qdrant_service: QdrantService):
+    """Test retrieving a node with legacy format (no _node_content)."""
+    from llama_index.core.schema import TextNode
+
+    # Mock retrieved point with legacy format (text directly in payload)
+    mock_point = MagicMock()
+    mock_point.id = "parent_2"
+    mock_point.payload = {
+        "text": "Legacy parent node text",
+        "summary_id": 2,
+        "member_code": "user2",
+        "chunk_index": 1,
+    }
+    qdrant_service.aclient.retrieve = AsyncMock(return_value=[mock_point])
+
+    node = await qdrant_service.get_node_by_id("parent_2")
+
+    # Verify node content from legacy format
+    assert node is not None
+    assert isinstance(node, TextNode)
+    assert node.id_ == "parent_2"
+    assert node.text == "Legacy parent node text"
+    assert node.metadata["summary_id"] == 2
+    assert node.metadata["member_code"] == "user2"
+
+
+@pytest.mark.asyncio
+async def test_get_child_by_id(qdrant_service: QdrantService):
+    """Test retrieving a child node by ID."""
+    import json
+
+    from llama_index.core.schema import TextNode
+
+    # Mock retrieved point with LlamaIndex's actual storage format
+    mock_point = MagicMock()
+    mock_point.id = "child_1"
+    node_content = {
+        "id_": "child_1",
+        "text": "Child node text content",
+        "metadata": {
+            "summary_id": 1,
+            "member_code": "user1",
+            "parent_id": "parent_1",
+            "chunk_index": 0,
+        },
+        "embedding": None,
+    }
+    mock_point.payload = {
+        "_node_content": json.dumps(node_content),
+        "_node_type": "TextNode",
+        "summary_id": 1,
+        "member_code": "user1",
+        "parent_id": "parent_1",
+        "chunk_index": 0,
+        "doc_id": "None",
+        "document_id": "None",
+        "ref_doc_id": "None",
+    }
+    qdrant_service.aclient.retrieve = AsyncMock(return_value=[mock_point])
+
+    node = await qdrant_service.get_child_by_id("child_1")
+
+    # Verify node was retrieved from children collection
+    qdrant_service.aclient.retrieve.assert_called_once()
+    call_kwargs = qdrant_service.aclient.retrieve.call_args[1]
+    assert call_kwargs["collection_name"] == "test-collection_children"
+
+    # Verify node content
+    assert node is not None
+    assert isinstance(node, TextNode)
+    assert node.id_ == "child_1"
+    assert node.text == "Child node text content"
+    assert node.metadata["summary_id"] == 1
+    assert node.metadata["parent_id"] == "parent_1"
+
+
+@pytest.mark.asyncio
+async def test_get_child_by_id_not_found(qdrant_service: QdrantService):
+    """Test retrieving a child node that doesn't exist."""
+    qdrant_service.aclient.retrieve = AsyncMock(return_value=[])
+
+    node = await qdrant_service.get_child_by_id("nonexistent")
+
+    # Verify None is returned
+    assert node is None
+
+
+@pytest.mark.asyncio
+async def test_get_child_by_id_legacy_format(qdrant_service: QdrantService):
+    """Test retrieving a child node with legacy format (no _node_content)."""
+    from llama_index.core.schema import TextNode
+
+    # Mock retrieved point with legacy format
+    mock_point = MagicMock()
+    mock_point.id = "child_2"
+    mock_point.payload = {
+        "text": "Legacy child node text",
+        "summary_id": 2,
+        "member_code": "user2",
+        "parent_id": "parent_2",
+        "chunk_index": 1,
+    }
+    qdrant_service.aclient.retrieve = AsyncMock(return_value=[mock_point])
+
+    node = await qdrant_service.get_child_by_id("child_2")
+
+    # Verify node content from legacy format
+    assert node is not None
+    assert isinstance(node, TextNode)
+    assert node.id_ == "child_2"
+    assert node.text == "Legacy child node text"
+    assert node.metadata["summary_id"] == 2
+    assert node.metadata["parent_id"] == "parent_2"
