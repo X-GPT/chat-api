@@ -92,10 +92,13 @@ class QdrantService:
             batch_size=20,
         )
 
-        LlamaIndexSettings.embed_model = OpenAIEmbedding(
+        self.embed_model = OpenAIEmbedding(
             api_key=self.settings.openai_api_key,
             model=self.settings.openai_embedding_model,
         )
+
+        # Set global LlamaIndex settings once during initialization
+        LlamaIndexSettings.embed_model = self.embed_model
 
         logger.info(
             f"Qdrant vector stores initialized: "

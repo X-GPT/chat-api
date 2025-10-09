@@ -1,6 +1,5 @@
 """FastAPI dependency injection utilities."""
 
-from functools import lru_cache
 from typing import TYPE_CHECKING, Annotated
 
 from fastapi import Depends
@@ -15,19 +14,30 @@ if TYPE_CHECKING:
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
-@lru_cache
+# Module-level cache for QdrantService singleton
+_qdrant_service_cache: "QdrantService | None" = None
+
+
 def get_qdrant_service(settings: Annotated["Settings", Depends(get_settings)]) -> "QdrantService":
     """Get or create a cached QdrantService instance.
 
     Returns:
         QdrantService instance.
     """
-    from rag_python.services.qdrant_service import QdrantService
+    global _qdrant_service_cache
 
-    return QdrantService(settings)
+    if _qdrant_service_cache is None:
+        from rag_python.services.qdrant_service import QdrantService
+
+        _qdrant_service_cache = QdrantService(settings)
+
+    return _qdrant_service_cache
 
 
-@lru_cache
+# Module-level cache for SearchService singleton
+_search_service_cache: "SearchService | None" = None
+
+
 def get_search_service(
     settings: Annotated["Settings", Depends(get_settings)],
     qdrant_service: Annotated["QdrantService", Depends(get_qdrant_service)],
@@ -37,9 +47,14 @@ def get_search_service(
     Returns:
         SearchService instance.
     """
-    from rag_python.services.search_service import SearchService
+    global _search_service_cache
 
-    return SearchService(settings, qdrant_service)
+    if _search_service_cache is None:
+        from rag_python.services.search_service import SearchService
+
+        _search_service_cache = SearchService(settings, qdrant_service)
+
+    return _search_service_cache
 
 
 # Type aliases for dependency injection
