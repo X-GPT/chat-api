@@ -232,7 +232,7 @@ class QdrantService:
 
         except Exception as e:
             # Log but don't fail - indexes might already exist
-            logger.warning(f"Note while ensuring payload indexes: {e}")
+            logger.warning(f"Warning while ensuring payload indexes: {e}")
             logger.info("Indexes will be created after collections are populated")
 
     async def delete_by_summary_id(self, summary_id: int) -> None:
