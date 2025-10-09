@@ -154,16 +154,8 @@ async def test_search_hybrid(qdrant_service: QdrantService):
     )
     mock_node_with_score = NodeWithScore(node=mock_node, score=0.95)
 
-    # Mock the embedding model to avoid real API calls
-    with (
-        patch("rag_python.services.qdrant_service.OpenAIEmbedding") as mock_embedding_class,
-        patch("rag_python.services.qdrant_service.VectorStoreIndex") as mock_index_class,
-    ):
-        # Mock embedding instance
-        mock_embedding = MagicMock()
-        mock_embedding.aget_query_embedding = AsyncMock(return_value=[0.1] * 1536)
-        mock_embedding_class.return_value = mock_embedding
-
+    # Mock VectorStoreIndex to avoid real API calls
+    with patch("rag_python.services.qdrant_service.VectorStoreIndex") as mock_index_class:
         # Mock retriever
         mock_retriever = AsyncMock()
         mock_retriever.aretrieve = AsyncMock(return_value=[mock_node_with_score])
@@ -180,10 +172,12 @@ async def test_search_hybrid(qdrant_service: QdrantService):
             sparse_top_k=10,
         )
 
-        # Verify embedding was created with correct parameters
-        mock_embedding_class.assert_called_once()
+        # Verify VectorStoreIndex was created from vector store
+        mock_index_class.from_vector_store.assert_called_once_with(
+            qdrant_service.children_vector_store
+        )
 
-        # Verify retriever was called
+        # Verify retriever was called with correct query
         mock_retriever.aretrieve.assert_called_once_with(query)
 
         # Verify results
@@ -199,16 +193,8 @@ async def test_search_without_member_filter(qdrant_service: QdrantService):
     """Test searching without member code filter."""
     query = "Sample text"
 
-    # Mock the embedding model to avoid real API calls
-    with (
-        patch("rag_python.services.qdrant_service.OpenAIEmbedding") as mock_embedding_class,
-        patch("rag_python.services.qdrant_service.VectorStoreIndex") as mock_index_class,
-    ):
-        # Mock embedding instance
-        mock_embedding = MagicMock()
-        mock_embedding.aget_query_embedding = AsyncMock(return_value=[0.1] * 1536)
-        mock_embedding_class.return_value = mock_embedding
-
+    # Mock VectorStoreIndex to avoid real API calls
+    with patch("rag_python.services.qdrant_service.VectorStoreIndex") as mock_index_class:
         # Mock retriever returning no results
         mock_retriever = AsyncMock()
         mock_retriever.aretrieve = AsyncMock(return_value=[])
@@ -224,7 +210,7 @@ async def test_search_without_member_filter(qdrant_service: QdrantService):
             limit=5,
         )
 
-        # Verify retriever was called
+        # Verify retriever was called with correct query
         mock_retriever.aretrieve.assert_called_once_with(query)
         assert len(results) == 0
 

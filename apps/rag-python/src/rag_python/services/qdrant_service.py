@@ -2,6 +2,7 @@
 
 import json
 
+from llama_index.core import Settings as LlamaIndexSettings
 from llama_index.core import VectorStoreIndex
 from llama_index.core.schema import BaseNode, TextNode
 from llama_index.embeddings.openai import OpenAIEmbedding  # type: ignore
@@ -89,6 +90,11 @@ class QdrantService:
             aclient=self.aclient,
             enable_hybrid=False,
             batch_size=20,
+        )
+
+        LlamaIndexSettings.embed_model = OpenAIEmbedding(
+            api_key=self.settings.openai_api_key,
+            model=self.settings.openai_embedding_model,
         )
 
         logger.info(
@@ -341,13 +347,7 @@ class QdrantService:
             )
 
             # Perform hybrid search on children collection
-            index = VectorStoreIndex.from_vector_store(  # pyright: ignore[reportUnknownMemberType]
-                self.children_vector_store,
-                embed_model=OpenAIEmbedding(
-                    api_key=self.settings.openai_api_key,
-                    model=self.settings.openai_embedding_model,
-                ),
-            )
+            index = VectorStoreIndex.from_vector_store(self.children_vector_store)  # pyright: ignore[reportUnknownMemberType]
             result = await index.as_retriever(
                 filters=metadata_filters,
                 sparse_top_k=sparse_top_k,
