@@ -84,6 +84,8 @@ jobs:
       registry: ${{ steps.ecr-login.outputs.registry }}
       api_image_sha_tag: ${{ steps.meta.outputs.api_image_sha_tag }}
       api_image_latest_tag: ${{ steps.meta.outputs.api_image_latest_tag }}
+      rag_api_image_sha_tag: ${{ steps.meta.outputs.rag_api_image_sha_tag }}
+      rag_api_image_latest_tag: ${{ steps.meta.outputs.rag_api_image_latest_tag }}
       worker_image_sha_tag: ${{ steps.meta.outputs.worker_image_sha_tag }}
       worker_image_latest_tag: ${{ steps.meta.outputs.worker_image_latest_tag }}
     steps:
@@ -112,22 +114,27 @@ jobs:
           REG="${{ steps.ecr-login.outputs.registry }}"
           REPO="${{ env.ECR_REPO }}"
 
-          # API image tags
+          # Chat API image tags
           echo "api_image_sha_tag=${REG}/${REPO}:staging-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
           echo "api_image_latest_tag=${REG}/${REPO}:staging-latest" >> "$GITHUB_OUTPUT"
 
-          # Worker image tags
-          echo "worker_image_sha_tag=${REG}/${REPO}-worker:staging-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
-          echo "worker_image_latest_tag=${REG}/${REPO}-worker:staging-latest" >> "$GITHUB_OUTPUT"
+          # RAG API image tags
+          echo "rag_api_image_sha_tag=${REG}/${REPO}-rag-api:staging-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "rag_api_image_latest_tag=${REG}/${REPO}-rag-api:staging-latest" >> "$GITHUB_OUTPUT"
+
+          # RAG Worker image tags
+          echo "worker_image_sha_tag=${REG}/${REPO}-rag-worker:staging-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
+          echo "worker_image_latest_tag=${REG}/${REPO}-rag-worker:staging-latest" >> "$GITHUB_OUTPUT"
 
       - name: Ensure ECR repositories exist
         run: |
           set -euo pipefail
           REPO="${{ env.ECR_REPO }}"
-          WORKER_REPO="${REPO}-worker"
+          RAG_API_REPO="${REPO}-rag-api"
+          RAG_WORKER_REPO="${REPO}-rag-worker"
           REGION="${{ env.AWS_REGION }}"
 
-          # Create API repository
+          # Create Chat API repository
           if ! aws ecr describe-repositories --repository-names "$REPO" --region "$REGION" >/dev/null 2>&1; then
             echo "Creating ECR repository: $REPO in $REGION"
             aws ecr create-repository \
@@ -137,17 +144,27 @@ jobs:
               --region "$REGION" >/dev/null
           fi
 
-          # Create Worker repository
-          if ! aws ecr describe-repositories --repository-names "$WORKER_REPO" --region "$REGION" >/dev/null 2>&1; then
-            echo "Creating ECR repository: $WORKER_REPO in $REGION"
+          # Create RAG API repository
+          if ! aws ecr describe-repositories --repository-names "$RAG_API_REPO" --region "$REGION" >/dev/null 2>&1; then
+            echo "Creating ECR repository: $RAG_API_REPO in $REGION"
             aws ecr create-repository \
-              --repository-name "$WORKER_REPO" \
+              --repository-name "$RAG_API_REPO" \
               --image-scanning-configuration scanOnPush=true \
               --encryption-configuration encryptionType=AES256 \
               --region "$REGION" >/dev/null
           fi
 
-      - name: Build & Push API image (with cache)
+          # Create RAG Worker repository
+          if ! aws ecr describe-repositories --repository-names "$RAG_WORKER_REPO" --region "$REGION" >/dev/null 2>&1; then
+            echo "Creating ECR repository: $RAG_WORKER_REPO in $REGION"
+            aws ecr create-repository \
+              --repository-name "$RAG_WORKER_REPO" \
+              --image-scanning-configuration scanOnPush=true \
+              --encryption-configuration encryptionType=AES256 \
+              --region "$REGION" >/dev/null
+          fi
+
+      - name: Build & Push Chat API image (with cache)
         uses: docker/build-push-action@v6
         with:
           context: ./apps/chat-api
@@ -156,20 +173,34 @@ jobs:
           tags: |
             ${{ steps.meta.outputs.api_image_sha_tag }}
             ${{ steps.meta.outputs.api_image_latest_tag }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          cache-from: type=gha,scope=chat-api
+          cache-to: type=gha,mode=max,scope=chat-api
 
-      - name: Build & Push Worker image (with cache)
+      - name: Build & Push RAG API image (with cache)
         uses: docker/build-push-action@v6
         with:
           context: ./apps/rag-python
           file: ./apps/rag-python/Dockerfile
+          target: api
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.rag_api_image_sha_tag }}
+            ${{ steps.meta.outputs.rag_api_image_latest_tag }}
+          cache-from: type=gha,scope=rag-api
+          cache-to: type=gha,mode=max,scope=rag-api
+
+      - name: Build & Push RAG Worker image (with cache)
+        uses: docker/build-push-action@v6
+        with:
+          context: ./apps/rag-python
+          file: ./apps/rag-python/Dockerfile
+          target: worker
           push: true
           tags: |
             ${{ steps.meta.outputs.worker_image_sha_tag }}
             ${{ steps.meta.outputs.worker_image_latest_tag }}
-          cache-from: type=gha,scope=worker
-          cache-to: type=gha,mode=max,scope=worker
+          cache-from: type=gha,scope=rag-worker
+          cache-to: type=gha,mode=max,scope=rag-worker
 
   deploy-to-staging:
     name: Deploy to Staging EC2
@@ -207,11 +238,10 @@ jobs:
             CONTAINER_PORT="${{ env.STAGING_CONTAINER_PORT }}"
             RAG_API_PORT="${{ env.STAGING_RAG_API_PORT }}"
             API_IMAGE="${{ needs.build-and-push.outputs.api_image_sha_tag }}"
-            WORKER_IMAGE="${{ needs.build-and-push.outputs.worker_image_sha_tag }}"
-            RAG_API_IMAGE="${{ needs.build-and-push.outputs.worker_image_sha_tag }}"
+            RAG_API_IMAGE="${{ needs.build-and-push.outputs.rag_api_image_sha_tag }}"
             RAG_WORKER_IMAGE="${{ needs.build-and-push.outputs.worker_image_sha_tag }}"
 
-            echo "🚀 Deploying to staging: API=$API_IMAGE, RAG=$RAG_API_IMAGE, Worker=$RAG_WORKER_IMAGE"
+            echo "🚀 Deploying to staging: API=$API_IMAGE, RAG_API=$RAG_API_IMAGE, RAG_WORKER=$RAG_WORKER_IMAGE"
 
             # Login to ECR
             REGISTRY="${API_IMAGE%%/*}"
@@ -221,6 +251,7 @@ jobs:
             # Pull the new images
             sudo docker pull "$API_IMAGE"
             sudo docker pull "$RAG_API_IMAGE"
+            sudo docker pull "$RAG_WORKER_IMAGE"
 
             # Install/update compose file in shared config location
             sudo -n mkdir -p /etc/mymemo/chat-api
@@ -347,12 +378,15 @@ jobs:
       - name: Set staging image for production
         id: set-image
         run: |
-          # Use image from staging deployment
+          # Use images from staging deployment
           API_STAGING_IMAGE="${{ needs.build-and-push.outputs.api_image_sha_tag }}"
+          RAG_API_STAGING_IMAGE="${{ needs.build-and-push.outputs.rag_api_image_sha_tag }}"
           WORKER_STAGING_IMAGE="${{ needs.build-and-push.outputs.worker_image_sha_tag }}"
-          echo "📦 Using api staging image for production: ${API_STAGING_IMAGE}"
+          echo "📦 Using chat api staging image for production: ${API_STAGING_IMAGE}"
           echo "api_staging_image=${API_STAGING_IMAGE}" >> $GITHUB_OUTPUT
-          echo "📦 Using worker staging image for production: ${WORKER_STAGING_IMAGE}"
+          echo "📦 Using rag api staging image for production: ${RAG_API_STAGING_IMAGE}"
+          echo "rag_api_staging_image=${RAG_API_STAGING_IMAGE}" >> $GITHUB_OUTPUT
+          echo "📦 Using rag worker staging image for production: ${WORKER_STAGING_IMAGE}"
           echo "worker_staging_image=${WORKER_STAGING_IMAGE}" >> $GITHUB_OUTPUT
 
       - name: Copy compose file to EC2
@@ -382,11 +416,10 @@ jobs:
             CONTAINER_PORT="${{ env.PROD_CONTAINER_PORT }}"
             RAG_API_PORT="${{ env.PROD_RAG_API_PORT }}"
             API_IMAGE="${{ steps.set-image.outputs.api_staging_image }}"
-            WORKER_IMAGE="${{ steps.set-image.outputs.worker_staging_image }}"
-            RAG_API_IMAGE="${{ steps.set-image.outputs.worker_staging_image }}"
+            RAG_API_IMAGE="${{ steps.set-image.outputs.rag_api_staging_image }}"
             RAG_WORKER_IMAGE="${{ steps.set-image.outputs.worker_staging_image }}"
 
-            echo "🚀 Deploying staging images to production: API=$API_IMAGE, RAG=$RAG_API_IMAGE, Worker=$RAG_WORKER_IMAGE"
+            echo "🚀 Deploying staging images to production: API=$API_IMAGE, RAG_API=$RAG_API_IMAGE, RAG_WORKER=$RAG_WORKER_IMAGE"
 
             # Login to ECR
             REGISTRY="${API_IMAGE%%/*}"
@@ -396,6 +429,7 @@ jobs:
             # Pull the staging images for production use
             sudo docker pull "$API_IMAGE"
             sudo docker pull "$RAG_API_IMAGE"
+            sudo docker pull "$RAG_WORKER_IMAGE"
 
             # Install/update compose file in shared config location
             sudo -n mkdir -p /etc/mymemo/chat-api
