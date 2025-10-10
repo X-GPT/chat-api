@@ -9,6 +9,8 @@ services:
     env_file:
       - ./apps/chat-api/.env
     restart: always
+    networks:
+      - mymemo-network
 
   rag-api:
     container_name: rag-api
@@ -21,6 +23,8 @@ services:
     env_file:
       - ./apps/rag-python/.env
     restart: always
+    networks:
+      - mymemo-network
 
   rag-worker:
     container_name: rag-worker
@@ -31,4 +35,10 @@ services:
     env_file:
       - ./apps/rag-python/.env
     restart: always
+    networks:
+      - mymemo-network
     # To scale rag-worker locally, use: docker-compose up --scale rag-worker=N
+
+networks:
+  mymemo-network:
+    driver: bridge

@@ -21,6 +21,8 @@ services:
         awslogs-group: /apps/chat-api
         awslogs-stream: ec2-${REPO_NAME}-production-api
         awslogs-create-group: "true"
+    networks:
+      - mymemo-production-network
 
   rag-api:
     container_name: ${REPO_NAME}-production-rag-api
@@ -39,6 +41,8 @@ services:
         awslogs-group: /apps/rag-python
         awslogs-stream: ec2-${REPO_NAME}-production-api
         awslogs-create-group: "true"
+    networks:
+      - mymemo-production-network
 
   rag-worker:
     container_name: ${REPO_NAME}-production-rag-worker
@@ -55,6 +59,13 @@ services:
         awslogs-group: /apps/rag-python
         awslogs-stream: ec2-${REPO_NAME}-production-worker
         awslogs-create-group: "true"
+    networks:
+      - mymemo-production-network
+
+networks:
+  mymemo-production-network:
+    driver: bridge
+
 # To scale rag-worker locally, use: docker-compose up --scale rag-worker=N
 
 

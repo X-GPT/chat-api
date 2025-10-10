@@ -19,6 +19,8 @@ services:
       options:
         max-size: "10m"
         max-file: "5"
+    networks:
+      - mymemo-staging-network
 
   rag-api:
     container_name: ${REPO_NAME}-staging-rag-api
@@ -37,6 +39,8 @@ services:
         awslogs-group: /apps/rag-python-staging
         awslogs-stream: ec2-${REPO_NAME}-staging-api
         awslogs-create-group: "true"
+    networks:
+      - mymemo-staging-network
 
   rag-worker:
     container_name: ${REPO_NAME}-staging-rag-worker
@@ -53,5 +57,11 @@ services:
         awslogs-group: /apps/rag-python-staging
         awslogs-stream: ec2-${REPO_NAME}-staging-worker
         awslogs-create-group: "true"
+    networks:
+      - mymemo-staging-network
+
+networks:
+  mymemo-staging-network:
+    driver: bridge
 
 # To scale rag-worker locally, use: docker-compose up --scale rag-worker=N
