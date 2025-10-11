@@ -480,13 +480,14 @@ class QdrantService:
 
             # Filter by collection membership (ANY of the collection IDs)
             if collection_ids:
-                # Use CONTAINS to match any collection ID in the array
-                # This allows filtering summaries that belong to any of the specified collections
+                # Use IN operator for array membership checking
+                # This should translate to Qdrant's MatchAny condition
+                # Matches if the document's collection_ids array contains ANY of the specified IDs
                 filter_list.append(
                     MetadataFilter(
                         key="collection_ids",
                         value=collection_ids,
-                        operator=FilterOperator.CONTAINS,
+                        operator=FilterOperator.IN,
                     )
                 )
 
