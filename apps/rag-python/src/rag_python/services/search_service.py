@@ -44,6 +44,7 @@ class SearchService:
         query: str,
         member_code: str | None = None,
         summary_id: int | None = None,
+        collection_ids: list[int] | None = None,
         limit: int = 10,
         sparse_top_k: int = 10,
     ) -> SearchResponse:
@@ -53,6 +54,7 @@ class SearchService:
             query: Search query text.
             member_code: Optional member code to filter by.
             summary_id: Optional summary ID to filter by.
+            collection_ids: Optional list of collection IDs to filter by (ANY match).
             limit: Maximum number of results to return.
             sparse_top_k: Number of results from sparse search.
 
@@ -62,13 +64,14 @@ class SearchService:
         try:
             logger.info(
                 f"Performing search: query='{query}', member_code={member_code}, "
-                f"summary_id={summary_id}, limit={limit}"
+                f"summary_id={summary_id}, collection_ids={collection_ids}, limit={limit}"
             )
 
             # Perform hybrid search using QdrantService (searches children collection)
             search_results = await self.qdrant_service.search(
                 query=query,
                 member_code=member_code,
+                collection_ids=collection_ids,
                 limit=limit,
                 sparse_top_k=sparse_top_k,
             )

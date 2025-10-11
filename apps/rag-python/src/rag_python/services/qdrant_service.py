@@ -1,6 +1,7 @@
 """Qdrant vector database service."""
 
 import json
+from typing import Any, TypeGuard
 
 from llama_index.core import Settings as LlamaIndexSettings
 from llama_index.core import VectorStoreIndex
@@ -24,6 +25,18 @@ from rag_python.config import Settings
 from rag_python.core.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def is_list_of_ints(x: Any) -> TypeGuard[list[int]]:
+    """Type guard to check if a value is a list of integers.
+
+    Args:
+        x: Value to check.
+
+    Returns:
+        True if x is a list containing only integers.
+    """
+    return isinstance(x, list) and all(isinstance(item, int) for item in x)  # pyright: ignore[reportUnknownVariableType]
 
 
 class SearchResult(BaseModel):
@@ -187,6 +200,7 @@ class QdrantService:
         Creates indexes for:
         - member_code (keyword) - for filtering by member
         - summary_id (integer) - for filtering by summary
+        - collection_ids (integer array) - for filtering by collection membership
         """
         try:
             # Check if collections exist first
@@ -215,6 +229,16 @@ class QdrantService:
                 )
                 logger.info(f"Created/verified summary_id index on {self.children_collection_name}")
 
+                # Create index for collection_ids (integer array filter)
+                await self.aclient.create_payload_index(
+                    collection_name=self.children_collection_name,
+                    field_name="collection_ids",
+                    field_schema=PayloadSchemaType.INTEGER,
+                )
+                logger.info(
+                    f"Created/verified collection_ids index on {self.children_collection_name}"
+                )
+
             # Create indexes for parents collection (for consistency)
             if self.parents_collection_name in collection_names:
                 logger.info(f"Ensuring payload indexes for {self.parents_collection_name}")
@@ -232,6 +256,15 @@ class QdrantService:
                     field_schema=PayloadSchemaType.INTEGER,
                 )
                 logger.info(f"Created/verified summary_id index on {self.parents_collection_name}")
+
+                await self.aclient.create_payload_index(
+                    collection_name=self.parents_collection_name,
+                    field_name="collection_ids",
+                    field_schema=PayloadSchemaType.INTEGER,
+                )
+                logger.info(
+                    f"Created/verified collection_ids index on {self.parents_collection_name}"
+                )
 
         except Exception as e:
             # Log but don't fail - indexes might already exist
@@ -274,6 +307,109 @@ class QdrantService:
             logger.error(f"Error deleting points for summary_id {summary_id}: {e}")
             raise
 
+    async def get_collection_ids(self, summary_id: int) -> list[int]:
+        """Get current collection_ids for a summary.
+
+        Args:
+            summary_id: The summary ID to query.
+
+        Returns:
+            List of collection IDs, or empty list if summary not found.
+        """
+        try:
+            # Query one point from children collection to get current collection_ids
+            scroll_result = await self.aclient.scroll(
+                collection_name=self.children_collection_name,
+                scroll_filter=Filter(
+                    must=[
+                        FieldCondition(
+                            key="summary_id",
+                            match=MatchValue(value=summary_id),
+                        )
+                    ]
+                ),
+                limit=1,
+                with_payload=True,
+                with_vectors=False,
+            )
+
+            points, _ = scroll_result  # scroll returns (points, next_offset)
+            if not points:
+                logger.info(f"No points found for summary_id={summary_id}, returning empty list")
+                return []
+
+            # Extract collection_ids from payload
+            point_payload = points[0].payload
+            if not point_payload:
+                return []
+
+            collection_ids_raw = point_payload.get("collection_ids")
+            if not collection_ids_raw:
+                return []
+
+            # Type guard: check if it's a list of ints
+            if is_list_of_ints(collection_ids_raw):
+                # Type checker now knows this is list[int]
+                return collection_ids_raw
+
+            # If it's not a proper list[int], fail fast
+            raise TypeError(
+                f"collection_ids has invalid type: expected list[int], "
+                f"got {type(collection_ids_raw).__name__}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error getting collection_ids for summary_id {summary_id}: {e}")
+            # Return empty list on error rather than raising
+            return []
+
+    async def update_collection_ids(self, summary_id: int, collection_ids: list[int]) -> None:
+        """Update collection_ids metadata for all points associated with a summary ID.
+
+        Args:
+            summary_id: The summary ID to filter by.
+            collection_ids: The list of collection IDs to set.
+        """
+        try:
+            # Update children collection
+            await self.aclient.set_payload(
+                collection_name=self.children_collection_name,
+                payload={"collection_ids": collection_ids},
+                points=Filter(
+                    must=[
+                        FieldCondition(
+                            key="summary_id",
+                            match=MatchValue(value=summary_id),
+                        )
+                    ]
+                ),
+            )
+            logger.info(
+                f"Updated collection_ids for summary_id={summary_id} "
+                f"in {self.children_collection_name}"
+            )
+
+            # Update parents collection
+            await self.aclient.set_payload(
+                collection_name=self.parents_collection_name,
+                payload={"collection_ids": collection_ids},
+                points=Filter(
+                    must=[
+                        FieldCondition(
+                            key="summary_id",
+                            match=MatchValue(value=summary_id),
+                        )
+                    ]
+                ),
+            )
+            logger.info(
+                f"Updated collection_ids for summary_id={summary_id} "
+                f"in {self.parents_collection_name}"
+            )
+        except Exception as e:
+            logger.error(f"Error updating collection_ids for summary_id {summary_id}: {e}")
+            raise
+
     async def delete_by_ids(
         self,
         point_ids: list[ExtendedPointId],
@@ -307,6 +443,7 @@ class QdrantService:
         self,
         query: str,
         member_code: str | None = None,
+        collection_ids: list[int] | None = None,
         limit: int = 10,
         sparse_top_k: int = 10,
     ) -> list[SearchResult]:
@@ -315,6 +452,7 @@ class QdrantService:
         Args:
             query: The query string to search with.
             member_code: Optional member code to filter by.
+            collection_ids: Optional list of collection IDs to filter by (ANY match).
             limit: Maximum number of results to return.
             sparse_top_k: Number of results from sparse (BM25) search.
 
@@ -337,6 +475,18 @@ class QdrantService:
                         key="member_code",
                         value=member_code,
                         operator=FilterOperator.EQ,
+                    )
+                )
+
+            # Filter by collection membership (ANY of the collection IDs)
+            if collection_ids:
+                # Use CONTAINS to match any collection ID in the array
+                # This allows filtering summaries that belong to any of the specified collections
+                filter_list.append(
+                    MetadataFilter(
+                        key="collection_ids",
+                        value=collection_ids,
+                        operator=FilterOperator.CONTAINS,
                     )
                 )
 

@@ -57,10 +57,11 @@ def message_processor(mock_settings: Settings, mock_qdrant_service: MagicMock):
 
 def test_message_handler_registry():
     """Test message handler registry."""
-    registry = MessageHandlerRegistry(rag_service=AsyncMock())
+    registry = MessageHandlerRegistry(rag_service=AsyncMock(), qdrant_service=MagicMock())
 
     # Check that default handlers are registered
     assert registry.get_handler("summary:lifecycle") is not None
+    assert registry.get_handler("collection:relationship") is not None
 
 
 @pytest.mark.asyncio

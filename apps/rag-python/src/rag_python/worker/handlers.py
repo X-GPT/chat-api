@@ -4,11 +4,13 @@ from typing import Protocol
 
 from rag_python.core.logging import get_logger
 from rag_python.schemas.events import (
+    CollectionRelationshipMessage,
     SQSMessage,
     SummaryAction,
     SummaryEvent,
     SummaryLifecycleMessage,
 )
+from rag_python.services.qdrant_service import QdrantService
 from rag_python.services.rag_service import RAGService
 
 logger = get_logger(__name__)
@@ -40,7 +42,7 @@ class SummaryLifecycleHandler:
         """
         self.rag_service = rag_service
 
-    async def handle(self, message: SummaryLifecycleMessage) -> bool:
+    async def handle(self, message: SQSMessage) -> bool:
         """Handle summary lifecycle message.
 
         Args:
@@ -49,6 +51,10 @@ class SummaryLifecycleHandler:
         Returns:
             bool: True if successful.
         """
+        if not isinstance(message, SummaryLifecycleMessage):
+            logger.error(f"Invalid message type for SummaryLifecycleHandler: {type(message)}")
+            return False
+
         event = message.data
         logger.info(
             f"Processing summary lifecycle event: {event.action.value} for summary ID {event.id}"
@@ -152,17 +158,98 @@ class SummaryLifecycleHandler:
         return True
 
 
+class CollectionRelationshipHandler:
+    """Handler for collection relationship events.
+
+    Handles delta updates to collection relationships. The Java backend sends
+    incremental changes (addedCollectionIds, removedCollectionIds) rather than
+    the complete state, so we retrieve current state, apply changes, and update.
+    """
+
+    def __init__(self, qdrant_service: QdrantService):
+        """Initialize handler with Qdrant service.
+
+        Args:
+            qdrant_service: Qdrant service for metadata updates.
+        """
+        self.qdrant_service = qdrant_service
+
+    async def handle(self, message: SQSMessage) -> bool:
+        """Handle collection relationship message with delta updates.
+
+        The Java backend sends incremental changes (addedCollectionIds, removedCollectionIds)
+        rather than the complete state. We retrieve the current state, apply the delta,
+        and update all points with the new state.
+
+        Args:
+            message: The collection relationship message.
+
+        Returns:
+            bool: True if successful.
+        """
+        if not isinstance(message, CollectionRelationshipMessage):
+            logger.error(f"Invalid message type for CollectionRelationshipHandler: {type(message)}")
+            return False
+
+        event = message.data
+        logger.info(
+            f"Processing collection relationship event: {event.action.value} "
+            f"for summary ID {event.summary_id} - "
+            f"Added: {event.added_collection_ids}, Removed: {event.removed_collection_ids}, "
+            f"Member: {event.member_code}, Team: {event.team_code}"
+        )
+
+        try:
+            # Get current collection IDs
+            current_ids = await self.qdrant_service.get_collection_ids(event.summary_id)
+            logger.debug(f"Current collection IDs for summary {event.summary_id}: {current_ids}")
+
+            # Apply delta updates
+            new_ids = set(current_ids)
+
+            # Add new collections
+            if event.added_collection_ids:
+                new_ids.update(event.added_collection_ids)
+                logger.debug(f"Adding collection IDs: {event.added_collection_ids}")
+
+            # Remove collections
+            if event.removed_collection_ids:
+                new_ids.difference_update(event.removed_collection_ids)
+                logger.debug(f"Removing collection IDs: {event.removed_collection_ids}")
+
+            # Convert back to sorted list
+            final_ids = sorted(list(new_ids))
+
+            # Update in Qdrant
+            await self.qdrant_service.update_collection_ids(
+                summary_id=event.summary_id,
+                collection_ids=final_ids,
+            )
+
+            logger.info(
+                f"Successfully updated collection IDs for summary {event.summary_id} "
+                f"(action: {event.action.value}) - "
+                f"Before: {sorted(current_ids)}, After: {final_ids}"
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Failed to update collection IDs: {e}", exc_info=True)
+            return False
+
+
 class MessageHandlerRegistry:
     """Registry for message handlers."""
 
-    def __init__(self, rag_service: RAGService):
+    def __init__(self, rag_service: RAGService, qdrant_service: QdrantService):
         """Initialize handler registry.
 
         Args:
             rag_service: RAG service for document ingestion.
+            qdrant_service: Qdrant service for metadata updates.
         """
         self._handlers: dict[str, MessageHandler] = {
             "summary:lifecycle": SummaryLifecycleHandler(rag_service),
+            "collection:relationship": CollectionRelationshipHandler(qdrant_service),
         }
 
     def get_handler(self, message_type: str) -> MessageHandler | None:
