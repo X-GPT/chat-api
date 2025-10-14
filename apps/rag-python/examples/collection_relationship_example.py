@@ -16,16 +16,16 @@ from rag_python.schemas.events import (
 def example_added_event():
     """Example: Collections added to a summary."""
     print("\n=== Example 1: Collections ADDED to Summary ===")
-    print("Summary was added to collections 100 and 200")
+    print("Summary now belongs to collections 100 and 200")
 
-    # Create event
+    # Create event with full state
     event = CollectionRelationshipEvent(
         summaryId=12345,
         action=CollectionRelationshipAction.ADDED,
         memberCode="user123",
         teamCode="team456",
         timestamp=datetime.now(),
-        addedCollectionIds=[100, 200],
+        collectionIds=[100, 200],  # Full state: ALL collections summary belongs to
     )
 
     # Wrap in message
@@ -42,16 +42,16 @@ def example_added_event():
 def example_removed_event():
     """Example: Collections removed from a summary."""
     print("\n=== Example 2: Collections REMOVED from Summary ===")
-    print("Summary was removed from collections 200 and 300")
+    print("Summary now belongs to collection 100 only (200 and 300 were removed)")
 
-    # Create event
+    # Create event with full state
     event = CollectionRelationshipEvent(
         summaryId=12345,
         action=CollectionRelationshipAction.REMOVED,
         memberCode="user123",
         teamCode="team456",
         timestamp=datetime.now(),
-        removedCollectionIds=[200, 300],
+        collectionIds=[100],  # Full state: only 100 remains after removal
     )
 
     # Wrap in message
@@ -68,17 +68,16 @@ def example_removed_event():
 def example_updated_event():
     """Example: Collections updated for a summary."""
     print("\n=== Example 3: Collections UPDATED for Summary ===")
-    print("Summary was added to collections 300, 400 and removed from collection 100")
+    print("Summary now belongs to collections 200, 300, and 400")
 
-    # Create event
+    # Create event with full state
     event = CollectionRelationshipEvent(
         summaryId=12345,
         action=CollectionRelationshipAction.UPDATED,
         memberCode="user123",
         teamCode=None,  # Personal summary, no team
         timestamp=datetime.now(),
-        addedCollectionIds=[300, 400],
-        removedCollectionIds=[100],
+        collectionIds=[200, 300, 400],  # Full state after update
     )
 
     # Wrap in message
@@ -96,7 +95,7 @@ def example_parse_from_json():
     """Example: Parse from JSON (simulating receiving SQS message)."""
     print("\n=== Example 4: Parse from JSON ===")
 
-    # Simulated SQS message body
+    # Simulated SQS message body (full-state format)
     sqs_body = {
         "type": "collection:relationship",
         "data": {
@@ -105,8 +104,7 @@ def example_parse_from_json():
             "memberCode": "john_doe",
             "teamCode": "engineering",
             "timestamp": "2025-10-10T10:30:45.123Z",
-            "addedCollectionIds": [111, 222],
-            "removedCollectionIds": [333],
+            "collectionIds": [111, 222, 444],  # Full state: all collections
         },
     }
 
@@ -120,8 +118,7 @@ def example_parse_from_json():
     print(f"  Type: {message.type}")
     print(f"  Summary ID: {message.data.summary_id}")
     print(f"  Action: {message.data.action.value}")
-    print(f"  Added Collection IDs: {message.data.added_collection_ids}")
-    print(f"  Removed Collection IDs: {message.data.removed_collection_ids}")
+    print(f"  Collection IDs (full state): {message.data.collection_ids}")
     print(f"  Member: {message.data.member_code}")
     print(f"  Team: {message.data.team_code}")
     print(f"  Timestamp: {message.data.timestamp}")

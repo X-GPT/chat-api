@@ -18,11 +18,13 @@ Added three new classes to support collection relationship events:
 #### `CollectionRelationshipEvent` (BaseModel)
 Matches the Java `CollectionRelationshipEventDTO` with the following fields:
 - `summary_id` (int): The summary ID
-- `collection_ids` (list[int]): List of collection IDs
-- `action` (CollectionRelationshipAction): The action type
+- `collection_ids` (list[int] | None): **Complete current state** of all collection IDs this summary belongs to
+- `action` (CollectionRelationshipAction): The action type (informational)
 - `member_code` (str): The member who owns the summary
 - `team_code` (str | None): The team code (nullable for personal summaries)
 - `timestamp` (datetime): Event timestamp
+
+**Important**: `collection_ids` contains the **full state** (complete list of all collections), not incremental changes.
 
 #### `CollectionRelationshipMessage` (BaseModel)
 SQS message wrapper with:
@@ -67,18 +69,21 @@ Created indexes on `collection_ids` field (integer array) for efficient filterin
 ### 3. Message Handlers (`src/rag_python/worker/handlers.py`)
 
 #### `CollectionRelationshipHandler` (New Class)
-Handles collection relationship events with delta updates.
+Handles collection relationship events with full-state updates.
 
-**Important Design Note**: The Java backend sends **delta updates** (incremental changes) rather than the complete state:
-- `addedCollectionIds`: Collections that were added
-- `removedCollectionIds`: Collections that were removed
+**Important Design Note**: The Java backend sends **full-state updates** (complete current state) rather than delta updates:
+- `collectionIds`: The complete list of ALL collections the summary currently belongs to
+- This is the source of truth for consumers to avoid ordering issues
 
 The handler:
-1. Retrieves the current `collection_ids` from Qdrant
-2. Applies the delta (adds and/or removes IDs)
-3. Updates all points with the new complete list
+1. Retrieves the current `collection_ids` from Qdrant (for logging purposes)
+2. Replaces the existing state with the new complete state from the event
+3. Updates all points (both parent and child chunks) with the new list
 
-This ensures consistency even if messages arrive out of order or duplicated.
+This approach ensures:
+- **Idempotency**: Replaying the same message produces the same result
+- **Ordering tolerance**: Later messages with newer timestamps override earlier state
+- **Simplicity**: No need to compute deltas or handle partial updates
 
 #### Updated `MessageHandlerRegistry`
 - Added `qdrant_service` parameter to constructor
@@ -131,10 +136,11 @@ Created a demonstration script showing:
     "memberCode": "user123",
     "teamCode": "team456",
     "timestamp": "2025-10-10T10:30:45.123Z",
-    "addedCollectionIds": [100, 200]
+    "collectionIds": [100, 200, 300]
   }
 }
 ```
+*Full state: Summary now belongs to collections 100, 200, and 300*
 
 #### REMOVED Action
 ```json
@@ -146,10 +152,11 @@ Created a demonstration script showing:
     "memberCode": "user123",
     "teamCode": "team456",
     "timestamp": "2025-10-10T10:30:45.123Z",
-    "removedCollectionIds": [200, 300]
+    "collectionIds": [100]
   }
 }
 ```
+*Full state: Summary now belongs only to collection 100 (200 and 300 were removed)*
 
 #### UPDATED Action
 ```json
@@ -161,18 +168,17 @@ Created a demonstration script showing:
     "memberCode": "user123",
     "teamCode": "team456",
     "timestamp": "2025-10-10T10:30:45.123Z",
-    "addedCollectionIds": [300, 400],
-    "removedCollectionIds": [100]
+    "collectionIds": [200, 300, 400]
   }
 }
 ```
+*Full state: Summary now belongs to collections 200, 300, and 400*
 
 ### Field Mapping
 
 Java (camelCase) → Python (snake_case):
 - `summaryId` → `summary_id`
-- `addedCollectionIds` → `added_collection_ids`
-- `removedCollectionIds` → `removed_collection_ids`
+- `collectionIds` → `collection_ids`
 - `memberCode` → `member_code`
 - `teamCode` → `team_code`
 
@@ -183,56 +189,57 @@ Pydantic automatically handles both naming conventions via aliases.
 1. **Message Reception**: SQS message received by worker
 2. **Parsing**: JSON body parsed and validated against schema
 3. **Routing**: Message type discriminator routes to appropriate handler
-4. **Get Current State**: Handler fetches current `collection_ids` from Qdrant
-5. **Apply Delta**: Handler applies additions and removals to create new state
-6. **Update**: Qdrant updates `collection_ids` metadata for all chunks
+4. **Get Current State**: Handler fetches current `collection_ids` from Qdrant (for logging comparison)
+5. **Replace State**: Handler uses the complete `collection_ids` list from the event as the new state
+6. **Update**: Qdrant updates `collection_ids` metadata for all chunks (both parent and child)
 7. **Acknowledgement**: Successfully processed messages deleted from SQS
 
 ## Metadata Updates
 
-When a collection relationship changes, the following happens:
+When a collection relationship event is received, the following happens:
 
-1. **Retrieve**: One child chunk is queried to get current `collection_ids` list
-2. **Compute**: Delta changes are applied (set operations: add/remove)
-3. **Update**: All parent chunks get updated with new `collection_ids` list
-4. **Update**: All child chunks get updated with new `collection_ids` list
+1. **Retrieve**: One child chunk is queried to get current `collection_ids` list (for logging)
+2. **Extract State**: The complete `collection_ids` list from the event becomes the new state
+3. **Update**: All child chunks get updated with the new `collection_ids` list
+4. **Update**: All parent chunks get updated with the new `collection_ids` list
 5. **Search**: Future searches can now filter by collection membership using Qdrant filters
 
-The update is atomic per summary - all chunks for that summary get the same new list.
+The update is atomic per summary - all chunks for that summary get the same new list, which is the complete state from the event.
 
 ## Usage Notes
 
-### Action Types and Delta Updates
+### Action Types and Full-State Updates
 
-The Java backend sends **delta updates** (incremental changes):
+The Java backend sends **full-state updates** (complete current state):
 
 - **ADDED**: Summary was added to one or more collections
-  - Contains `addedCollectionIds`: list of collection IDs the summary was added to
-  - Example: Summary was added to collections [100, 200]
+  - Contains `collectionIds`: **complete list** of all collections the summary now belongs to
+  - Example: Summary now belongs to collections [100, 200, 300]
 
 - **REMOVED**: Summary was removed from one or more collections
-  - Contains `removedCollectionIds`: list of collection IDs the summary was removed from
-  - Example: Summary was removed from collections [200, 300]
+  - Contains `collectionIds`: **complete list** of all remaining collections
+  - Example: Summary now belongs to collections [100] (after removing 200, 300)
 
-- **UPDATED**: Both additions and removals occurred
-  - Contains both `addedCollectionIds` and `removedCollectionIds`
-  - Example: Summary was added to [300, 400] and removed from [100]
+- **UPDATED**: The collection list was updated (some added, some removed)
+  - Contains `collectionIds`: **complete list** of all collections after the update
+  - Example: Summary now belongs to [200, 300, 400]
 
-⚠️ **Important**: These are **incremental changes**, not the complete state. The Python handler:
-1. Fetches current collection IDs from Qdrant
-2. Applies the delta (adds + removes)
+✅ **Important**: `collectionIds` always contains the **complete current state**, not incremental changes. The Python handler:
+1. Fetches current collection IDs from Qdrant (for logging comparison only)
+2. Replaces the entire state with the `collectionIds` from the event
 3. Stores the complete new state
 
-This approach handles:
-- Out-of-order message delivery (delta operations are idempotent)
-- Message replay/duplication (adding an already-added ID is safe)
-- Partial failures (each message is self-contained)
+This approach provides:
+- **Simplicity**: No delta computation needed
+- **Consistency**: Event is the single source of truth
+- **Idempotency**: Replaying the same event produces the same result
+- **Ordering tolerance**: Use timestamp to determine which state is newer
 
-### Empty Delta Fields
+### Empty Collection Lists
 
-- If `addedCollectionIds` is `null` or empty, no collections are added
-- If `removedCollectionIds` is `null` or empty, no collections are removed
-- If both are `null`/empty, the operation is a no-op (but still logged)
+- If `collectionIds` is `null` or empty `[]`, the summary belongs to no collections
+- This is a valid state (e.g., when a summary is removed from all collections)
+- The handler will update Qdrant to reflect this empty state
 
 ### Personal vs Team Summaries
 
@@ -319,8 +326,8 @@ This implementation is designed to work with the Java `CollectionRelationshipEve
 ```java
 public class CollectionRelationshipEventDTO {
     private Long summaryId;
-    private List<Long> collectionIds;
-    private String action;
+    private List<Long> collectionIds;  // Full state: all collections summary belongs to
+    private String action;              // ADDED, REMOVED, or UPDATED
     private String memberCode;
     private String teamCode;
     private Date timestamp;
@@ -328,4 +335,6 @@ public class CollectionRelationshipEventDTO {
 ```
 
 The message format is fully compatible with the Java backend's SQS message producer.
+
+**Important**: The Java backend must send the **complete list** of collection IDs in the `collectionIds` field, not delta updates. This is the source of truth that the Python consumer uses to update Qdrant.
 

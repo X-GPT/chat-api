@@ -22,7 +22,7 @@ services:
         awslogs-stream: ec2-${BRANCH_SLUG}-api
         awslogs-create-group: "true"
     networks:
-      - preview-${REPO_SLUG}-${BRANCH_SLUG}-network
+      - preview-network
 
   rag-api:
     container_name: preview-${REPO_SLUG}-${BRANCH_SLUG}-rag-api
@@ -42,7 +42,7 @@ services:
         awslogs-stream: ec2-${BRANCH_SLUG}-api
         awslogs-create-group: "true"
     networks:
-      - preview-${REPO_SLUG}-${BRANCH_SLUG}-network
+      - preview-network
 
   rag-worker:
     container_name: preview-${REPO_SLUG}-${BRANCH_SLUG}-rag-worker
@@ -60,9 +60,10 @@ services:
         awslogs-stream: ec2-${BRANCH_SLUG}-worker
         awslogs-create-group: "true"
     networks:
-      - preview-${REPO_SLUG}-${BRANCH_SLUG}-network
+      - preview-network
 
 networks:
-  preview-${REPO_SLUG}-${BRANCH_SLUG}-network:
+  preview-network:
+    name: preview-${REPO_SLUG}-${BRANCH_SLUG}-network
     driver: bridge
 
