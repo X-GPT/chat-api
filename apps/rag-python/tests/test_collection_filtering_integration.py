@@ -26,8 +26,8 @@ import pytest
 import pytest_asyncio
 
 from rag_python.config import Settings
-from rag_python.services.qdrant_service import QdrantService
 from rag_python.services.ingestion_service import IngestionService
+from rag_python.services.qdrant_service import QdrantService
 
 
 @pytest.fixture(scope="module")
@@ -92,9 +92,9 @@ async def setup_test_data(qdrant_service: QdrantService, ingestion_service: Inge
     - Summary 10003: collections [400] - for filter tests
     - Summary 10004: collections [100, 200] - dedicated for update test
     """
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("SETTING UP TEST DATA")
-    print("="*60)
+    print("=" * 60)
 
     # Ingest summary 1
     result1 = await ingestion_service.ingest_document(
@@ -156,7 +156,7 @@ async def setup_test_data(qdrant_service: QdrantService, ingestion_service: Inge
     print(f"✓ Verified collection_ids: 10001={ids_1}, 10002={ids_2}, 10003={ids_3}, 10004={ids_4}")
 
     print("✓ Test data setup complete!")
-    print("="*60)
+    print("=" * 60)
 
     # Verify ingestion succeeded
     assert result1.total_nodes and result1.total_nodes > 0
