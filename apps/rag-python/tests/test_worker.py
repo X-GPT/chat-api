@@ -57,7 +57,7 @@ def message_processor(mock_settings: Settings, mock_qdrant_service: MagicMock):
 
 def test_message_handler_registry():
     """Test message handler registry."""
-    registry = MessageHandlerRegistry(rag_service=AsyncMock(), qdrant_service=MagicMock())
+    registry = MessageHandlerRegistry(ingestion_service=AsyncMock(), qdrant_service=MagicMock())
 
     # Check that default handlers are registered
     assert registry.get_handler("summary:lifecycle") is not None
@@ -67,10 +67,10 @@ def test_message_handler_registry():
 @pytest.mark.asyncio
 async def test_summary_lifecycle_handler():
     """Test summary lifecycle handler."""
-    mock_rag_service = AsyncMock()
-    mock_rag_service.ingest_document = AsyncMock(return_value={"chunks_created": 1})
+    mock_ingestion_service = AsyncMock()
+    mock_ingestion_service.ingest_document = AsyncMock(return_value={"chunks_created": 1})
 
-    handler = SummaryLifecycleHandler(rag_service=mock_rag_service)
+    handler = SummaryLifecycleHandler(ingestion_service=mock_ingestion_service)
 
     message = SummaryLifecycleMessage(
         type="summary:lifecycle",
@@ -88,10 +88,11 @@ async def test_summary_lifecycle_handler():
     assert result is True
 
     # Verify ingest_document was called with correct arguments
-    mock_rag_service.ingest_document.assert_called_once_with(
+    mock_ingestion_service.ingest_document.assert_called_once_with(
         summary_id=12345,
         member_code="user123",
         content="This is a test summary content",
+        collection_ids=None,
     )
 
 

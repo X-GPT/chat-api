@@ -1,12 +1,12 @@
-"""Tests for RAG service."""
+"""Tests for ingestion service."""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
 from rag_python.config import Settings
+from rag_python.services.ingestion_service import IngestionService
 from rag_python.services.qdrant_service import QdrantService
-from rag_python.services.rag_service import RAGService
 
 
 @pytest.fixture
@@ -67,7 +67,7 @@ def qdrant_service(settings: Settings, mock_qdrant_clients: tuple[MagicMock, Mag
 @pytest.fixture
 def mock_openai_embedding():
     """Mock OpenAI embedding model for generating embeddings."""
-    with patch("rag_python.services.rag_service.OpenAIEmbedding") as mock:
+    with patch("rag_python.services.ingestion_service.OpenAIEmbedding") as mock:
         mock_instance = MagicMock()
         # Mock the async aget_text_embedding method (called per text with asyncio.gather)
         mock_instance.aget_text_embedding = AsyncMock(
@@ -87,7 +87,7 @@ def mock_semantic_parser():
 
     from llama_index.core.schema import TextNode
 
-    with patch("rag_python.services.rag_service.SemanticSplitterNodeParser") as mock:
+    with patch("rag_python.services.ingestion_service.SemanticSplitterNodeParser") as mock:
         # Create a mock parser instance
         parser_instance = MagicMock()
 
@@ -109,33 +109,33 @@ def mock_semantic_parser():
 @pytest.fixture
 def mock_vector_store_index():
     """Mock VectorStoreIndex to capture nodes being stored."""
-    with patch("rag_python.services.rag_service.VectorStoreIndex") as mock:
+    with patch("rag_python.services.ingestion_service.VectorStoreIndex") as mock:
         mock_instance = MagicMock()
         mock.return_value = mock_instance
         yield mock
 
 
 @pytest.fixture
-def rag_service(
+def ingestion_service(
     settings: Settings,
     qdrant_service: QdrantService,
     mock_openai_embedding: MagicMock,
     mock_semantic_parser: MagicMock,
     mock_vector_store_index: MagicMock,
 ):
-    """Create RAG service with mocked semantic parser and embedding.
+    """Create ingestion service with mocked semantic parser and embedding.
 
     The SentenceSplitter is real (purely algorithmic), but SemanticSplitterNodeParser
     is mocked since it requires embeddings. We use real TextNode objects to avoid
     needing to mock get_content().
     """
-    service = RAGService(settings, qdrant_service)
+    service = IngestionService(settings, qdrant_service)
     return service
 
 
 @pytest.mark.asyncio
 async def test_ingest_document(
-    rag_service: RAGService,
+    ingestion_service: IngestionService,
     qdrant_service: QdrantService,
     mock_vector_store_index: MagicMock,
 ):
@@ -145,7 +145,7 @@ async def test_ingest_document(
     content = "This is a test document with some content."
 
     # Ingest document
-    stats = await rag_service.ingest_document(
+    stats = await ingestion_service.ingest_document(
         summary_id=summary_id,
         member_code=member_code,
         content=content,
@@ -191,7 +191,7 @@ async def test_ingest_document(
 
 @pytest.mark.asyncio
 async def test_update_document(
-    rag_service: RAGService,
+    ingestion_service: IngestionService,
     qdrant_service: QdrantService,
     mock_vector_store_index: MagicMock,
 ):
@@ -201,7 +201,7 @@ async def test_update_document(
     content = "Updated content."
 
     # Update document
-    stats = await rag_service.update_document(
+    stats = await ingestion_service.update_document(
         summary_id=summary_id,
         member_code=member_code,
         content=content,
@@ -220,7 +220,7 @@ async def test_update_document(
 
 @pytest.mark.asyncio
 async def test_delete_document(
-    rag_service: RAGService,
+    ingestion_service: IngestionService,
     qdrant_service: QdrantService,
 ):
     """Test document deletion."""
@@ -230,7 +230,7 @@ async def test_delete_document(
     summary_id = 123
 
     # Delete document
-    stats = await rag_service.delete_document(summary_id=summary_id)
+    stats = await ingestion_service.delete_document(summary_id=summary_id)
 
     # Verify deletion
     qdrant_service.delete_by_summary_id.assert_called_once_with(summary_id)
@@ -242,7 +242,7 @@ async def test_delete_document(
 
 @pytest.mark.asyncio
 async def test_ingest_document_with_error(
-    rag_service: RAGService,
+    ingestion_service: IngestionService,
     qdrant_service: QdrantService,
     mock_vector_store_index: MagicMock,
 ):
@@ -257,7 +257,7 @@ async def test_ingest_document_with_error(
 
     # Ingest document should raise exception
     with pytest.raises(Exception, match="Vector store error"):
-        await rag_service.ingest_document(
+        await ingestion_service.ingest_document(
             summary_id=summary_id,
             member_code=member_code,
             content=content,
@@ -266,7 +266,7 @@ async def test_ingest_document_with_error(
 
 @pytest.mark.asyncio
 async def test_parent_child_relationship(
-    rag_service: RAGService,
+    ingestion_service: IngestionService,
     qdrant_service: QdrantService,
     mock_vector_store_index: MagicMock,
 ):
@@ -276,7 +276,7 @@ async def test_parent_child_relationship(
     content = "Test document for parent-child relationships."
 
     # Ingest document
-    await rag_service.ingest_document(
+    await ingestion_service.ingest_document(
         summary_id=summary_id,
         member_code=member_code,
         content=content,
@@ -304,7 +304,7 @@ async def test_parent_child_relationship(
 
 @pytest.mark.asyncio
 async def test_member_code_filtering(
-    rag_service: RAGService,
+    ingestion_service: IngestionService,
     qdrant_service: QdrantService,
     mock_vector_store_index: MagicMock,
 ):
@@ -314,7 +314,7 @@ async def test_member_code_filtering(
     content = "Test content for member filtering."
 
     # Ingest document
-    await rag_service.ingest_document(
+    await ingestion_service.ingest_document(
         summary_id=summary_id,
         member_code=member_code,
         content=content,
@@ -329,3 +329,63 @@ async def test_member_code_filtering(
     # Verify all nodes have the member_code
     for node in all_nodes:
         assert node.metadata["member_code"] == member_code
+
+
+@pytest.mark.asyncio
+async def test_collection_ids_are_set(
+    ingestion_service: IngestionService,
+    qdrant_service: QdrantService,
+    mock_vector_store_index: MagicMock,
+):
+    """Test collection IDs are properly set for filtering."""
+    summary_id = 999
+    member_code = "user999"
+    content = "Test content for collection filtering."
+    collection_ids = [100, 200, 300]
+
+    # Ingest document with collection IDs
+    await ingestion_service.ingest_document(
+        summary_id=summary_id,
+        member_code=member_code,
+        content=content,
+        collection_ids=collection_ids,
+    )
+
+    # Get nodes from both VectorStoreIndex calls (children first, parents second)
+    children_call_kwargs = mock_vector_store_index.call_args_list[0].kwargs
+    parents_call_kwargs = mock_vector_store_index.call_args_list[1].kwargs
+
+    all_nodes = children_call_kwargs["nodes"] + parents_call_kwargs["nodes"]
+
+    # Verify all nodes have the collection_ids
+    for node in all_nodes:
+        assert node.metadata["collection_ids"] == collection_ids
+
+
+@pytest.mark.asyncio
+async def test_collection_ids_default_to_empty_list(
+    ingestion_service: IngestionService,
+    qdrant_service: QdrantService,
+    mock_vector_store_index: MagicMock,
+):
+    """Test collection IDs default to empty list when not provided."""
+    summary_id = 1000
+    member_code = "user1000"
+    content = "Test content without collection IDs."
+
+    # Ingest document without collection IDs
+    await ingestion_service.ingest_document(
+        summary_id=summary_id,
+        member_code=member_code,
+        content=content,
+    )
+
+    # Get nodes from both VectorStoreIndex calls (children first, parents second)
+    children_call_kwargs = mock_vector_store_index.call_args_list[0].kwargs
+    parents_call_kwargs = mock_vector_store_index.call_args_list[1].kwargs
+
+    all_nodes = children_call_kwargs["nodes"] + parents_call_kwargs["nodes"]
+
+    # Verify all nodes have empty collection_ids list
+    for node in all_nodes:
+        assert node.metadata["collection_ids"] == []

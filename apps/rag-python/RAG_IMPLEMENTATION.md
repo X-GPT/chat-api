@@ -40,8 +40,8 @@ The system follows a service-oriented architecture with three main layers:
 ┌─────────────────────────────────────────────────────────┐
 │                    Service Layer                         │
 │  ┌───────────────┐  ┌───────────────┐  ┌─────────────┐ │
-│  │ SearchService │  │  RAGService   │  │   Qdrant    │ │
-│  │               │  │  (Ingestion)  │  │   Service   │ │
+│  │ SearchService │  │  Ingestion    │  │   Qdrant    │ │
+│  │               │  │   Service     │  │   Service   │ │
 │  └───────────────┘  └───────────────┘  └─────────────┘ │
 └─────────────────────────────────────────────────────────┘
                           ↓
@@ -72,7 +72,7 @@ The system follows a service-oriented architecture with three main layers:
 
 ## Core Components
 
-### 1. RAGService (`services/rag_service.py`)
+### 1. IngestionService (`services/ingestion_service.py`)
 
 **Purpose**: Manages document ingestion with hierarchical parent-child chunking strategy.
 
@@ -456,7 +456,7 @@ SQS Queue
 │  - DELETED  → delete   │
 └────────────────────────┘
     ↓
-  RAGService
+  IngestionService
 ```
 
 ### Worker Configuration
@@ -527,7 +527,7 @@ Parses message → Routes to handler
     ↓
 SummaryLifecycleHandler
     ↓
-RAGService.ingest_document()
+IngestionService.ingest_document()
     ↓
 ┌─────────────────────────────┐
 │  1. Create parent chunks    │

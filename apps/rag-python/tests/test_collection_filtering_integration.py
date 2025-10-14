@@ -27,7 +27,7 @@ import pytest_asyncio
 
 from rag_python.config import Settings
 from rag_python.services.qdrant_service import QdrantService
-from rag_python.services.rag_service import RAGService
+from rag_python.services.ingestion_service import IngestionService
 
 
 @pytest.fixture(scope="module")
@@ -74,16 +74,16 @@ async def qdrant_service(test_settings: Settings):
 
 
 @pytest_asyncio.fixture(scope="module")
-async def rag_service(test_settings: Settings, qdrant_service: QdrantService):
-    """Create RAGService for document ingestion.
+async def ingestion_service(test_settings: Settings, qdrant_service: QdrantService):
+    """Create IngestionService for document processing.
 
     Module scope: shared across all tests.
     """
-    return RAGService(test_settings, qdrant_service)
+    return IngestionService(test_settings, qdrant_service)
 
 
 @pytest_asyncio.fixture(scope="module", autouse=True)
-async def setup_test_data(qdrant_service: QdrantService, rag_service: RAGService):
+async def setup_test_data(qdrant_service: QdrantService, ingestion_service: IngestionService):
     """Setup test data once for all tests in this module.
 
     Creates four summaries with different collection memberships:
@@ -97,7 +97,7 @@ async def setup_test_data(qdrant_service: QdrantService, rag_service: RAGService
     print("="*60)
 
     # Ingest summary 1
-    result1 = await rag_service.ingest_document(
+    result1 = await ingestion_service.ingest_document(
         summary_id=10001,
         member_code="test_user",
         content="Python is a high-level programming language known for its simplicity.",
@@ -109,7 +109,7 @@ async def setup_test_data(qdrant_service: QdrantService, rag_service: RAGService
     print("✓ Updated summary 10001 collection_ids: [100, 200]")
 
     # Ingest summary 2
-    result2 = await rag_service.ingest_document(
+    result2 = await ingestion_service.ingest_document(
         summary_id=10002,
         member_code="test_user",
         content="JavaScript is versatile for web development and frontend applications.",
@@ -121,7 +121,7 @@ async def setup_test_data(qdrant_service: QdrantService, rag_service: RAGService
     print("✓ Updated summary 10002 collection_ids: [200, 300]")
 
     # Ingest summary 3
-    result3 = await rag_service.ingest_document(
+    result3 = await ingestion_service.ingest_document(
         summary_id=10003,
         member_code="test_user",
         content="Rust is a systems programming language focused on safety and concurrency.",
@@ -133,7 +133,7 @@ async def setup_test_data(qdrant_service: QdrantService, rag_service: RAGService
     print("✓ Updated summary 10003 collection_ids: [400]")
 
     # Ingest summary 4 (for update test only - won't be used by other tests)
-    result4 = await rag_service.ingest_document(
+    result4 = await ingestion_service.ingest_document(
         summary_id=10004,
         member_code="test_user",
         content="Go is designed for simplicity and efficiency in concurrent programming.",

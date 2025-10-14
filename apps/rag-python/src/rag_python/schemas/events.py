@@ -34,7 +34,8 @@ class SummaryEvent(BaseModel):
         "teamCode": "team456",
         "parseContent": "This is the parsed summary content...",
         "action": "CREATED",
-        "timestamp": "2025-10-01T12:30:45.123Z"
+        "timestamp": "2025-10-01T12:30:45.123Z",
+        "collectionIds": [100, 200, 300]
     }
     ```
     """
@@ -45,6 +46,12 @@ class SummaryEvent(BaseModel):
     parse_content: str | None = Field(None, alias="parseContent")
     action: SummaryAction
     timestamp: datetime
+    collection_ids: list[int] | None = Field(
+        None,
+        alias="collectionIds",
+        description="Complete current state of collection IDs for this summary. "
+        "Contains ALL collections the summary currently belongs to.",
+    )
 
     model_config = {
         "populate_by_name": True,  # Allow both alias and field name
@@ -57,6 +64,7 @@ class SummaryEvent(BaseModel):
                     "parseContent": "This is the parsed summary content...",
                     "action": "CREATED",
                     "timestamp": "2025-10-01T12:30:45.123Z",
+                    "collectionIds": [100, 200, 300],
                 }
             ]
         },
@@ -76,7 +84,8 @@ class SummaryLifecycleMessage(BaseModel):
             "teamCode": "team456",
             "parseContent": "This is the parsed summary content...",
             "action": "CREATED",
-            "timestamp": "2025-10-01T12:30:45.123Z"
+            "timestamp": "2025-10-01T12:30:45.123Z",
+            "collectionIds": [100, 200, 300]
         }
     }
     ```
@@ -90,39 +99,38 @@ class CollectionRelationshipEvent(BaseModel):
     """Collection relationship event schema.
 
     Matches CollectionRelationshipEventDTO from Java backend.
-    Uses delta updates (incremental changes) rather than full state.
+    Uses full state rather than delta updates to avoid ordering issues.
 
     Example events:
     ```json
-    // ADDED action
+    // ADDED action - collections added to summary
     {
         "summaryId": 12345,
         "action": "ADDED",
         "memberCode": "user123",
         "teamCode": "team456",
         "timestamp": "2025-10-10T10:30:45.123Z",
-        "addedCollectionIds": [100, 200]
+        "collectionIds": [100, 200, 300]
     }
 
-    // REMOVED action
+    // REMOVED action - collections removed from summary
     {
         "summaryId": 12345,
         "action": "REMOVED",
         "memberCode": "user123",
         "teamCode": "team456",
         "timestamp": "2025-10-10T10:30:45.123Z",
-        "removedCollectionIds": [100]
+        "collectionIds": [200, 300]
     }
 
-    // UPDATED action
+    // UPDATED action - collection relationships changed
     {
         "summaryId": 12345,
         "action": "UPDATED",
         "memberCode": "user123",
         "teamCode": "team456",
         "timestamp": "2025-10-10T10:30:45.123Z",
-        "addedCollectionIds": [300, 400],
-        "removedCollectionIds": [100]
+        "collectionIds": [200, 300, 400]
     }
     ```
     """
@@ -132,8 +140,15 @@ class CollectionRelationshipEvent(BaseModel):
     member_code: str = Field(..., alias="memberCode")
     team_code: str | None = Field(None, alias="teamCode")
     timestamp: datetime
-    added_collection_ids: list[int] | None = Field(None, alias="addedCollectionIds")
-    removed_collection_ids: list[int] | None = Field(None, alias="removedCollectionIds")
+    collection_ids: list[int] | None = Field(
+        None,
+        alias="collectionIds",
+        description="Complete current state of collection IDs for this summary. "
+        "This is the source of truth for consumers to avoid ordering issues. "
+        "Contains ALL collections the summary currently belongs to. "
+        "Consumers should use this field to replace existing relationships. "
+        "Use timestamp to determine if this state is newer than last processed.",
+    )
 
     model_config = {
         "populate_by_name": True,  # Allow both alias and field name
@@ -145,7 +160,7 @@ class CollectionRelationshipEvent(BaseModel):
                     "memberCode": "user123",
                     "teamCode": "team456",
                     "timestamp": "2025-10-10T10:30:45.123Z",
-                    "addedCollectionIds": [100, 200],
+                    "collectionIds": [100, 200, 300],
                 },
                 {
                     "summaryId": 12345,
@@ -153,7 +168,7 @@ class CollectionRelationshipEvent(BaseModel):
                     "memberCode": "user123",
                     "teamCode": "team456",
                     "timestamp": "2025-10-10T10:30:45.123Z",
-                    "removedCollectionIds": [100],
+                    "collectionIds": [200, 300],
                 },
                 {
                     "summaryId": 12345,
@@ -161,8 +176,7 @@ class CollectionRelationshipEvent(BaseModel):
                     "memberCode": "user123",
                     "teamCode": "team456",
                     "timestamp": "2025-10-10T10:30:45.123Z",
-                    "addedCollectionIds": [300, 400],
-                    "removedCollectionIds": [100],
+                    "collectionIds": [200, 300, 400],
                 },
             ]
         },
@@ -178,11 +192,11 @@ class CollectionRelationshipMessage(BaseModel):
         "type": "collection:relationship",
         "data": {
             "summaryId": 12345,
-            "collectionIds": [100, 200, 300],
             "action": "ADDED",
             "memberCode": "user123",
             "teamCode": "team456",
-            "timestamp": "2025-10-10T10:30:45.123Z"
+            "timestamp": "2025-10-10T10:30:45.123Z",
+            "collectionIds": [100, 200, 300]
         }
     }
     ```

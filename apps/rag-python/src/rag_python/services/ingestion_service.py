@@ -1,4 +1,4 @@
-"""RAG ingestion service with parent-child chunking."""
+"""Document ingestion service with parent-child chunking."""
 
 import asyncio
 from collections.abc import Coroutine
@@ -26,11 +26,11 @@ class IngestionStats(BaseModel):
     operation: str | None
 
 
-class RAGService:
-    """Service for RAG document ingestion with hierarchical chunking."""
+class IngestionService:
+    """Service for document ingestion with hierarchical chunking."""
 
     def __init__(self, settings: Settings, qdrant_service: QdrantService):
-        """Initialize RAG service.
+        """Initialize ingestion service.
 
         Args:
             settings: Application settings.
@@ -58,13 +58,14 @@ class RAGService:
             chunk_overlap=settings.chunk_overlap,
         )
 
-        logger.info("RAG service initialized with parent-child chunking")
+        logger.info("Ingestion service initialized with parent-child chunking")
 
     async def ingest_document(
         self,
         summary_id: int,
         member_code: str,
         content: str,
+        collection_ids: list[int] | None = None,
     ) -> IngestionStats:
         """Ingest a document with parent-child chunking.
 
@@ -72,6 +73,7 @@ class RAGService:
             summary_id: The summary ID.
             member_code: The member code for partitioning.
             content: The content to ingest.
+            collection_ids: List of collection IDs this summary belongs to.
 
         Returns:
             Ingestion statistics.
@@ -82,11 +84,8 @@ class RAGService:
                 f"member_code={member_code}, content_length={len(content)}"
             )
 
-            # Ensure collection exists
+            # Ensure collections exist with proper configuration and payload indexes
             await self.qdrant_service.ensure_collection_exists()
-
-            # Ensure payload indexes exist for filterable fields
-            await self.qdrant_service.ensure_payload_indexes()
 
             # Create document
             document = Document(
@@ -94,6 +93,7 @@ class RAGService:
                 metadata={
                     "summary_id": summary_id,
                     "member_code": member_code,
+                    "collection_ids": collection_ids or [],
                 },
             )
 
@@ -130,6 +130,7 @@ class RAGService:
                     child_node.metadata["chunk_index"] = len(all_child_nodes)
                     child_node.metadata["summary_id"] = summary_id
                     child_node.metadata["member_code"] = member_code
+                    child_node.metadata["collection_ids"] = collection_ids or []
 
                     all_child_nodes.append(child_node)
 
@@ -137,6 +138,7 @@ class RAGService:
                 parent_node.metadata["summary_id"] = summary_id
                 parent_node.metadata["member_code"] = member_code
                 parent_node.metadata["chunk_index"] = parent_idx
+                parent_node.metadata["collection_ids"] = collection_ids or []
 
             logger.info(f"Created {len(all_child_nodes)} child nodes")
 
@@ -154,6 +156,7 @@ class RAGService:
                 storage_context=children_storage_context,
                 embed_model=self.embed_model,
                 show_progress=True,
+                use_async=True,
             )
 
             logger.info(
@@ -170,6 +173,7 @@ class RAGService:
                 storage_context=parents_storage_context,
                 embed_model=self.embed_model,
                 show_progress=True,
+                use_async=True,
             )
 
             logger.info(
@@ -198,6 +202,7 @@ class RAGService:
         summary_id: int,
         member_code: str,
         content: str,
+        collection_ids: list[int] | None = None,
     ) -> IngestionStats:
         """Update an existing document.
 
@@ -205,6 +210,7 @@ class RAGService:
             summary_id: The summary ID.
             member_code: The member code for partitioning.
             content: The new content.
+            collection_ids: List of collection IDs this summary belongs to.
 
         Returns:
             Ingestion statistics.
@@ -219,7 +225,7 @@ class RAGService:
                 await self.delete_document(summary_id)
 
             # Ingest new version
-            stats = await self.ingest_document(summary_id, member_code, content)
+            stats = await self.ingest_document(summary_id, member_code, content, collection_ids)
             stats.operation = "update"
 
             return stats

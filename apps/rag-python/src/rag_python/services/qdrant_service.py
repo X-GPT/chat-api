@@ -5,13 +5,13 @@ from typing import Any, TypeGuard
 
 from llama_index.core import Settings as LlamaIndexSettings
 from llama_index.core import VectorStoreIndex
-from llama_index.core.schema import BaseNode, TextNode
+from llama_index.core.schema import TextNode
 from llama_index.embeddings.openai import OpenAIEmbedding  # type: ignore
 from llama_index.vector_stores.qdrant import QdrantVectorStore  # type: ignore
 from pydantic import BaseModel
-from qdrant_client import AsyncQdrantClient, QdrantClient
+from qdrant_client import AsyncQdrantClient, QdrantClient, models
 from qdrant_client.models import (
-    CollectionStatus,
+    CollectionInfo,
     ExtendedPointId,
     FieldCondition,
     Filter,
@@ -45,13 +45,6 @@ class SearchResult(BaseModel):
     payload: Payload | None
 
 
-class CollectionInfo(BaseModel):
-    name: str
-    vectors_count: int | None
-    points_count: int | None
-    status: CollectionStatus
-
-
 class QdrantService:
     """Service for managing Qdrant vector database operations."""
 
@@ -79,7 +72,6 @@ class QdrantService:
             api_key=settings.qdrant_api_key,
             prefer_grpc=settings.qdrant_prefer_grpc,
         )
-
         self.aclient = AsyncQdrantClient(
             url=settings.qdrant_url,
             api_key=settings.qdrant_api_key,
@@ -162,33 +154,62 @@ class QdrantService:
         return children_exists and parents_exists
 
     async def ensure_collection_exists(self) -> None:
-        """Ensure both collections exist with proper configuration.
+        """Ensure both collections exist with proper configuration and indexes.
 
-        QdrantVectorStore automatically creates collections with proper
-        configuration when adding documents, so we just verify they're accessible.
+        Creates collections explicitly with:
+        - Dense vector configuration (1536 dimensions for text-embedding-3-small)
+        - Sparse vector configuration (for children collection only - hybrid search)
+        - Payload indexes for member_code, summary_id, and collection_ids
         """
         try:
-            # Check if collections exist
+            # Check which collections already exist
             collections = await self.aclient.get_collections()
             collection_names = [c.name for c in collections.collections]
 
-            # Check children collection
-            if self.children_collection_name in collection_names:
+            # Create children collection if it doesn't exist (with hybrid search support)
+            if self.children_collection_name not in collection_names:
+                logger.info(
+                    f"Creating collection {self.children_collection_name} with hybrid search"
+                )
+                await self.aclient.create_collection(
+                    collection_name=self.children_collection_name,
+                    vectors_config={
+                        "text-dense": models.VectorParams(
+                            size=self.vector_size,
+                            distance=models.Distance.COSINE,
+                        ),
+                    },
+                    sparse_vectors_config={
+                        "text-sparse-new": models.SparseVectorParams(
+                            index=models.SparseIndexParams(),
+                            modifier=models.Modifier.IDF,
+                        ),
+                    },
+                    on_disk_payload=True,
+                )
+                logger.info(f"Created collection {self.children_collection_name}")
+            else:
                 logger.info(f"Collection {self.children_collection_name} already exists")
-            else:
-                logger.info(
-                    f"Collection {self.children_collection_name} "
-                    f"will be created on first document insert"
-                )
 
-            # Check parents collection
-            if self.parents_collection_name in collection_names:
-                logger.info(f"Collection {self.parents_collection_name} already exists")
-            else:
-                logger.info(
-                    f"Collection {self.parents_collection_name} "
-                    f"will be created on first document insert"
+            # Create parents collection if it doesn't exist (dense vectors only)
+            if self.parents_collection_name not in collection_names:
+                logger.info(f"Creating collection {self.parents_collection_name} (dense only)")
+                await self.aclient.create_collection(
+                    collection_name=self.parents_collection_name,
+                    vectors_config={
+                        "text-dense": models.VectorParams(
+                            size=self.vector_size,
+                            distance=models.Distance.COSINE,
+                        ),
+                    },
+                    on_disk_payload=True,
                 )
+                logger.info(f"Created collection {self.parents_collection_name}")
+            else:
+                logger.info(f"Collection {self.parents_collection_name} already exists")
+
+            # Always ensure payload indexes are created (safe to call multiple times)
+            await self.ensure_payload_indexes()
 
         except Exception as e:
             logger.error(f"Error ensuring collections exist: {e}")
@@ -215,7 +236,10 @@ class QdrantService:
                 await self.aclient.create_payload_index(
                     collection_name=self.children_collection_name,
                     field_name="member_code",
-                    field_schema=PayloadSchemaType.KEYWORD,
+                    field_schema=models.KeywordIndexParams(
+                        type=models.KeywordIndexType.KEYWORD,
+                        is_tenant=True,
+                    ),
                 )
                 logger.info(
                     f"Created/verified member_code index on {self.children_collection_name}"
@@ -531,33 +555,23 @@ class QdrantService:
             logger.error(f"Error performing hybrid search: {e}")
             raise
 
-    async def get_collection_info(self, collection: str = "children") -> CollectionInfo:
+    async def get_collection_info(self, collection_name: str) -> CollectionInfo:
         """Get collection information.
 
         Args:
-            collection: Which collection to get info for ("children" or "parents").
+            collection_name: Which collection to get info for ("children" or "parents").
 
         Returns:
             Dictionary with collection information.
         """
         try:
-            collection_name = (
-                self.children_collection_name
-                if collection == "children"
-                else self.parents_collection_name
-            )
             info = await self.aclient.get_collection(collection_name=collection_name)
-            return CollectionInfo(
-                name=collection_name,
-                vectors_count=info.vectors_count,
-                points_count=info.points_count,
-                status=info.status,
-            )
+            return info
         except Exception as e:
             logger.error(f"Error getting collection info: {e}")
             raise
 
-    async def get_node_by_id(self, node_id: str) -> BaseNode | None:
+    async def get_node_by_id(self, node_id: str) -> TextNode | None:
         """Retrieve a parent node by its ID.
 
         Args:
@@ -601,7 +615,7 @@ class QdrantService:
             logger.error(f"Error retrieving parent node by ID: {e}", exc_info=True)
             raise
 
-    async def get_child_by_id(self, node_id: str) -> BaseNode | None:
+    async def get_child_by_id(self, node_id: str) -> TextNode | None:
         """Retrieve a child node by its ID.
 
         Args:

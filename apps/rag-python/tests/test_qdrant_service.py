@@ -252,18 +252,21 @@ async def test_get_collection_info(qdrant_service: QdrantService):
     mock_info.status = "green"
     qdrant_service.aclient.get_collection = AsyncMock(return_value=mock_info)
 
-    # Test getting children collection info (default)
-    info = await qdrant_service.get_collection_info()
+    # Test getting children collection info
+    info = await qdrant_service.get_collection_info(collection_name="test-collection_children")
 
     # Verify info
-    assert info.name == "test-collection_children"
     assert info.vectors_count == 100
     assert info.points_count == 50
     assert info.status == "green"
 
     # Test getting parents collection info
-    info_parents = await qdrant_service.get_collection_info(collection="parents")
-    assert info_parents.name == "test-collection_parents"
+    info_parents = await qdrant_service.get_collection_info(
+        collection_name="test-collection_parents"
+    )
+    assert info_parents.vectors_count == 100
+    assert info_parents.points_count == 50
+    assert info_parents.status == "green"
 
 
 @pytest.mark.asyncio
