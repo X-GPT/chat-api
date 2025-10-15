@@ -43,8 +43,10 @@ def qdrant_service(settings: Settings, mock_qdrant_clients: tuple[MagicMock, Mag
     service.collection_exists = AsyncMock(return_value=True)
     service.delete_by_summary_id = AsyncMock()
     # Mock both vector stores that will be used by VectorStoreIndex
-    service.children_vector_store = MagicMock()
-    service.parents_vector_store = MagicMock()
+    # Note: We assign to private attributes since properties don't have setters
+    service._children_vector_store = MagicMock()  # pyright: ignore[reportPrivateUsage]
+    service._parents_vector_store = MagicMock()  # pyright: ignore[reportPrivateUsage]
+    service._clients_initialized = True  # pyright: ignore[reportPrivateUsage] # Mark as initialized to bypass lazy init
     return service
 
 

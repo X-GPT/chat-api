@@ -65,9 +65,11 @@ def qdrant_service(
         # Return different stores for children and parents
         mock_store_class.side_effect = [mock_children_vector_store, mock_parents_vector_store]
         service = QdrantService(settings)
-        service.aclient = mock_async_qdrant_client
-        service.children_vector_store = mock_children_vector_store
-        service.parents_vector_store = mock_parents_vector_store
+        # Assign to private attributes since properties don't have setters
+        service._aclient = mock_async_qdrant_client  # pyright: ignore[reportPrivateUsage]
+        service._children_vector_store = mock_children_vector_store  # pyright: ignore[reportPrivateUsage]
+        service._parents_vector_store = mock_parents_vector_store  # pyright: ignore[reportPrivateUsage]
+        service._clients_initialized = True  # pyright: ignore[reportPrivateUsage] # Mark as initialized to bypass lazy init
         yield service
 
 
