@@ -66,51 +66,104 @@ class QdrantService:
         # Validate required Qdrant configuration early
         self._validate_config()
 
+        # Lazy initialization flags
+        self._clients_initialized = False
+        self._client: QdrantClient | None = None
+        self._aclient: AsyncQdrantClient | None = None
+        self._children_vector_store: QdrantVectorStore | None = None
+        self._parents_vector_store: QdrantVectorStore | None = None
+        self._embed_model: OpenAIEmbedding | None = None
+
+    def _ensure_clients_initialized(self) -> None:
+        """Ensure Qdrant clients and vector stores are initialized.
+
+        This is called lazily to avoid creating asyncio objects before the event loop is running.
+        """
+        if self._clients_initialized:
+            return
+
         # Initialize both sync and async Qdrant clients
         # LlamaIndex QdrantVectorStore requires both for initialization
-        self.client = QdrantClient(
-            url=settings.qdrant_url,
-            api_key=settings.qdrant_api_key,
-            prefer_grpc=settings.qdrant_prefer_grpc,
+        self._client = QdrantClient(
+            url=self.settings.qdrant_url,
+            api_key=self.settings.qdrant_api_key,
+            prefer_grpc=self.settings.qdrant_prefer_grpc,
         )
-        self.aclient = AsyncQdrantClient(
-            url=settings.qdrant_url,
-            api_key=settings.qdrant_api_key,
-            prefer_grpc=settings.qdrant_prefer_grpc,
+        self._aclient = AsyncQdrantClient(
+            url=self.settings.qdrant_url,
+            api_key=self.settings.qdrant_api_key,
+            prefer_grpc=self.settings.qdrant_prefer_grpc,
         )
 
         # Initialize children vector store with hybrid search enabled
-        self.children_vector_store = QdrantVectorStore(
+        self._children_vector_store = QdrantVectorStore(
             collection_name=self.children_collection_name,
-            client=self.client,
-            aclient=self.aclient,
+            client=self._client,
+            aclient=self._aclient,
             enable_hybrid=True,
             fastembed_sparse_model="Qdrant/bm25",
             batch_size=20,
         )
 
         # Initialize parents vector store (no hybrid, just dense embeddings)
-        self.parents_vector_store = QdrantVectorStore(
+        self._parents_vector_store = QdrantVectorStore(
             collection_name=self.parents_collection_name,
-            client=self.client,
-            aclient=self.aclient,
+            client=self._client,
+            aclient=self._aclient,
             enable_hybrid=False,
             batch_size=20,
         )
 
-        self.embed_model = OpenAIEmbedding(
+        self._embed_model = OpenAIEmbedding(
             api_key=self.settings.openai_api_key,
             model=self.settings.openai_embedding_model,
         )
 
         # Set global LlamaIndex settings once during initialization
-        LlamaIndexSettings.embed_model = self.embed_model
+        LlamaIndexSettings.embed_model = self._embed_model
+
+        self._clients_initialized = True
 
         logger.info(
             f"Qdrant vector stores initialized: "
             f"children={self.children_collection_name} (hybrid search), "
             f"parents={self.parents_collection_name} (dense only)"
         )
+
+    @property
+    def client(self) -> QdrantClient:
+        """Get the sync Qdrant client, initializing if needed."""
+        self._ensure_clients_initialized()
+        assert self._client is not None
+        return self._client
+
+    @property
+    def aclient(self) -> AsyncQdrantClient:
+        """Get the async Qdrant client, initializing if needed."""
+        self._ensure_clients_initialized()
+        assert self._aclient is not None
+        return self._aclient
+
+    @property
+    def children_vector_store(self) -> QdrantVectorStore:
+        """Get the children vector store, initializing if needed."""
+        self._ensure_clients_initialized()
+        assert self._children_vector_store is not None
+        return self._children_vector_store
+
+    @property
+    def parents_vector_store(self) -> QdrantVectorStore:
+        """Get the parents vector store, initializing if needed."""
+        self._ensure_clients_initialized()
+        assert self._parents_vector_store is not None
+        return self._parents_vector_store
+
+    @property
+    def embed_model(self) -> OpenAIEmbedding:
+        """Get the embedding model, initializing if needed."""
+        self._ensure_clients_initialized()
+        assert self._embed_model is not None
+        return self._embed_model
 
     def _validate_config(self) -> None:
         """Validate Qdrant configuration.

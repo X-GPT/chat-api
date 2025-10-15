@@ -9,8 +9,8 @@ from pydantic import ValidationError
 from rag_python.config import Settings
 from rag_python.core.logging import get_logger
 from rag_python.schemas.events import SQSMessage, SQSMessageMetadata
-from rag_python.services.qdrant_service import QdrantService
 from rag_python.services.ingestion_service import IngestionService
+from rag_python.services.qdrant_service import QdrantService
 from rag_python.worker.handlers import MessageHandlerRegistry
 from rag_python.worker.sqs_client import SQSClient
 
