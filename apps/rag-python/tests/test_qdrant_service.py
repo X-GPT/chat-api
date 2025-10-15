@@ -65,9 +65,11 @@ def qdrant_service(
         # Return different stores for children and parents
         mock_store_class.side_effect = [mock_children_vector_store, mock_parents_vector_store]
         service = QdrantService(settings)
-        service.aclient = mock_async_qdrant_client
-        service.children_vector_store = mock_children_vector_store
-        service.parents_vector_store = mock_parents_vector_store
+        # Assign to private attributes since properties don't have setters
+        service._aclient = mock_async_qdrant_client  # pyright: ignore[reportPrivateUsage]
+        service._children_vector_store = mock_children_vector_store  # pyright: ignore[reportPrivateUsage]
+        service._parents_vector_store = mock_parents_vector_store  # pyright: ignore[reportPrivateUsage]
+        service._clients_initialized = True  # pyright: ignore[reportPrivateUsage] # Mark as initialized to bypass lazy init
         yield service
 
 
@@ -80,11 +82,17 @@ async def test_ensure_collection_exists_new(
     qdrant_service.aclient.get_collections = AsyncMock(
         return_value=CollectionsResponse(collections=[])
     )
+    # Mock the create_collection and create_payload_index methods
+    qdrant_service.aclient.create_collection = AsyncMock()
+    qdrant_service.aclient.create_payload_index = AsyncMock()
 
     await qdrant_service.ensure_collection_exists()
 
-    # Verify collection check was called
-    qdrant_service.aclient.get_collections.assert_called_once()
+    # Verify collection check was called (twice: once in ensure_collection_exists,
+    # once in ensure_payload_indexes)
+    assert qdrant_service.aclient.get_collections.call_count == 2
+    # Verify create_collection was called for both children and parents collections
+    assert qdrant_service.aclient.create_collection.call_count == 2
 
 
 @pytest.mark.asyncio
@@ -100,11 +108,16 @@ async def test_ensure_collection_exists_already_exists(
     qdrant_service.aclient.get_collections = AsyncMock(
         return_value=CollectionsResponse(collections=[mock_children, mock_parents])
     )
+    # Mock create_payload_index since ensure_payload_indexes is called
+    qdrant_service.aclient.create_payload_index = AsyncMock()
 
     await qdrant_service.ensure_collection_exists()
 
-    # Verify collection check was called
-    qdrant_service.aclient.get_collections.assert_called_once()
+    # Verify collection check was called twice:
+    # once in ensure_collection_exists, once in ensure_payload_indexes
+    assert qdrant_service.aclient.get_collections.call_count == 2
+    # Verify payload indexes were created (3 for children, 3 for parents = 6 total)
+    assert qdrant_service.aclient.create_payload_index.call_count == 6
 
 
 @pytest.mark.asyncio
@@ -252,18 +265,21 @@ async def test_get_collection_info(qdrant_service: QdrantService):
     mock_info.status = "green"
     qdrant_service.aclient.get_collection = AsyncMock(return_value=mock_info)
 
-    # Test getting children collection info (default)
-    info = await qdrant_service.get_collection_info()
+    # Test getting children collection info
+    info = await qdrant_service.get_collection_info(collection_name="test-collection_children")
 
     # Verify info
-    assert info.name == "test-collection_children"
     assert info.vectors_count == 100
     assert info.points_count == 50
     assert info.status == "green"
 
     # Test getting parents collection info
-    info_parents = await qdrant_service.get_collection_info(collection="parents")
-    assert info_parents.name == "test-collection_parents"
+    info_parents = await qdrant_service.get_collection_info(
+        collection_name="test-collection_parents"
+    )
+    assert info_parents.vectors_count == 100
+    assert info_parents.points_count == 50
+    assert info_parents.status == "green"
 
 
 @pytest.mark.asyncio

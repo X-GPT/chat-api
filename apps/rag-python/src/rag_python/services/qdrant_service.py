@@ -1,16 +1,18 @@
 """Qdrant vector database service."""
 
 import json
+from collections.abc import Sequence
+from typing import Any, TypeGuard
 
 from llama_index.core import Settings as LlamaIndexSettings
 from llama_index.core import VectorStoreIndex
-from llama_index.core.schema import BaseNode, TextNode
+from llama_index.core.schema import TextNode
 from llama_index.embeddings.openai import OpenAIEmbedding  # type: ignore
 from llama_index.vector_stores.qdrant import QdrantVectorStore  # type: ignore
 from pydantic import BaseModel
-from qdrant_client import AsyncQdrantClient, QdrantClient
+from qdrant_client import AsyncQdrantClient, QdrantClient, models
 from qdrant_client.models import (
-    CollectionStatus,
+    CollectionInfo,
     ExtendedPointId,
     FieldCondition,
     Filter,
@@ -26,17 +28,22 @@ from rag_python.core.logging import get_logger
 logger = get_logger(__name__)
 
 
+def is_list_of_ints(x: Any) -> TypeGuard[list[int]]:
+    """Type guard to check if a value is a list of integers.
+
+    Args:
+        x: Value to check.
+
+    Returns:
+        True if x is a list containing only integers.
+    """
+    return isinstance(x, list) and all(isinstance(item, int) for item in x)  # pyright: ignore[reportUnknownVariableType]
+
+
 class SearchResult(BaseModel):
     id: ExtendedPointId
     score: float
     payload: Payload | None
-
-
-class CollectionInfo(BaseModel):
-    name: str
-    vectors_count: int | None
-    points_count: int | None
-    status: CollectionStatus
 
 
 class QdrantService:
@@ -59,52 +66,104 @@ class QdrantService:
         # Validate required Qdrant configuration early
         self._validate_config()
 
+        # Lazy initialization flags
+        self._clients_initialized = False
+        self._client: QdrantClient | None = None
+        self._aclient: AsyncQdrantClient | None = None
+        self._children_vector_store: QdrantVectorStore | None = None
+        self._parents_vector_store: QdrantVectorStore | None = None
+        self._embed_model: OpenAIEmbedding | None = None
+
+    def _ensure_clients_initialized(self) -> None:
+        """Ensure Qdrant clients and vector stores are initialized.
+
+        This is called lazily to avoid creating asyncio objects before the event loop is running.
+        """
+        if self._clients_initialized:
+            return
+
         # Initialize both sync and async Qdrant clients
         # LlamaIndex QdrantVectorStore requires both for initialization
-        self.client = QdrantClient(
-            url=settings.qdrant_url,
-            api_key=settings.qdrant_api_key,
-            prefer_grpc=settings.qdrant_prefer_grpc,
+        self._client = QdrantClient(
+            url=self.settings.qdrant_url,
+            api_key=self.settings.qdrant_api_key,
+            prefer_grpc=self.settings.qdrant_prefer_grpc,
         )
-
-        self.aclient = AsyncQdrantClient(
-            url=settings.qdrant_url,
-            api_key=settings.qdrant_api_key,
-            prefer_grpc=settings.qdrant_prefer_grpc,
+        self._aclient = AsyncQdrantClient(
+            url=self.settings.qdrant_url,
+            api_key=self.settings.qdrant_api_key,
+            prefer_grpc=self.settings.qdrant_prefer_grpc,
         )
 
         # Initialize children vector store with hybrid search enabled
-        self.children_vector_store = QdrantVectorStore(
+        self._children_vector_store = QdrantVectorStore(
             collection_name=self.children_collection_name,
-            client=self.client,
-            aclient=self.aclient,
+            client=self._client,
+            aclient=self._aclient,
             enable_hybrid=True,
             fastembed_sparse_model="Qdrant/bm25",
             batch_size=20,
         )
 
         # Initialize parents vector store (no hybrid, just dense embeddings)
-        self.parents_vector_store = QdrantVectorStore(
+        self._parents_vector_store = QdrantVectorStore(
             collection_name=self.parents_collection_name,
-            client=self.client,
-            aclient=self.aclient,
+            client=self._client,
+            aclient=self._aclient,
             enable_hybrid=False,
             batch_size=20,
         )
 
-        self.embed_model = OpenAIEmbedding(
+        self._embed_model = OpenAIEmbedding(
             api_key=self.settings.openai_api_key,
             model=self.settings.openai_embedding_model,
         )
 
         # Set global LlamaIndex settings once during initialization
-        LlamaIndexSettings.embed_model = self.embed_model
+        LlamaIndexSettings.embed_model = self._embed_model
+
+        self._clients_initialized = True
 
         logger.info(
             f"Qdrant vector stores initialized: "
             f"children={self.children_collection_name} (hybrid search), "
             f"parents={self.parents_collection_name} (dense only)"
         )
+
+    @property
+    def client(self) -> QdrantClient:
+        """Get the sync Qdrant client, initializing if needed."""
+        self._ensure_clients_initialized()
+        assert self._client is not None
+        return self._client
+
+    @property
+    def aclient(self) -> AsyncQdrantClient:
+        """Get the async Qdrant client, initializing if needed."""
+        self._ensure_clients_initialized()
+        assert self._aclient is not None
+        return self._aclient
+
+    @property
+    def children_vector_store(self) -> QdrantVectorStore:
+        """Get the children vector store, initializing if needed."""
+        self._ensure_clients_initialized()
+        assert self._children_vector_store is not None
+        return self._children_vector_store
+
+    @property
+    def parents_vector_store(self) -> QdrantVectorStore:
+        """Get the parents vector store, initializing if needed."""
+        self._ensure_clients_initialized()
+        assert self._parents_vector_store is not None
+        return self._parents_vector_store
+
+    @property
+    def embed_model(self) -> OpenAIEmbedding:
+        """Get the embedding model, initializing if needed."""
+        self._ensure_clients_initialized()
+        assert self._embed_model is not None
+        return self._embed_model
 
     def _validate_config(self) -> None:
         """Validate Qdrant configuration.
@@ -149,33 +208,62 @@ class QdrantService:
         return children_exists and parents_exists
 
     async def ensure_collection_exists(self) -> None:
-        """Ensure both collections exist with proper configuration.
+        """Ensure both collections exist with proper configuration and indexes.
 
-        QdrantVectorStore automatically creates collections with proper
-        configuration when adding documents, so we just verify they're accessible.
+        Creates collections explicitly with:
+        - Dense vector configuration (1536 dimensions for text-embedding-3-small)
+        - Sparse vector configuration (for children collection only - hybrid search)
+        - Payload indexes for member_code, summary_id, and collection_ids
         """
         try:
-            # Check if collections exist
+            # Check which collections already exist
             collections = await self.aclient.get_collections()
             collection_names = [c.name for c in collections.collections]
 
-            # Check children collection
-            if self.children_collection_name in collection_names:
+            # Create children collection if it doesn't exist (with hybrid search support)
+            if self.children_collection_name not in collection_names:
+                logger.info(
+                    f"Creating collection {self.children_collection_name} with hybrid search"
+                )
+                await self.aclient.create_collection(
+                    collection_name=self.children_collection_name,
+                    vectors_config={
+                        "text-dense": models.VectorParams(
+                            size=self.vector_size,
+                            distance=models.Distance.COSINE,
+                        ),
+                    },
+                    sparse_vectors_config={
+                        "text-sparse-new": models.SparseVectorParams(
+                            index=models.SparseIndexParams(),
+                            modifier=models.Modifier.IDF,
+                        ),
+                    },
+                    on_disk_payload=True,
+                )
+                logger.info(f"Created collection {self.children_collection_name}")
+            else:
                 logger.info(f"Collection {self.children_collection_name} already exists")
-            else:
-                logger.info(
-                    f"Collection {self.children_collection_name} "
-                    f"will be created on first document insert"
-                )
 
-            # Check parents collection
-            if self.parents_collection_name in collection_names:
-                logger.info(f"Collection {self.parents_collection_name} already exists")
-            else:
-                logger.info(
-                    f"Collection {self.parents_collection_name} "
-                    f"will be created on first document insert"
+            # Create parents collection if it doesn't exist (dense vectors only)
+            if self.parents_collection_name not in collection_names:
+                logger.info(f"Creating collection {self.parents_collection_name} (dense only)")
+                await self.aclient.create_collection(
+                    collection_name=self.parents_collection_name,
+                    vectors_config={
+                        "text-dense": models.VectorParams(
+                            size=self.vector_size,
+                            distance=models.Distance.COSINE,
+                        ),
+                    },
+                    on_disk_payload=True,
                 )
+                logger.info(f"Created collection {self.parents_collection_name}")
+            else:
+                logger.info(f"Collection {self.parents_collection_name} already exists")
+
+            # Always ensure payload indexes are created (safe to call multiple times)
+            await self.ensure_payload_indexes()
 
         except Exception as e:
             logger.error(f"Error ensuring collections exist: {e}")
@@ -187,6 +275,7 @@ class QdrantService:
         Creates indexes for:
         - member_code (keyword) - for filtering by member
         - summary_id (integer) - for filtering by summary
+        - collection_ids (integer array) - for filtering by collection membership
         """
         try:
             # Check if collections exist first
@@ -201,7 +290,10 @@ class QdrantService:
                 await self.aclient.create_payload_index(
                     collection_name=self.children_collection_name,
                     field_name="member_code",
-                    field_schema=PayloadSchemaType.KEYWORD,
+                    field_schema=models.KeywordIndexParams(
+                        type=models.KeywordIndexType.KEYWORD,
+                        is_tenant=True,
+                    ),
                 )
                 logger.info(
                     f"Created/verified member_code index on {self.children_collection_name}"
@@ -214,6 +306,16 @@ class QdrantService:
                     field_schema=PayloadSchemaType.INTEGER,
                 )
                 logger.info(f"Created/verified summary_id index on {self.children_collection_name}")
+
+                # Create index for collection_ids (integer array filter)
+                await self.aclient.create_payload_index(
+                    collection_name=self.children_collection_name,
+                    field_name="collection_ids",
+                    field_schema=PayloadSchemaType.INTEGER,
+                )
+                logger.info(
+                    f"Created/verified collection_ids index on {self.children_collection_name}"
+                )
 
             # Create indexes for parents collection (for consistency)
             if self.parents_collection_name in collection_names:
@@ -232,6 +334,15 @@ class QdrantService:
                     field_schema=PayloadSchemaType.INTEGER,
                 )
                 logger.info(f"Created/verified summary_id index on {self.parents_collection_name}")
+
+                await self.aclient.create_payload_index(
+                    collection_name=self.parents_collection_name,
+                    field_name="collection_ids",
+                    field_schema=PayloadSchemaType.INTEGER,
+                )
+                logger.info(
+                    f"Created/verified collection_ids index on {self.parents_collection_name}"
+                )
 
         except Exception as e:
             # Log but don't fail - indexes might already exist
@@ -274,6 +385,109 @@ class QdrantService:
             logger.error(f"Error deleting points for summary_id {summary_id}: {e}")
             raise
 
+    async def get_collection_ids(self, summary_id: int) -> list[int]:
+        """Get current collection_ids for a summary.
+
+        Args:
+            summary_id: The summary ID to query.
+
+        Returns:
+            List of collection IDs, or empty list if summary not found.
+        """
+        try:
+            # Query one point from children collection to get current collection_ids
+            scroll_result = await self.aclient.scroll(
+                collection_name=self.children_collection_name,
+                scroll_filter=Filter(
+                    must=[
+                        FieldCondition(
+                            key="summary_id",
+                            match=MatchValue(value=summary_id),
+                        )
+                    ]
+                ),
+                limit=1,
+                with_payload=True,
+                with_vectors=False,
+            )
+
+            points, _ = scroll_result  # scroll returns (points, next_offset)
+            if not points:
+                logger.info(f"No points found for summary_id={summary_id}, returning empty list")
+                return []
+
+            # Extract collection_ids from payload
+            point_payload = points[0].payload
+            if not point_payload:
+                return []
+
+            collection_ids_raw = point_payload.get("collection_ids")
+            if not collection_ids_raw:
+                return []
+
+            # Type guard: check if it's a list of ints
+            if is_list_of_ints(collection_ids_raw):
+                # Type checker now knows this is list[int]
+                return collection_ids_raw
+
+            # If it's not a proper list[int], fail fast
+            raise TypeError(
+                f"collection_ids has invalid type: expected list[int], "
+                f"got {type(collection_ids_raw).__name__}"
+            )
+
+        except Exception as e:
+            logger.error(f"Error getting collection_ids for summary_id {summary_id}: {e}")
+            # Return empty list on error rather than raising
+            return []
+
+    async def update_collection_ids(self, summary_id: int, collection_ids: list[int]) -> None:
+        """Update collection_ids metadata for all points associated with a summary ID.
+
+        Args:
+            summary_id: The summary ID to filter by.
+            collection_ids: The list of collection IDs to set.
+        """
+        try:
+            # Update children collection
+            await self.aclient.set_payload(
+                collection_name=self.children_collection_name,
+                payload={"collection_ids": collection_ids},
+                points=Filter(
+                    must=[
+                        FieldCondition(
+                            key="summary_id",
+                            match=MatchValue(value=summary_id),
+                        )
+                    ]
+                ),
+            )
+            logger.info(
+                f"Updated collection_ids for summary_id={summary_id} "
+                f"in {self.children_collection_name}"
+            )
+
+            # Update parents collection
+            await self.aclient.set_payload(
+                collection_name=self.parents_collection_name,
+                payload={"collection_ids": collection_ids},
+                points=Filter(
+                    must=[
+                        FieldCondition(
+                            key="summary_id",
+                            match=MatchValue(value=summary_id),
+                        )
+                    ]
+                ),
+            )
+            logger.info(
+                f"Updated collection_ids for summary_id={summary_id} "
+                f"in {self.parents_collection_name}"
+            )
+        except Exception as e:
+            logger.error(f"Error updating collection_ids for summary_id {summary_id}: {e}")
+            raise
+
     async def delete_by_ids(
         self,
         point_ids: list[ExtendedPointId],
@@ -307,6 +521,7 @@ class QdrantService:
         self,
         query: str,
         member_code: str | None = None,
+        collection_id: int | None = None,
         limit: int = 10,
         sparse_top_k: int = 10,
     ) -> list[SearchResult]:
@@ -315,6 +530,7 @@ class QdrantService:
         Args:
             query: The query string to search with.
             member_code: Optional member code to filter by.
+            collection_id: Optional collection ID to filter by.
             limit: Maximum number of results to return.
             sparse_top_k: Number of results from sparse (BM25) search.
 
@@ -322,41 +538,34 @@ class QdrantService:
             List of search results with scores and payloads.
         """
         try:
-            # Build metadata filters for LlamaIndex
-            from llama_index.core.vector_stores import (
-                FilterCondition,
-                FilterOperator,
-                MetadataFilter,
-                MetadataFilters,
-            )
-
-            filter_list: list[MetadataFilter | MetadataFilters] = []
+            must_filters: Sequence[FieldCondition] = []
             if member_code:
-                filter_list.append(
-                    MetadataFilter(
+                must_filters.append(
+                    FieldCondition(
                         key="member_code",
-                        value=member_code,
-                        operator=FilterOperator.EQ,
-                    )
+                        match=MatchValue(value=member_code),
+                    ),
                 )
-
-            metadata_filters = (
-                MetadataFilters(
-                    filters=filter_list,
-                    condition=FilterCondition.AND,
+            if collection_id:
+                must_filters.append(
+                    FieldCondition(
+                        key="collection_ids",
+                        match=MatchValue(value=collection_id),
+                    ),
                 )
-                if filter_list
-                else None
+            filters = Filter(
+                must=list(must_filters),
             )
 
             # Perform hybrid search on children collection
             index = VectorStoreIndex.from_vector_store(self.children_vector_store)  # pyright: ignore[reportUnknownMemberType]
-            result = await index.as_retriever(
-                filters=metadata_filters,
+            retriever = index.as_retriever(
+                vector_store_kwargs={"qdrant_filters": filters},
                 sparse_top_k=sparse_top_k,
                 similarity_top_k=limit,
                 hybrid_top_k=limit,
-            ).aretrieve(query)
+            )
+            result = await retriever.aretrieve(query)
 
             logger.info(
                 f"Hybrid search on children collection found {len(result) if result else 0} results"
@@ -380,33 +589,23 @@ class QdrantService:
             logger.error(f"Error performing hybrid search: {e}")
             raise
 
-    async def get_collection_info(self, collection: str = "children") -> CollectionInfo:
+    async def get_collection_info(self, collection_name: str) -> CollectionInfo:
         """Get collection information.
 
         Args:
-            collection: Which collection to get info for ("children" or "parents").
+            collection_name: Which collection to get info for ("children" or "parents").
 
         Returns:
             Dictionary with collection information.
         """
         try:
-            collection_name = (
-                self.children_collection_name
-                if collection == "children"
-                else self.parents_collection_name
-            )
             info = await self.aclient.get_collection(collection_name=collection_name)
-            return CollectionInfo(
-                name=collection_name,
-                vectors_count=info.vectors_count,
-                points_count=info.points_count,
-                status=info.status,
-            )
+            return info
         except Exception as e:
             logger.error(f"Error getting collection info: {e}")
             raise
 
-    async def get_node_by_id(self, node_id: str) -> BaseNode | None:
+    async def get_node_by_id(self, node_id: str) -> TextNode | None:
         """Retrieve a parent node by its ID.
 
         Args:
@@ -450,7 +649,7 @@ class QdrantService:
             logger.error(f"Error retrieving parent node by ID: {e}", exc_info=True)
             raise
 
-    async def get_child_by_id(self, node_id: str) -> BaseNode | None:
+    async def get_child_by_id(self, node_id: str) -> TextNode | None:
         """Retrieve a child node by its ID.
 
         Args:

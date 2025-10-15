@@ -5,8 +5,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from rag_python.schemas.events import SummaryAction, SummaryEvent, SummaryLifecycleMessage
-from rag_python.worker.handlers import SummaryLifecycleHandler
+from rag_python.schemas.events import (
+    CollectionRelationshipAction,
+    CollectionRelationshipEvent,
+    CollectionRelationshipMessage,
+    SummaryAction,
+    SummaryEvent,
+    SummaryLifecycleMessage,
+)
+from rag_python.worker.handlers import CollectionRelationshipHandler, SummaryLifecycleHandler
 
 
 @pytest.fixture
@@ -58,6 +65,7 @@ async def test_handle_created(handler: SummaryLifecycleHandler, mock_rag_service
         parseContent="This is test content for ingestion.",
         action=SummaryAction.CREATED,
         timestamp=datetime.now(),
+        collectionIds=None,
     )
     message = SummaryLifecycleMessage(type="summary:lifecycle", data=event)
 
@@ -72,6 +80,7 @@ async def test_handle_created(handler: SummaryLifecycleHandler, mock_rag_service
         summary_id=123,
         member_code="user123",
         content="This is test content for ingestion.",
+        collection_ids=None,
     )
 
 
@@ -88,6 +97,7 @@ async def test_handle_created_without_content(
         parseContent=None,
         action=SummaryAction.CREATED,
         timestamp=datetime.now(),
+        collectionIds=None,
     )
     message = SummaryLifecycleMessage(type="summary:lifecycle", data=event)
 
@@ -112,6 +122,7 @@ async def test_handle_updated(handler: SummaryLifecycleHandler, mock_rag_service
         parseContent="Updated content for the summary.",
         action=SummaryAction.UPDATED,
         timestamp=datetime.now(),
+        collectionIds=None,
     )
     message = SummaryLifecycleMessage(type="summary:lifecycle", data=event)
 
@@ -126,6 +137,7 @@ async def test_handle_updated(handler: SummaryLifecycleHandler, mock_rag_service
         summary_id=123,
         member_code="user123",
         content="Updated content for the summary.",
+        collection_ids=None,
     )
 
 
@@ -142,6 +154,7 @@ async def test_handle_updated_without_content(
         parseContent=None,
         action=SummaryAction.UPDATED,
         timestamp=datetime.now(),
+        collectionIds=None,
     )
     message = SummaryLifecycleMessage(type="summary:lifecycle", data=event)
 
@@ -166,6 +179,7 @@ async def test_handle_deleted(handler: SummaryLifecycleHandler, mock_rag_service
         parseContent=None,
         action=SummaryAction.DELETED,
         timestamp=datetime.now(),
+        collectionIds=None,
     )
     message = SummaryLifecycleMessage(type="summary:lifecycle", data=event)
 
@@ -195,6 +209,7 @@ async def test_handle_created_with_error(
         parseContent="Test content.",
         action=SummaryAction.CREATED,
         timestamp=datetime.now(),
+        collectionIds=None,
     )
     message = SummaryLifecycleMessage(type="summary:lifecycle", data=event)
 
@@ -221,6 +236,7 @@ async def test_handle_updated_with_error(
         parseContent="Updated content.",
         action=SummaryAction.UPDATED,
         timestamp=datetime.now(),
+        collectionIds=None,
     )
     message = SummaryLifecycleMessage(type="summary:lifecycle", data=event)
 
@@ -247,6 +263,7 @@ async def test_handle_deleted_with_error(
         parseContent=None,
         action=SummaryAction.DELETED,
         timestamp=datetime.now(),
+        collectionIds=None,
     )
     message = SummaryLifecycleMessage(type="summary:lifecycle", data=event)
 
@@ -271,6 +288,7 @@ async def test_handle_with_long_content(
         parseContent=long_content,
         action=SummaryAction.CREATED,
         timestamp=datetime.now(),
+        collectionIds=None,
     )
     message = SummaryLifecycleMessage(type="summary:lifecycle", data=event)
 
@@ -301,6 +319,7 @@ async def test_multiple_events_sequence(
         parseContent="Initial content.",
         action=SummaryAction.CREATED,
         timestamp=timestamp,
+        collectionIds=None,
     )
     create_message = SummaryLifecycleMessage(type="summary:lifecycle", data=create_event)
     result = await handler.handle(create_message)
@@ -314,6 +333,7 @@ async def test_multiple_events_sequence(
         parseContent="Updated content.",
         action=SummaryAction.UPDATED,
         timestamp=timestamp,
+        collectionIds=None,
     )
     update_message = SummaryLifecycleMessage(type="summary:lifecycle", data=update_event)
     result = await handler.handle(update_message)
@@ -327,6 +347,7 @@ async def test_multiple_events_sequence(
         parseContent=None,
         action=SummaryAction.DELETED,
         timestamp=timestamp,
+        collectionIds=None,
     )
     delete_message = SummaryLifecycleMessage(type="summary:lifecycle", data=delete_event)
     result = await handler.handle(delete_message)
@@ -336,3 +357,181 @@ async def test_multiple_events_sequence(
     mock_rag_service.ingest_document.assert_called_once()
     mock_rag_service.update_document.assert_called_once()
     mock_rag_service.delete_document.assert_called_once()
+
+
+# Tests for CollectionRelationshipHandler
+
+
+@pytest.fixture
+def mock_qdrant_service():
+    """Create mock Qdrant service."""
+    mock = MagicMock()
+    mock.get_collection_ids = AsyncMock(return_value=[])
+    mock.update_collection_ids = AsyncMock(return_value=None)
+    return mock
+
+
+@pytest.fixture
+def collection_handler(mock_qdrant_service: MagicMock):
+    """Create handler with mock Qdrant service."""
+    return CollectionRelationshipHandler(mock_qdrant_service)
+
+
+@pytest.mark.asyncio
+async def test_handle_collection_added(
+    collection_handler: CollectionRelationshipHandler, mock_qdrant_service: MagicMock
+):
+    """Test handling ADDED action for collection relationship."""
+    # Mock that summary currently has no collections (for logging purposes)
+    mock_qdrant_service.get_collection_ids = AsyncMock(return_value=[])
+
+    # Create test event - using full state, the event now contains the complete collection list
+    event = CollectionRelationshipEvent(
+        summaryId=12345,
+        action=CollectionRelationshipAction.ADDED,
+        memberCode="user123",
+        teamCode="team456",
+        timestamp=datetime.now(),
+        collectionIds=[100, 200, 300],  # Full state after adding
+    )
+    message = CollectionRelationshipMessage(type="collection:relationship", data=event)
+
+    # Handle message
+    result = await collection_handler.handle(message)
+
+    # Verify success
+    assert result is True
+
+    # Verify get was called (for logging)
+    mock_qdrant_service.get_collection_ids.assert_called_once_with(12345)
+
+    # Verify update was called with the full state from the event
+    mock_qdrant_service.update_collection_ids.assert_called_once_with(
+        summary_id=12345,
+        collection_ids=[100, 200, 300],
+    )
+
+
+@pytest.mark.asyncio
+async def test_handle_collection_removed(
+    collection_handler: CollectionRelationshipHandler, mock_qdrant_service: MagicMock
+):
+    """Test handling REMOVED action for collection relationship."""
+    # Mock that summary currently has collections [100, 200, 300]
+    # (for logging purposes)
+    mock_qdrant_service.get_collection_ids = AsyncMock(return_value=[100, 200, 300])
+
+    # Create test event - using full state, the event contains the complete collection list after removal
+    event = CollectionRelationshipEvent(
+        summaryId=12345,
+        action=CollectionRelationshipAction.REMOVED,
+        memberCode="user123",
+        teamCode="team456",
+        timestamp=datetime.now(),
+        collectionIds=[100],  # Full state after removal (only 100 remains)
+    )
+    message = CollectionRelationshipMessage(type="collection:relationship", data=event)
+
+    # Handle message
+    result = await collection_handler.handle(message)
+
+    # Verify success
+    assert result is True
+
+    # Verify Qdrant service was called with the full state from the event
+    mock_qdrant_service.update_collection_ids.assert_called_once_with(
+        summary_id=12345,
+        collection_ids=[100],
+    )
+
+
+@pytest.mark.asyncio
+async def test_handle_collection_updated(
+    collection_handler: CollectionRelationshipHandler, mock_qdrant_service: MagicMock
+):
+    """Test handling UPDATED action for collection relationship."""
+    # Mock that summary currently has collections [100, 200] (for logging purposes)
+    mock_qdrant_service.get_collection_ids = AsyncMock(return_value=[100, 200])
+
+    # Create test event - using full state, the event contains the complete collection list
+    event = CollectionRelationshipEvent(
+        summaryId=12345,
+        action=CollectionRelationshipAction.UPDATED,
+        memberCode="user123",
+        teamCode="team456",
+        timestamp=datetime.now(),
+        collectionIds=[200, 300, 400],  # Full state after update
+    )
+    message = CollectionRelationshipMessage(type="collection:relationship", data=event)
+
+    # Handle message
+    result = await collection_handler.handle(message)
+
+    # Verify success
+    assert result is True
+
+    # Verify Qdrant service was called with the full state from the event
+    mock_qdrant_service.update_collection_ids.assert_called_once_with(
+        summary_id=12345,
+        collection_ids=[200, 300, 400],
+    )
+
+
+@pytest.mark.asyncio
+async def test_handle_collection_added_with_error(
+    collection_handler: CollectionRelationshipHandler, mock_qdrant_service: MagicMock
+):
+    """Test error handling during ADDED action."""
+    # Mock initial state
+    mock_qdrant_service.get_collection_ids = AsyncMock(return_value=[])
+    # Make Qdrant service raise an error during update
+    mock_qdrant_service.update_collection_ids = AsyncMock(side_effect=Exception("Update error"))
+
+    # Create test event
+    event = CollectionRelationshipEvent(
+        summaryId=12345,
+        action=CollectionRelationshipAction.ADDED,
+        memberCode="user123",
+        teamCode="team456",
+        timestamp=datetime.now(),
+        collectionIds=[100, 200],
+    )
+    message = CollectionRelationshipMessage(type="collection:relationship", data=event)
+
+    # Handle message
+    result = await collection_handler.handle(message)
+
+    # Verify failure
+    assert result is False
+
+
+@pytest.mark.asyncio
+async def test_handle_collection_empty_result(
+    collection_handler: CollectionRelationshipHandler, mock_qdrant_service: MagicMock
+):
+    """Test handling when removing all collections leaves an empty list."""
+    # Mock that summary currently has one collection [100] (for logging purposes)
+    mock_qdrant_service.get_collection_ids = AsyncMock(return_value=[100])
+
+    # Create test event - using full state, the event contains empty list after removal
+    event = CollectionRelationshipEvent(
+        summaryId=12345,
+        action=CollectionRelationshipAction.REMOVED,
+        memberCode="user123",
+        teamCode=None,
+        timestamp=datetime.now(),
+        collectionIds=[],  # Full state after removing all collections
+    )
+    message = CollectionRelationshipMessage(type="collection:relationship", data=event)
+
+    # Handle message
+    result = await collection_handler.handle(message)
+
+    # Verify success
+    assert result is True
+
+    # Verify Qdrant service was called with empty list from the event
+    mock_qdrant_service.update_collection_ids.assert_called_once_with(
+        summary_id=12345,
+        collection_ids=[],
+    )

@@ -15,6 +15,14 @@ class SummaryAction(str, Enum):
     DELETED = "DELETED"
 
 
+class CollectionRelationshipAction(str, Enum):
+    """Collection relationship actions."""
+
+    ADDED = "ADDED"
+    REMOVED = "REMOVED"
+    UPDATED = "UPDATED"
+
+
 class SummaryEvent(BaseModel):
     """Summary lifecycle event schema matching SummaryEventDTO from Java backend.
 
@@ -26,7 +34,8 @@ class SummaryEvent(BaseModel):
         "teamCode": "team456",
         "parseContent": "This is the parsed summary content...",
         "action": "CREATED",
-        "timestamp": "2025-10-01T12:30:45.123Z"
+        "timestamp": "2025-10-01T12:30:45.123Z",
+        "collectionIds": [100, 200, 300]
     }
     ```
     """
@@ -37,6 +46,12 @@ class SummaryEvent(BaseModel):
     parse_content: str | None = Field(None, alias="parseContent")
     action: SummaryAction
     timestamp: datetime
+    collection_ids: list[int] | None = Field(
+        None,
+        alias="collectionIds",
+        description="Complete current state of collection IDs for this summary. "
+        "Contains ALL collections the summary currently belongs to.",
+    )
 
     model_config = {
         "populate_by_name": True,  # Allow both alias and field name
@@ -49,6 +64,7 @@ class SummaryEvent(BaseModel):
                     "parseContent": "This is the parsed summary content...",
                     "action": "CREATED",
                     "timestamp": "2025-10-01T12:30:45.123Z",
+                    "collectionIds": [100, 200, 300],
                 }
             ]
         },
@@ -68,7 +84,8 @@ class SummaryLifecycleMessage(BaseModel):
             "teamCode": "team456",
             "parseContent": "This is the parsed summary content...",
             "action": "CREATED",
-            "timestamp": "2025-10-01T12:30:45.123Z"
+            "timestamp": "2025-10-01T12:30:45.123Z",
+            "collectionIds": [100, 200, 300]
         }
     }
     ```
@@ -78,6 +95,117 @@ class SummaryLifecycleMessage(BaseModel):
     data: SummaryEvent
 
 
+class CollectionRelationshipEvent(BaseModel):
+    """Collection relationship event schema.
+
+    Matches CollectionRelationshipEventDTO from Java backend.
+    Uses full state rather than delta updates to avoid ordering issues.
+
+    Example events:
+    ```json
+    // ADDED action - collections added to summary
+    {
+        "summaryId": 12345,
+        "action": "ADDED",
+        "memberCode": "user123",
+        "teamCode": "team456",
+        "timestamp": "2025-10-10T10:30:45.123Z",
+        "collectionIds": [100, 200, 300]
+    }
+
+    // REMOVED action - collections removed from summary
+    {
+        "summaryId": 12345,
+        "action": "REMOVED",
+        "memberCode": "user123",
+        "teamCode": "team456",
+        "timestamp": "2025-10-10T10:30:45.123Z",
+        "collectionIds": [200, 300]
+    }
+
+    // UPDATED action - collection relationships changed
+    {
+        "summaryId": 12345,
+        "action": "UPDATED",
+        "memberCode": "user123",
+        "teamCode": "team456",
+        "timestamp": "2025-10-10T10:30:45.123Z",
+        "collectionIds": [200, 300, 400]
+    }
+    ```
+    """
+
+    summary_id: int = Field(..., alias="summaryId")
+    action: CollectionRelationshipAction
+    member_code: str = Field(..., alias="memberCode")
+    team_code: str | None = Field(None, alias="teamCode")
+    timestamp: datetime
+    collection_ids: list[int] | None = Field(
+        None,
+        alias="collectionIds",
+        description="Complete current state of collection IDs for this summary. "
+        "This is the source of truth for consumers to avoid ordering issues. "
+        "Contains ALL collections the summary currently belongs to. "
+        "Consumers should use this field to replace existing relationships. "
+        "Use timestamp to determine if this state is newer than last processed.",
+    )
+
+    model_config = {
+        "populate_by_name": True,  # Allow both alias and field name
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "summaryId": 12345,
+                    "action": "ADDED",
+                    "memberCode": "user123",
+                    "teamCode": "team456",
+                    "timestamp": "2025-10-10T10:30:45.123Z",
+                    "collectionIds": [100, 200, 300],
+                },
+                {
+                    "summaryId": 12345,
+                    "action": "REMOVED",
+                    "memberCode": "user123",
+                    "teamCode": "team456",
+                    "timestamp": "2025-10-10T10:30:45.123Z",
+                    "collectionIds": [200, 300],
+                },
+                {
+                    "summaryId": 12345,
+                    "action": "UPDATED",
+                    "memberCode": "user123",
+                    "teamCode": "team456",
+                    "timestamp": "2025-10-10T10:30:45.123Z",
+                    "collectionIds": [200, 300, 400],
+                },
+            ]
+        },
+    }
+
+
+class CollectionRelationshipMessage(BaseModel):
+    """SQS message wrapper for collection relationship events.
+
+    Example SQS message body:
+    ```json
+    {
+        "type": "collection:relationship",
+        "data": {
+            "summaryId": 12345,
+            "action": "ADDED",
+            "memberCode": "user123",
+            "teamCode": "team456",
+            "timestamp": "2025-10-10T10:30:45.123Z",
+            "collectionIds": [100, 200, 300]
+        }
+    }
+    ```
+    """
+
+    type: Literal["collection:relationship"] = Field(..., description="Message type discriminator")
+    data: CollectionRelationshipEvent
+
+
 # Add more message types here as needed
 # class FileIngestMessage(BaseModel):
 #     type: Literal["ingest:file"]
@@ -85,8 +213,7 @@ class SummaryLifecycleMessage(BaseModel):
 
 
 # Union type for all SQS messages (discriminated by 'type' field)
-# Will become Union[SummaryLifecycleMessage, ...] as more types are added
-SQSMessage = SummaryLifecycleMessage
+SQSMessage = SummaryLifecycleMessage | CollectionRelationshipMessage
 
 
 class SQSMessageMetadata(BaseModel):

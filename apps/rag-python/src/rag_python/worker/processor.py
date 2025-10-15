@@ -9,8 +9,8 @@ from pydantic import ValidationError
 from rag_python.config import Settings
 from rag_python.core.logging import get_logger
 from rag_python.schemas.events import SQSMessage, SQSMessageMetadata
+from rag_python.services.ingestion_service import IngestionService
 from rag_python.services.qdrant_service import QdrantService
-from rag_python.services.rag_service import RAGService
 from rag_python.worker.handlers import MessageHandlerRegistry
 from rag_python.worker.sqs_client import SQSClient
 
@@ -29,12 +29,12 @@ class MessageProcessor:
         self.settings = settings
         self.sqs_client = SQSClient(settings)
 
-        # Initialize RAG services
+        # Initialize services
         self.qdrant_service = QdrantService(settings)
-        self.rag_service = RAGService(settings, self.qdrant_service)
+        self.ingestion_service = IngestionService(settings, self.qdrant_service)
 
         # Initialize handler registry with services
-        self.handler_registry = MessageHandlerRegistry(self.rag_service)
+        self.handler_registry = MessageHandlerRegistry(self.ingestion_service, self.qdrant_service)
 
     def _parse_message_body(self, body: str) -> dict[str, Any] | None:
         """Parse message body JSON.
@@ -77,11 +77,26 @@ class MessageProcessor:
             SQSMessage | None: Validated message or None if invalid.
         """
         try:
-            # Try to parse as SummaryLifecycleMessage (expand as more types are added)
-            from rag_python.schemas.events import SummaryLifecycleMessage
+            # Get message type from the data
+            message_type = body_data.get("type")
+            if not message_type:
+                logger.error("Message missing 'type' field")
+                return None
 
-            message = SummaryLifecycleMessage(**body_data)
-            return message
+            # Try to parse based on message type
+            if message_type == "summary:lifecycle":
+                from rag_python.schemas.events import SummaryLifecycleMessage
+
+                message = SummaryLifecycleMessage(**body_data)
+                return message
+            elif message_type == "collection:relationship":
+                from rag_python.schemas.events import CollectionRelationshipMessage
+
+                message = CollectionRelationshipMessage(**body_data)
+                return message
+            else:
+                logger.error(f"Unknown message type: {message_type}")
+                return None
         except ValidationError as e:
             logger.error(f"Failed to validate message: {e}")
             return None

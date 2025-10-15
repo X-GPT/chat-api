@@ -43,6 +43,10 @@ testpaths = ["tests"]
 python_files = "test_*.py"
 python_classes = "Test*"
 python_functions = "test_*"
+markers = [
+    "integration: marks tests as integration tests (require external services, skipped by default)",
+]
+addopts = "-m 'not integration'"  # Skip integration tests by default
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/rag_python"]

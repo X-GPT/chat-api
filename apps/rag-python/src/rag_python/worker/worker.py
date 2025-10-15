@@ -69,7 +69,7 @@ class SQSWorker:
         self.sqs_client = SQSClient(self.settings)
         self.processor = MessageProcessor(self.settings)
         self.running = False
-        self.shutdown_event = asyncio.Event()
+        self.shutdown_event: asyncio.Event | None = None
         self.health_server = HealthCheckServer(port=8080, health_check_fn=self._get_health_status)
 
     def _setup_signal_handlers(self) -> None:
@@ -78,7 +78,8 @@ class SQSWorker:
         def signal_handler(sig: int, frame: Any) -> None:
             """Handle shutdown signals."""
             logger.info(f"Received signal {sig}, initiating graceful shutdown...")
-            self.shutdown_event.set()
+            if self.shutdown_event:
+                self.shutdown_event.set()
 
         signal.signal(signal.SIGINT, signal_handler)
         signal.signal(signal.SIGTERM, signal_handler)
@@ -124,6 +125,9 @@ class SQSWorker:
         if not self.settings.sqs_queue_url:
             logger.error("SQS_QUEUE_URL not configured. Exiting.")
             return
+
+        # Create shutdown event in the running event loop
+        self.shutdown_event = asyncio.Event()
 
         self._setup_signal_handlers()
         self.running = True

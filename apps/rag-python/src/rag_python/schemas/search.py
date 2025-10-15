@@ -9,6 +9,9 @@ class SearchRequest(BaseModel):
     query: str = Field(..., description="Search query text", min_length=1)
     member_code: str | None = Field(None, description="Optional member code to filter results")
     summary_id: int | None = Field(None, description="Optional summary ID to filter results")
+    collection_id: int | None = Field(
+        None, description="Optional collection ID to filter results"
+    )
     limit: int = Field(10, description="Maximum number of total results to return", ge=1, le=100)
     sparse_top_k: int = Field(
         10, description="Number of results from sparse (BM25) search", ge=1, le=100
