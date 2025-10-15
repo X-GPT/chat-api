@@ -299,6 +299,7 @@ async function runTurn(
 					query: toolCall.input.query,
 					memberCode: turnContext.memberCode,
 					summaryId: turnContext.summaryId,
+					collectionId: turnContext.collectionId,
 					logger: turnContext.logger,
 					onEvent,
 				});

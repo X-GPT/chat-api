@@ -20,6 +20,7 @@ interface SearchRequest {
 	summary_id?: number | null;
 	limit?: number;
 	sparse_top_k?: number;
+	collection_id?: string | null;
 }
 
 interface MatchingChild {
@@ -55,12 +56,14 @@ export async function handleSearchKnowledge({
 	query,
 	memberCode,
 	summaryId,
+	collectionId,
 	logger,
 	onEvent,
 }: {
 	query: string;
 	memberCode: string | null;
 	summaryId: string | null;
+	collectionId: string | null;
 	logger: ChatLogger;
 	onEvent: (event: EventMessage) => void;
 }): Promise<string> {
@@ -78,6 +81,7 @@ export async function handleSearchKnowledge({
 			summary_id: summaryId ? Number.parseInt(summaryId, 10) : null,
 			limit: 10,
 			sparse_top_k: 10,
+			collection_id: collectionId,
 		};
 
 		logger.info({
@@ -86,6 +90,7 @@ export async function handleSearchKnowledge({
 			memberCode,
 			summaryId,
 			endpoint,
+			collectionId,
 		});
 
 		const response = await fetch(endpoint, {
