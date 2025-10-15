@@ -4,7 +4,7 @@ import asyncio
 from collections.abc import Coroutine
 from typing import Any
 
-from llama_index.core import Document, StorageContext, VectorStoreIndex
+from llama_index.core import Document
 from llama_index.core.node_parser import SemanticSplitterNodeParser, SentenceSplitter
 from llama_index.core.schema import BaseNode
 from llama_index.embeddings.openai import OpenAIEmbedding  # type: ignore
@@ -142,22 +142,29 @@ class IngestionService:
 
             logger.info(f"Created {len(all_child_nodes)} child nodes")
 
-            # Step 3: Store child and parent nodes to separate collections
-            # VectorStoreIndex will:
-            # 1. Generate embeddings for all nodes using embed_model
-            # 2. Store them via the vector store with appropriate indexing
+            # Step 3: Generate embeddings for all nodes
+            # We need to generate embeddings before adding to vector stores
+            # Note: We use async_add directly instead of VectorStoreIndex to avoid
+            # event loop conflicts when use_async=True creates a new event loop.
 
+            # Generate embeddings for child nodes
+            logger.info(f"Generating embeddings for {len(all_child_nodes)} child nodes...")
+            child_texts = [node.get_content() for node in all_child_nodes]
+            child_embeddings = await self.embed_model.aget_text_embedding_batch(child_texts)
+            for node, embedding in zip(all_child_nodes, child_embeddings, strict=False):
+                node.embedding = embedding
+
+            # Generate embeddings for parent nodes
+            logger.info(f"Generating embeddings for {len(parent_nodes)} parent nodes...")
+            parent_texts = [node.get_content() for node in parent_nodes]
+            parent_embeddings = await self.embed_model.aget_text_embedding_batch(parent_texts)
+            for node, embedding in zip(parent_nodes, parent_embeddings, strict=False):
+                node.embedding = embedding
+
+            # Step 4: Store nodes to vector stores
             # Store child nodes to children collection (with hybrid indexing)
-            children_storage_context = StorageContext.from_defaults(
-                vector_store=self.qdrant_service.children_vector_store
-            )
-            _children_index = VectorStoreIndex(
-                nodes=all_child_nodes,
-                storage_context=children_storage_context,
-                embed_model=self.embed_model,
-                show_progress=True,
-                use_async=True,
-            )
+            logger.info(f"Adding {len(all_child_nodes)} child nodes to vector store...")
+            await self.qdrant_service.children_vector_store.async_add(all_child_nodes)
 
             logger.info(
                 f"Stored {len(all_child_nodes)} child nodes to "
@@ -165,16 +172,8 @@ class IngestionService:
             )
 
             # Store parent nodes to parents collection (dense embeddings only)
-            parents_storage_context = StorageContext.from_defaults(
-                vector_store=self.qdrant_service.parents_vector_store
-            )
-            _parents_index = VectorStoreIndex(
-                nodes=parent_nodes,
-                storage_context=parents_storage_context,
-                embed_model=self.embed_model,
-                show_progress=True,
-                use_async=True,
-            )
+            logger.info(f"Adding {len(parent_nodes)} parent nodes to vector store...")
+            await self.qdrant_service.parents_vector_store.async_add(parent_nodes)
 
             logger.info(
                 f"Stored {len(parent_nodes)} parent nodes to "

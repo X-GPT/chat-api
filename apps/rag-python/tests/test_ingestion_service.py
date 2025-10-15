@@ -42,10 +42,15 @@ def qdrant_service(settings: Settings, mock_qdrant_clients: tuple[MagicMock, Mag
     service.ensure_collection_exists = AsyncMock()
     service.collection_exists = AsyncMock(return_value=True)
     service.delete_by_summary_id = AsyncMock()
-    # Mock both vector stores that will be used by VectorStoreIndex
+    # Mock both vector stores that will be used by async_add
     # Note: We assign to private attributes since properties don't have setters
-    service._children_vector_store = MagicMock()  # pyright: ignore[reportPrivateUsage]
-    service._parents_vector_store = MagicMock()  # pyright: ignore[reportPrivateUsage]
+    mock_children_store = MagicMock()
+    mock_children_store.async_add = AsyncMock(return_value=["id1", "id2"])
+    mock_parents_store = MagicMock()
+    mock_parents_store.async_add = AsyncMock(return_value=["id3", "id4"])
+
+    service._children_vector_store = mock_children_store  # pyright: ignore[reportPrivateUsage]
+    service._parents_vector_store = mock_parents_store  # pyright: ignore[reportPrivateUsage]
     service._clients_initialized = True  # pyright: ignore[reportPrivateUsage] # Mark as initialized to bypass lazy init
     return service
 
@@ -75,6 +80,11 @@ def mock_openai_embedding():
         mock_instance.aget_text_embedding = AsyncMock(
             return_value=[0.1] * 1536  # Mock single embedding
         )
+        # Mock batch embedding generation (returns list of embeddings)
+        async def mock_batch_embeddings(texts: list[str]) -> list[list[float]]:
+            return [[0.1] * 1536 for _ in texts]
+
+        mock_instance.aget_text_embedding_batch = AsyncMock(side_effect=mock_batch_embeddings)
         mock.return_value = mock_instance
         yield mock
 
@@ -109,21 +119,11 @@ def mock_semantic_parser():
 
 
 @pytest.fixture
-def mock_vector_store_index():
-    """Mock VectorStoreIndex to capture nodes being stored."""
-    with patch("rag_python.services.ingestion_service.VectorStoreIndex") as mock:
-        mock_instance = MagicMock()
-        mock.return_value = mock_instance
-        yield mock
-
-
-@pytest.fixture
 def ingestion_service(
     settings: Settings,
     qdrant_service: QdrantService,
     mock_openai_embedding: MagicMock,
     mock_semantic_parser: MagicMock,
-    mock_vector_store_index: MagicMock,
 ):
     """Create ingestion service with mocked semantic parser and embedding.
 
@@ -139,7 +139,6 @@ def ingestion_service(
 async def test_ingest_document(
     ingestion_service: IngestionService,
     qdrant_service: QdrantService,
-    mock_vector_store_index: MagicMock,
 ):
     """Test document ingestion."""
     summary_id = 123
@@ -166,15 +165,16 @@ async def test_ingest_document(
     # Verify Qdrant methods were called
     qdrant_service.ensure_collection_exists.assert_called_once()  # type: ignore
 
-    # Verify VectorStoreIndex was called TWICE (children + parents)
-    assert mock_vector_store_index.call_count == 2
+    # Verify async_add was called on both vector stores
+    children_store = qdrant_service._children_vector_store  # pyright: ignore[reportPrivateUsage]
+    parents_store = qdrant_service._parents_vector_store  # pyright: ignore[reportPrivateUsage]
 
-    # First call is for children, second is for parents
-    children_call_kwargs = mock_vector_store_index.call_args_list[0].kwargs
-    parents_call_kwargs = mock_vector_store_index.call_args_list[1].kwargs
+    children_store.async_add.assert_called_once()  # type: ignore
+    parents_store.async_add.assert_called_once()  # type: ignore
 
-    child_nodes = children_call_kwargs["nodes"]
-    parent_nodes = parents_call_kwargs["nodes"]
+    # Get the nodes that were passed to async_add
+    child_nodes = children_store.async_add.call_args[0][0]  # type: ignore
+    parent_nodes = parents_store.async_add.call_args[0][0]  # type: ignore
 
     assert len(child_nodes) == stats.child_chunks
     assert len(parent_nodes) == stats.parent_chunks
@@ -195,7 +195,6 @@ async def test_ingest_document(
 async def test_update_document(
     ingestion_service: IngestionService,
     qdrant_service: QdrantService,
-    mock_vector_store_index: MagicMock,
 ):
     """Test document update."""
     summary_id = 123
@@ -212,8 +211,12 @@ async def test_update_document(
     # Verify delete was called
     qdrant_service.delete_by_summary_id.assert_called_once_with(summary_id)  # type: ignore
 
-    # Verify re-ingestion happened (VectorStoreIndex called twice: children + parents)
-    assert mock_vector_store_index.call_count == 2
+    # Verify re-ingestion happened (async_add called once on each store)
+    children_store = qdrant_service._children_vector_store  # pyright: ignore[reportPrivateUsage]
+    parents_store = qdrant_service._parents_vector_store  # pyright: ignore[reportPrivateUsage]
+
+    children_store.async_add.assert_called_once()  # type: ignore
+    parents_store.async_add.assert_called_once()  # type: ignore
 
     # Verify stats
     assert stats.summary_id == summary_id
@@ -246,12 +249,12 @@ async def test_delete_document(
 async def test_ingest_document_with_error(
     ingestion_service: IngestionService,
     qdrant_service: QdrantService,
-    mock_vector_store_index: MagicMock,
 ):
     """Test error handling during ingestion."""
-    # Mock VectorStoreIndex to raise an error
+    # Mock children store's async_add to raise an error
     qdrant_service.ensure_collection_exists = AsyncMock()
-    mock_vector_store_index.side_effect = Exception("Vector store error")
+    children_store = qdrant_service._children_vector_store  # pyright: ignore[reportPrivateUsage]
+    children_store.async_add.side_effect = Exception("Vector store error")  # type: ignore
 
     summary_id = 123
     member_code = "user123"
@@ -270,7 +273,6 @@ async def test_ingest_document_with_error(
 async def test_parent_child_relationship(
     ingestion_service: IngestionService,
     qdrant_service: QdrantService,
-    mock_vector_store_index: MagicMock,
 ):
     """Test parent-child relationship is maintained."""
     summary_id = 456
@@ -284,12 +286,11 @@ async def test_parent_child_relationship(
         content=content,
     )
 
-    # Get nodes from both VectorStoreIndex calls (children first, parents second)
-    children_call_kwargs = mock_vector_store_index.call_args_list[0].kwargs
-    parents_call_kwargs = mock_vector_store_index.call_args_list[1].kwargs
-
-    child_nodes = children_call_kwargs["nodes"]
-    parent_nodes = parents_call_kwargs["nodes"]
+    # Get the nodes that were passed to async_add
+    children_store = qdrant_service._children_vector_store  # pyright: ignore[reportPrivateUsage]
+    parents_store = qdrant_service._parents_vector_store  # pyright: ignore[reportPrivateUsage]
+    child_nodes = children_store.async_add.call_args[0][0]  # type: ignore
+    parent_nodes = parents_store.async_add.call_args[0][0]  # type: ignore
 
     # Verify relationships
     assert len(parent_nodes) > 0
@@ -308,7 +309,6 @@ async def test_parent_child_relationship(
 async def test_member_code_filtering(
     ingestion_service: IngestionService,
     qdrant_service: QdrantService,
-    mock_vector_store_index: MagicMock,
 ):
     """Test member code is properly set for filtering."""
     summary_id = 789
@@ -322,11 +322,13 @@ async def test_member_code_filtering(
         content=content,
     )
 
-    # Get nodes from both VectorStoreIndex calls (children first, parents second)
-    children_call_kwargs = mock_vector_store_index.call_args_list[0].kwargs
-    parents_call_kwargs = mock_vector_store_index.call_args_list[1].kwargs
+    # Get the nodes that were passed to async_add
+    children_store = qdrant_service._children_vector_store  # pyright: ignore[reportPrivateUsage]
+    parents_store = qdrant_service._parents_vector_store  # pyright: ignore[reportPrivateUsage]
+    child_nodes = children_store.async_add.call_args[0][0]  # type: ignore
+    parent_nodes = parents_store.async_add.call_args[0][0]  # type: ignore
 
-    all_nodes = children_call_kwargs["nodes"] + parents_call_kwargs["nodes"]
+    all_nodes = child_nodes + parent_nodes
 
     # Verify all nodes have the member_code
     for node in all_nodes:
@@ -337,7 +339,6 @@ async def test_member_code_filtering(
 async def test_collection_ids_are_set(
     ingestion_service: IngestionService,
     qdrant_service: QdrantService,
-    mock_vector_store_index: MagicMock,
 ):
     """Test collection IDs are properly set for filtering."""
     summary_id = 999
@@ -353,11 +354,13 @@ async def test_collection_ids_are_set(
         collection_ids=collection_ids,
     )
 
-    # Get nodes from both VectorStoreIndex calls (children first, parents second)
-    children_call_kwargs = mock_vector_store_index.call_args_list[0].kwargs
-    parents_call_kwargs = mock_vector_store_index.call_args_list[1].kwargs
+    # Get the nodes that were passed to async_add
+    children_store = qdrant_service._children_vector_store  # pyright: ignore[reportPrivateUsage]
+    parents_store = qdrant_service._parents_vector_store  # pyright: ignore[reportPrivateUsage]
+    child_nodes = children_store.async_add.call_args[0][0]  # type: ignore
+    parent_nodes = parents_store.async_add.call_args[0][0]  # type: ignore
 
-    all_nodes = children_call_kwargs["nodes"] + parents_call_kwargs["nodes"]
+    all_nodes = child_nodes + parent_nodes
 
     # Verify all nodes have the collection_ids
     for node in all_nodes:
@@ -368,7 +371,6 @@ async def test_collection_ids_are_set(
 async def test_collection_ids_default_to_empty_list(
     ingestion_service: IngestionService,
     qdrant_service: QdrantService,
-    mock_vector_store_index: MagicMock,
 ):
     """Test collection IDs default to empty list when not provided."""
     summary_id = 1000
@@ -382,11 +384,13 @@ async def test_collection_ids_default_to_empty_list(
         content=content,
     )
 
-    # Get nodes from both VectorStoreIndex calls (children first, parents second)
-    children_call_kwargs = mock_vector_store_index.call_args_list[0].kwargs
-    parents_call_kwargs = mock_vector_store_index.call_args_list[1].kwargs
+    # Get the nodes that were passed to async_add
+    children_store = qdrant_service._children_vector_store  # pyright: ignore[reportPrivateUsage]
+    parents_store = qdrant_service._parents_vector_store  # pyright: ignore[reportPrivateUsage]
+    child_nodes = children_store.async_add.call_args[0][0]  # type: ignore
+    parent_nodes = parents_store.async_add.call_args[0][0]  # type: ignore
 
-    all_nodes = children_call_kwargs["nodes"] + parents_call_kwargs["nodes"]
+    all_nodes = child_nodes + parent_nodes
 
     # Verify all nodes have empty collection_ids list
     for node in all_nodes:
