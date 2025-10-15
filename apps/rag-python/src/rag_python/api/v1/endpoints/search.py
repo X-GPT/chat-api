@@ -46,6 +46,7 @@ async def search(
             f"Search request: query='{request.query}', "
             f"member_code={request.member_code}, "
             f"summary_id={request.summary_id}, "
+            f"collection_id={request.collection_id}, "
             f"limit={request.limit}"
         )
 
@@ -53,6 +54,7 @@ async def search(
             query=request.query,
             member_code=request.member_code,
             summary_id=request.summary_id,
+            collection_id=request.collection_id,
             limit=request.limit,
             sparse_top_k=request.sparse_top_k,
         )

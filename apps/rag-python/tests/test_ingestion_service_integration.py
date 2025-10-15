@@ -232,7 +232,7 @@ async def test_ingest_document_end_to_end(
     results = await qdrant_service.search(
         query="Python programming language",
         member_code=member_code,
-        collection_ids=None,
+        collection_id=None,
         limit=10,
     )
 
@@ -289,7 +289,7 @@ async def test_parent_child_chunk_relationships(
     results = await qdrant_service.search(
         query="Python programming paradigms",
         member_code=member_code,
-        collection_ids=None,
+        collection_id=None,
         limit=5,
     )
 
@@ -365,7 +365,7 @@ async def test_update_document_replaces_old_data(
     initial_results = await qdrant_service.search(
         query="quick brown fox",
         member_code=member_code,
-        collection_ids=None,
+        collection_id=None,
         limit=5,
     )
     initial_summary_ids = {r.payload.get("summary_id") for r in initial_results if r.payload}
@@ -390,7 +390,7 @@ async def test_update_document_replaces_old_data(
     old_content_results = await qdrant_service.search(
         query="quick brown fox lazy dog",
         member_code=member_code,
-        collection_ids=None,
+        collection_id=None,
         limit=10,
     )
     _old_content_summary_ids = {
@@ -418,7 +418,7 @@ async def test_update_document_replaces_old_data(
         new_content_results = await qdrant_service.search(
             query="Python programming language",
             member_code=member_code,
-            collection_ids=None,
+            collection_id=None,
             limit=5,
         )
         new_content_summary_ids = {
@@ -480,7 +480,7 @@ async def test_delete_document_removes_all_chunks(
     before_results = await qdrant_service.search(
         query="Python programming",
         member_code=member_code,
-        collection_ids=None,
+        collection_id=None,
         limit=5,
     )
     before_summary_ids = {r.payload.get("summary_id") for r in before_results if r.payload}
@@ -501,7 +501,7 @@ async def test_delete_document_removes_all_chunks(
     after_results = await qdrant_service.search(
         query="Python programming",
         member_code=member_code,
-        collection_ids=None,
+        collection_id=None,
         limit=10,
     )
 
@@ -676,7 +676,7 @@ async def test_metadata_fields_are_set(
     results = await qdrant_service.search(
         query="Python programming",
         member_code=member_code,
-        collection_ids=None,
+        collection_id=None,
         limit=5,
     )
 
@@ -733,7 +733,7 @@ async def test_embeddings_are_generated(
     results = await qdrant_service.search(
         query="Python programming",
         member_code=member_code,
-        collection_ids=None,
+        collection_id=None,
         limit=1,
     )
 
@@ -874,6 +874,142 @@ async def test_payload_schema_indexes(
     )
 
     print("✓ All required indexes present with correct types in parents collection")
+    print("=" * 60)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+async def test_search_with_collection_filter(
+    ingestion_service: IngestionService,
+    qdrant_service: QdrantService,
+):
+    """Test search filtering by collection_id.
+
+    Verifies:
+    - Documents can be ingested with collection_ids
+    - Search with collection_id filter returns only matching documents
+    - Search without collection_id filter returns all documents
+    """
+    print("\n" + "=" * 60)
+    print("TEST: Search with Collection Filter")
+    print("=" * 60)
+
+    # Ingest document 1 with collection_ids [100, 200]
+    summary_id_1 = 20011
+    member_code = "integration_test_user"
+    collection_ids_1 = [100, 200]
+
+    await ingestion_service.ingest_document(
+        summary_id=summary_id_1,
+        member_code=member_code,
+        content="Python is a versatile programming language used in data science.",
+        collection_ids=collection_ids_1,
+    )
+    print(f"✓ Ingested summary {summary_id_1} with collection_ids: {collection_ids_1}")
+
+    # Ingest document 2 with collection_ids [200, 300]
+    summary_id_2 = 20012
+    collection_ids_2 = [200, 300]
+
+    await ingestion_service.ingest_document(
+        summary_id=summary_id_2,
+        member_code=member_code,
+        content="JavaScript is a popular language for web development and frontend applications.",
+        collection_ids=collection_ids_2,
+    )
+    print(f"✓ Ingested summary {summary_id_2} with collection_ids: {collection_ids_2}")
+
+    # Ingest document 3 with collection_ids [400]
+    summary_id_3 = 20013
+    collection_ids_3 = [400]
+
+    await ingestion_service.ingest_document(
+        summary_id=summary_id_3,
+        member_code=member_code,
+        content="Rust is a systems programming language focused on safety and performance.",
+        collection_ids=collection_ids_3,
+    )
+    print(f"✓ Ingested summary {summary_id_3} with collection_ids: {collection_ids_3}")
+
+    # Wait for indexing
+    await asyncio.sleep(3)
+
+    # Test 1: Search without collection filter - should return all documents
+    print("\nTest 1: Search without collection filter")
+    results_no_filter = await qdrant_service.search(
+        query="programming language",
+        member_code=member_code,
+        collection_id=None,
+        limit=100,
+    )
+    summary_ids_no_filter = {r.payload.get("summary_id") for r in results_no_filter if r.payload}
+    print(f"  Found summaries: {summary_ids_no_filter}")
+    assert summary_id_1 in summary_ids_no_filter, "Should find summary 1"
+    assert summary_id_2 in summary_ids_no_filter, "Should find summary 2"
+    assert summary_id_3 in summary_ids_no_filter, "Should find summary 3"
+    print("  ✓ All documents returned without filter")
+
+    # Test 2: Filter by collection 100 - should return only summary 1
+    print("\nTest 2: Filter by collection_id=100")
+    results_100 = await qdrant_service.search(
+        query="programming language",
+        member_code=member_code,
+        collection_id=100,
+        limit=10,
+    )
+    summary_ids_100 = {r.payload.get("summary_id") for r in results_100 if r.payload}
+    print(f"  Found summaries: {summary_ids_100}")
+    assert summary_id_1 in summary_ids_100, "Should find summary 1 (has collection 100)"
+    assert summary_id_2 not in summary_ids_100, "Should NOT find summary 2 (no collection 100)"
+    assert summary_id_3 not in summary_ids_100, "Should NOT find summary 3 (no collection 100)"
+    print("  ✓ Only documents in collection 100 returned")
+
+    # Test 3: Filter by collection 200 - should return summaries 1 and 2
+    print("\nTest 3: Filter by collection_id=200")
+    results_200 = await qdrant_service.search(
+        query="programming language",
+        member_code=member_code,
+        collection_id=200,
+        limit=10,
+    )
+    summary_ids_200 = {r.payload.get("summary_id") for r in results_200 if r.payload}
+    print(f"  Found summaries: {summary_ids_200}")
+    assert summary_id_1 in summary_ids_200, "Should find summary 1 (has collection 200)"
+    assert summary_id_2 in summary_ids_200, "Should find summary 2 (has collection 200)"
+    assert summary_id_3 not in summary_ids_200, "Should NOT find summary 3 (no collection 200)"
+    print("  ✓ Only documents in collection 200 returned")
+
+    # Test 4: Filter by collection 400 - should return only summary 3
+    print("\nTest 4: Filter by collection_id=400")
+    results_400 = await qdrant_service.search(
+        query="programming language",
+        member_code=member_code,
+        collection_id=400,
+        limit=10,
+    )
+    summary_ids_400 = {r.payload.get("summary_id") for r in results_400 if r.payload}
+    print(f"  Found summaries: {summary_ids_400}")
+    assert summary_id_1 not in summary_ids_400, "Should NOT find summary 1 (no collection 400)"
+    assert summary_id_2 not in summary_ids_400, "Should NOT find summary 2 (no collection 400)"
+    assert summary_id_3 in summary_ids_400, "Should find summary 3 (has collection 400)"
+    print("  ✓ Only documents in collection 400 returned")
+
+    # Test 5: Filter by non-existent collection 999 - should return no results
+    print("\nTest 5: Filter by non-existent collection_id=999")
+    results_999 = await qdrant_service.search(
+        query="programming language",
+        member_code=member_code,
+        collection_id=999,
+        limit=10,
+    )
+    summary_ids_999 = {r.payload.get("summary_id") for r in results_999 if r.payload}
+    print(f"  Found summaries: {summary_ids_999}")
+    assert summary_id_1 not in summary_ids_999, "Should NOT find any of our test documents"
+    assert summary_id_2 not in summary_ids_999, "Should NOT find any of our test documents"
+    assert summary_id_3 not in summary_ids_999, "Should NOT find any of our test documents"
+    print("  ✓ No documents returned for non-existent collection")
+
+    print("\n✓ Collection filtering works correctly!")
     print("=" * 60)
 
 

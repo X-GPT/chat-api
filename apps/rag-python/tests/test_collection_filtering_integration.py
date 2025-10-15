@@ -178,15 +178,15 @@ async def test_filter_operator_contains(qdrant_service: QdrantService):
     - Search with [200, 300] should match summaries 1 and 2 (they contain 200 or 300)
     - Should NOT match summary 3 (only has 400)
     """
-    # Search with CONTAINS operator
+    # Search with CONTAINS operator - filter by collection 200
     results = await qdrant_service.search(
         query="programming language",
         member_code="test_user",
-        collection_ids=[200, 300],  # Looking for summaries in collections 200 OR 300
+        collection_id=200,  # Looking for summaries in collection 200
         limit=10,
     )
 
-    print("\n=== CONTAINS Operator Results ===")
+    print("\n=== CONTAINS Operator Results (collection_id=200) ===")
     print(f"Found {len(results)} results")
     for result in results:
         print(f"  ID: {result.id}")
@@ -211,52 +211,50 @@ async def test_filter_operator_contains(qdrant_service: QdrantService):
 
 @pytest.mark.integration
 @pytest.mark.asyncio
-async def test_filter_operator_in(qdrant_service: QdrantService):
-    """Test 2: FilterOperator.IN with collection_ids array.
+async def test_filter_collection_300(qdrant_service: QdrantService):
+    """Test 2: Filter by collection ID 300.
 
-    Tests if IN operator works differently than CONTAINS.
+    Expected: Should only match summary 2 (has 200 and 300).
     """
-    try:
-        results = await qdrant_service.search(
-            query="programming language",
-            member_code="test_user",
-            collection_ids=[200, 300],
-            limit=10,
+    results = await qdrant_service.search(
+        query="programming language",
+        member_code="test_user",
+        collection_id=300,
+        limit=10,
+    )
+
+    print("\n=== Collection 300 Filter Results ===")
+    print(f"Found {len(results)} results")
+    for result in results:
+        print(f"  ID: {result.id}")
+        print(f"  Summary ID: {result.payload.get('summary_id') if result.payload else 'N/A'}")
+        print(
+            f"  Collection IDs: {result.payload.get('collection_ids') if result.payload else 'N/A'}"
         )
 
-        print("\n=== IN Operator Results ===")
-        print(f"Found {len(results)} results")
-        for result in results:
-            print(f"  ID: {result.id}")
-            print(f"  Summary ID: {result.payload.get('summary_id') if result.payload else 'N/A'}")
-            print(
-                f"  Collection IDs: {result.payload.get('collection_ids') if result.payload else 'N/A'}"
-            )
+    summary_ids = {result.payload.get("summary_id") for result in results if result.payload}
+    print(f"Summary IDs found: {summary_ids}")
 
-        # Document behavior (may differ from CONTAINS)
-        summary_ids = {result.payload.get("summary_id") for result in results if result.payload}
-        print(f"Summary IDs found with IN: {summary_ids}")
-
-    except Exception as e:
-        print(f"IN operator failed: {e}")
-        pytest.skip(f"IN operator not supported or failed: {e}")
+    assert 10002 in summary_ids, "Summary 2 has collection 300"
+    assert 10001 not in summary_ids, "Summary 1 does NOT have collection 300"
+    assert 10003 not in summary_ids, "Summary 3 does NOT have collection 300"
 
 
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_filter_single_collection(qdrant_service: QdrantService):
-    """Test 3: Filter by single collection ID [200].
+    """Test 3: Filter by single collection ID 200.
 
     Expected: Should match summaries 1 and 2 (both have 200).
     """
     results = await qdrant_service.search(
         query="programming language",
         member_code="test_user",
-        collection_ids=[200],  # Single collection
+        collection_id=200,  # Single collection
         limit=10,
     )
 
-    print("\n=== Single Collection [200] ===")
+    print("\n=== Single Collection 200 ===")
     print(f"Found {len(results)} results")
 
     summary_ids = {result.payload.get("summary_id") for result in results if result.payload}
@@ -270,18 +268,18 @@ async def test_filter_single_collection(qdrant_service: QdrantService):
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_filter_exclusive_collection(qdrant_service: QdrantService):
-    """Test 4: Filter by collection [400] (only in summary 3).
+    """Test 4: Filter by collection 400 (only in summary 3).
 
     Expected: Should only match summary 3.
     """
     results = await qdrant_service.search(
         query="programming language",
         member_code="test_user",
-        collection_ids=[400],
+        collection_id=400,
         limit=10,
     )
 
-    print("\n=== Exclusive Collection [400] ===")
+    print("\n=== Exclusive Collection 400 ===")
     print(f"Found {len(results)} results")
 
     summary_ids = {result.payload.get("summary_id") for result in results if result.payload}
@@ -302,7 +300,7 @@ async def test_filter_no_collection(qdrant_service: QdrantService):
     results = await qdrant_service.search(
         query="programming language",
         member_code="test_user",
-        collection_ids=None,  # No filter
+        collection_id=None,  # No filter
         limit=10,
     )
 
@@ -371,7 +369,7 @@ async def test_update_collection_ids(qdrant_service: QdrantService):
     results = await qdrant_service.search(
         query="programming language",
         member_code="test_user",
-        collection_ids=[500],
+        collection_id=500,
         limit=10,
     )
 

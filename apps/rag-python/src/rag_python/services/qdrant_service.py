@@ -1,6 +1,7 @@
 """Qdrant vector database service."""
 
 import json
+from collections.abc import Sequence
 from typing import Any, TypeGuard
 
 from llama_index.core import Settings as LlamaIndexSettings
@@ -467,7 +468,7 @@ class QdrantService:
         self,
         query: str,
         member_code: str | None = None,
-        collection_ids: list[int] | None = None,
+        collection_id: int | None = None,
         limit: int = 10,
         sparse_top_k: int = 10,
     ) -> list[SearchResult]:
@@ -476,7 +477,7 @@ class QdrantService:
         Args:
             query: The query string to search with.
             member_code: Optional member code to filter by.
-            collection_ids: Optional list of collection IDs to filter by (ANY match).
+            collection_id: Optional collection ID to filter by.
             limit: Maximum number of results to return.
             sparse_top_k: Number of results from sparse (BM25) search.
 
@@ -484,54 +485,34 @@ class QdrantService:
             List of search results with scores and payloads.
         """
         try:
-            # Build metadata filters for LlamaIndex
-            from llama_index.core.vector_stores import (
-                FilterCondition,
-                FilterOperator,
-                MetadataFilter,
-                MetadataFilters,
-            )
-
-            filter_list: list[MetadataFilter | MetadataFilters] = []
+            must_filters: Sequence[FieldCondition] = []
             if member_code:
-                filter_list.append(
-                    MetadataFilter(
+                must_filters.append(
+                    FieldCondition(
                         key="member_code",
-                        value=member_code,
-                        operator=FilterOperator.EQ,
-                    )
+                        match=MatchValue(value=member_code),
+                    ),
                 )
-
-            # Filter by collection membership (ANY of the collection IDs)
-            if collection_ids:
-                # Use IN operator for array membership checking
-                # This should translate to Qdrant's MatchAny condition
-                # Matches if the document's collection_ids array contains ANY of the specified IDs
-                filter_list.append(
-                    MetadataFilter(
+            if collection_id:
+                must_filters.append(
+                    FieldCondition(
                         key="collection_ids",
-                        value=collection_ids,
-                        operator=FilterOperator.IN,
-                    )
+                        match=MatchValue(value=collection_id),
+                    ),
                 )
-
-            metadata_filters = (
-                MetadataFilters(
-                    filters=filter_list,
-                    condition=FilterCondition.AND,
-                )
-                if filter_list
-                else None
+            filters = Filter(
+                must=list(must_filters),
             )
 
             # Perform hybrid search on children collection
             index = VectorStoreIndex.from_vector_store(self.children_vector_store)  # pyright: ignore[reportUnknownMemberType]
-            result = await index.as_retriever(
-                filters=metadata_filters,
+            retriever = index.as_retriever(
+                vector_store_kwargs={"qdrant_filters": filters},
                 sparse_top_k=sparse_top_k,
                 similarity_top_k=limit,
                 hybrid_top_k=limit,
-            ).aretrieve(query)
+            )
+            result = await retriever.aretrieve(query)
 
             logger.info(
                 f"Hybrid search on children collection found {len(result) if result else 0} results"
