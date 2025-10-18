@@ -1,15 +1,14 @@
 """Stable UUID generation helpers for Qdrant point IDs."""
 
-from typing import Final
 import uuid
-
+from typing import Final, Literal
 
 # Use URL namespace (deterministic + widely available) for UUID5 generation
 NAMESPACE: Final = uuid.NAMESPACE_URL
 
 
 def generate_point_id(
-    point_type: str,
+    point_type: Literal["summary", "parent", "child"],
     member_code: str,
     summary_id: int,
     extra: str = "",
