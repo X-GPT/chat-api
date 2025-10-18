@@ -3,8 +3,8 @@
 import uuid
 from typing import Final, Literal
 
-# Use URL namespace (deterministic + widely available) for UUID5 generation
-NAMESPACE: Final = uuid.NAMESPACE_URL
+# Bind a project-specific namespace derived from the URL namespace.
+POINT_ID_NAMESPACE: Final = uuid.uuid5(uuid.NAMESPACE_URL, "mymemo/chat-api/qdrant-point-id")
 
 
 def generate_point_id(
@@ -25,7 +25,7 @@ def generate_point_id(
         UUID string suitable for Qdrant point IDs.
     """
     seed = f"{point_type}:{member_code}:{summary_id}:{extra}"
-    return str(uuid.uuid5(NAMESPACE, seed))
+    return str(uuid.uuid5(POINT_ID_NAMESPACE, seed))
 
 
 def summary_point_id(member_code: str, summary_id: int) -> str:
