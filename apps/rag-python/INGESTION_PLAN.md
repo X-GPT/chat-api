@@ -21,7 +21,7 @@
 ## TODO Tracker
 - [x] Task 1.1 – Update Event Schema (`schemas/events.py`)
 - [x] Task 1.2 – Create Point ID Generation Module (`services/point_ids.py`)
-- [ ] Task 1.3 – Create Text Processing Package (`text_processing/`)
+- [x] Task 1.3 – Create Text Processing Package (`text_processing/`)
 - [ ] Task 1.4 – Create Core Models (`core/models.py`)
 - [ ] Task 1.5 – Create Qdrant Mapper (`adapters/qdrant_mapper.py`)
 - [ ] Task 1.6 – Create Vector Repository (`repositories/vector_repository.py`)
@@ -1760,14 +1760,14 @@ async def migrate():
 
 ### Unit Tests
 
-- [ ] `tests/text_processing/test_normalize_text.py`
+- [x] `tests/text_processing/test_normalize_text.py`
   - [ ] Unicode normalization (café vs cafe\u0301)
   - [ ] Hyphenation fixes (employ-\nment → employment)
   - [ ] Whitespace normalization
-- [ ] `tests/text_processing/test_checksum.py`
+- [x] `tests/text_processing/test_checksum.py`
   - [ ] Consistent checksum for normalized equivalents
   - [ ] Different checksum for distinct content
-- [ ] `tests/text_processing/test_token_estimator.py`
+- [x] `tests/text_processing/test_token_estimator.py`
   - [ ] Rough estimate for short samples
   - [ ] Rough estimate for longer passages
 - [ ] `tests/adapters/test_qdrant_mapper.py`
