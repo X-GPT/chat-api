@@ -1,0 +1,54 @@
+"""Stable UUID generation helpers for Qdrant point IDs."""
+
+from typing import Final
+import uuid
+
+
+# Use URL namespace (deterministic + widely available) for UUID5 generation
+NAMESPACE: Final = uuid.NAMESPACE_URL
+
+
+def generate_point_id(
+    point_type: str,
+    member_code: str,
+    summary_id: int,
+    extra: str = "",
+) -> str:
+    """Generate a deterministic UUID for a Qdrant point.
+
+    Args:
+        point_type: Logical point type (e.g., "summary", "parent", "child").
+        member_code: Tenant identifier for isolation.
+        summary_id: Summary identifier (int from upstream services).
+        extra: Optional suffix to differentiate siblings (e.g., parent/child indices).
+
+    Returns:
+        UUID string suitable for Qdrant point IDs.
+    """
+    seed = f"{point_type}:{member_code}:{summary_id}:{extra}"
+    return str(uuid.uuid5(NAMESPACE, seed))
+
+
+def summary_point_id(member_code: str, summary_id: int) -> str:
+    """Point ID for summary-level vectors."""
+    return generate_point_id("summary", member_code, summary_id)
+
+
+def parent_point_id(member_code: str, summary_id: int, parent_idx: int) -> str:
+    """Point ID for parent (payload-only) chunks."""
+    return generate_point_id("parent", member_code, summary_id, str(parent_idx))
+
+
+def child_point_id(
+    member_code: str,
+    summary_id: int,
+    parent_idx: int,
+    chunk_idx: int,
+) -> str:
+    """Point ID for child vectors."""
+    extra = f"{parent_idx}_{chunk_idx}"
+    return generate_point_id("child", member_code, summary_id, extra)
+
+
+# Backwards compatible alias (plan/code references chunk_point_id)
+chunk_point_id = child_point_id

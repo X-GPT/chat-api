@@ -20,7 +20,7 @@
 
 ## TODO Tracker
 - [x] Task 1.1 – Update Event Schema (`schemas/events.py`)
-- [ ] Task 1.2 – Create Point ID Generation Module (`services/point_ids.py`)
+- [x] Task 1.2 – Create Point ID Generation Module (`services/point_ids.py`)
 - [ ] Task 1.3 – Create Text Processing Package (`text_processing/`)
 - [ ] Task 1.4 – Create Core Models (`core/models.py`)
 - [ ] Task 1.5 – Create Qdrant Mapper (`adapters/qdrant_mapper.py`)
