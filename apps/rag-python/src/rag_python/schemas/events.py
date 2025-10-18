@@ -32,6 +32,7 @@ class SummaryEvent(BaseModel):
         "id": 12345,
         "memberCode": "user123",
         "teamCode": "team456",
+        "content": "Executive summary text...",
         "parseContent": "This is the parsed summary content...",
         "action": "CREATED",
         "timestamp": "2025-10-01T12:30:45.123Z",
@@ -43,6 +44,11 @@ class SummaryEvent(BaseModel):
     id: int
     member_code: str = Field(..., alias="memberCode")
     team_code: str | None = Field(None, alias="teamCode")
+    content: str | None = Field(
+        None,
+        alias="content",
+        description="Short summary text (150-250 tokens) used for summary embeddings.",
+    )
     parse_content: str | None = Field(None, alias="parseContent")
     action: SummaryAction
     timestamp: datetime
@@ -61,6 +67,7 @@ class SummaryEvent(BaseModel):
                     "id": 12345,
                     "memberCode": "user123",
                     "teamCode": "team456",
+                    "content": "Executive summary text...",
                     "parseContent": "This is the parsed summary content...",
                     "action": "CREATED",
                     "timestamp": "2025-10-01T12:30:45.123Z",
@@ -82,6 +89,7 @@ class SummaryLifecycleMessage(BaseModel):
             "id": 12345,
             "memberCode": "user123",
             "teamCode": "team456",
+            "content": "Executive summary text...",
             "parseContent": "This is the parsed summary content...",
             "action": "CREATED",
             "timestamp": "2025-10-01T12:30:45.123Z",
