@@ -11,6 +11,8 @@ from typing import Final, Literal
 
 # Bind a project-specific namespace derived from the URL namespace.
 POINT_ID_NAMESPACE: Final = uuid.uuid5(uuid.NAMESPACE_URL, "mymemo/chat-api/qdrant-point-id")
+# Allowlist of valid point types for runtime validation.
+_VALID_POINT_TYPES: Final = {"summary", "parent", "child"}
 
 
 def generate_point_id(
@@ -30,6 +32,9 @@ def generate_point_id(
     Returns:
         UUID string suitable for Qdrant point IDs.
     """
+    if point_type not in _VALID_POINT_TYPES:
+        raise ValueError(f"Unsupported point_type '{point_type}'. Expected one of {_VALID_POINT_TYPES}.")
+
     seed = f"{point_type}:{member_code}:{summary_id}:{extra}"
     return str(uuid.uuid5(POINT_ID_NAMESPACE, seed))
 

@@ -26,6 +26,16 @@ def test_generate_point_id_varies_with_inputs() -> None:
     assert base != generate_point_id("parent", "user123", 42)
 
 
+def test_generate_point_id_rejects_invalid_type() -> None:
+    """Unknown point types should fail fast."""
+    try:
+        generate_point_id("unknown", "tenant", 1)
+    except ValueError as exc:
+        assert "Unsupported point_type" in str(exc)
+    else:
+        raise AssertionError("generate_point_id accepted an invalid point_type")
+
+
 def test_summary_parent_child_helpers() -> None:
     """Helper wrappers should leverage generate_point_id appropriately."""
     summary_id = summary_point_id("tenant", 7)
