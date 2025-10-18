@@ -22,7 +22,7 @@
 - [x] Task 1.1 – Update Event Schema (`schemas/events.py`)
 - [x] Task 1.2 – Create Point ID Generation Module (`services/point_ids.py`)
 - [x] Task 1.3 – Create Text Processing Package (`text_processing/`)
-- [ ] Task 1.4 – Create Core Models (`core/models.py`)
+- [x] Task 1.4 – Create Core Models (`core/models.py`)
 - [ ] Task 1.5 – Create Qdrant Mapper (`adapters/qdrant_mapper.py`)
 - [ ] Task 1.6 – Create Vector Repository (`repositories/vector_repository.py`)
 - [ ] Task 1.7 – Create LlamaIndex Document Builders (`services/document_builders.py`)
@@ -353,46 +353,7 @@ Compared to basic normalization, this improved version:
 
 **Purpose:** Provide immutable data structures that represent the three Qdrant point types. These models become the single source of truth for payload fields and help decouple business logic from storage adapters.
 
-**Implementation:**
-```python
-from dataclasses import dataclass, field
-from typing import Sequence
-
-@dataclass(frozen=True)
-class Parent:
-    id: str
-    summary_id: int
-    member_code: str
-    parent_idx: int
-    text: str
-    checksum: str
-    collection_ids: list[int] = field(default_factory=list)
-
-
-@dataclass(frozen=True)
-class SummaryVector:
-    id: str
-    summary_id: int
-    member_code: str
-    text: str
-    checksum: str
-    collection_ids: list[int] = field(default_factory=list)
-    embedding: list[float] | None = None
-
-
-@dataclass(frozen=True)
-class ChildVector:
-    id: str
-    summary_id: int
-    member_code: str
-    parent_id: str
-    parent_idx: int
-    chunk_index: int
-    text: str
-    collection_ids: list[int] = field(default_factory=list)
-    embedding: list[float] | None = None
-    sparse_embedding: dict[str, float] | None = None
-```
+**Implementation:** `src/rag_python/core/models.py` (see repository for full definitions of `Parent`, `SummaryVector`, `ChildVector`)
 
 **Notes:**
 - Keep models immutable (`frozen=True`) to make accidental mutation obvious.
