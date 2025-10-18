@@ -7,16 +7,17 @@ backfilling or coordination with existing Qdrant collections.
 """
 
 import uuid
-from typing import Final, Literal
+from typing import Final, Literal, get_args
 
 # Bind a project-specific namespace derived from the URL namespace.
 POINT_ID_NAMESPACE: Final = uuid.uuid5(uuid.NAMESPACE_URL, "mymemo/chat-api/qdrant-point-id")
-# Allowlist of valid point types for runtime validation.
-_VALID_POINT_TYPES: Final = {"summary", "parent", "child"}
+# Allowed point types for runtime validation and type safety.
+PointType = Literal["summary", "parent", "child"]
+_VALID_POINT_TYPES: Final = set(get_args(PointType))
 
 
 def generate_point_id(
-    point_type: Literal["summary", "parent", "child"],
+    point_type: PointType,
     member_code: str,
     summary_id: int,
     extra: str = "",
