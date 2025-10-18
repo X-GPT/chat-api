@@ -1,5 +1,7 @@
 """Tests for deterministic Qdrant point ID helpers."""
 
+import pytest
+
 from rag_python.services.point_ids import (
     child_point_id,
     chunk_point_id,
@@ -28,12 +30,9 @@ def test_generate_point_id_varies_with_inputs() -> None:
 
 def test_generate_point_id_rejects_invalid_type() -> None:
     """Unknown point types should fail fast."""
-    try:
-        generate_point_id("unknown", "tenant", 1)
-    except ValueError as exc:
-        assert "Unsupported point_type" in str(exc)
-    else:
-        raise AssertionError("generate_point_id accepted an invalid point_type")
+    with pytest.raises(ValueError) as exc:
+        generate_point_id("unknown", "tenant", 1)  # pyright: ignore[reportArgumentType]
+    assert "Unsupported point_type" in str(exc.value)
 
 
 def test_summary_parent_child_helpers() -> None:
