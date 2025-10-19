@@ -23,7 +23,7 @@
 - [x] Task 1.2 – Create Point ID Generation Module (`services/point_ids.py`)
 - [x] Task 1.3 – Create Text Processing Package (`text_processing/`)
 - [x] Task 1.4 – Create Core Models (`core/models.py`)
-- [ ] Task 1.5 – Create Qdrant Mapper (`adapters/qdrant_mapper.py`)
+- [x] Task 1.5 – Create Qdrant Mapper (`adapters/qdrant_mapper.py`)
 - [ ] Task 1.6 – Create Vector Repository (`repositories/vector_repository.py`)
 - [ ] Task 1.7 – Create LlamaIndex Document Builders (`services/document_builders.py`)
 - [ ] Task 1.8 – Create Constants Module (`core/constants.py`)
@@ -369,7 +369,11 @@ Compared to basic normalization, this improved version:
 
 **Implementation:**
 ```python
+from collections.abc import Mapping
+from typing import Any, cast
+
 from qdrant_client import models as q
+
 from rag_python.core.constants import (
     CHILD_SPARSE_VEC,
     CHILD_VEC,
@@ -378,7 +382,7 @@ from rag_python.core.constants import (
     POINT_TYPE_SUMMARY,
     SUMMARY_VEC,
 )
-from rag_python.core.models import Parent, SummaryVector, ChildVector
+from rag_python.core.models import ChildVector, Parent, SparseVector, SummaryVector
 
 
 def parent_to_point(parent: Parent) -> q.PointStruct:
@@ -388,10 +392,10 @@ def parent_to_point(parent: Parent) -> q.PointStruct:
         "member_code": parent.member_code,
         "parent_idx": parent.parent_idx,
         "parent_text": parent.text,
-        "collection_ids": parent.collection_ids,
+        "collection_ids": list(parent.collection_ids),
         "checksum": parent.checksum,
     }
-    return q.PointStruct(id=parent.id, payload=payload)
+    return q.PointStruct(id=parent.id, payload=payload, vector={})
 
 
 def summary_to_point(summary: SummaryVector) -> q.PointStruct:
@@ -399,11 +403,13 @@ def summary_to_point(summary: SummaryVector) -> q.PointStruct:
         "type": POINT_TYPE_SUMMARY,
         "summary_id": summary.summary_id,
         "member_code": summary.member_code,
-        "collection_ids": summary.collection_ids,
+        "collection_ids": list(summary.collection_ids),
         "checksum": summary.checksum,
         "text": summary.text,
     }
-    vectors = {SUMMARY_VEC: summary.embedding} if summary.embedding is not None else None
+    vectors: q.VectorStruct = {}
+    if summary.embedding is not None:
+        vectors[SUMMARY_VEC] = summary.embedding
     return q.PointStruct(id=summary.id, payload=payload, vector=vectors)
 
 
@@ -415,36 +421,34 @@ def child_to_point(child: ChildVector) -> q.PointStruct:
         "parent_id": child.parent_id,
         "parent_idx": child.parent_idx,
         "chunk_index": child.chunk_index,
-        "collection_ids": child.collection_ids,
+        "collection_ids": list(child.collection_ids),
         "text": child.text,
     }
-    vectors = {}
+
+    vectors: q.VectorStruct = {}
     if child.embedding is not None:
         vectors[CHILD_VEC] = child.embedding
-    sparse_vector = None
-    if child.sparse_embedding:
-        sparse_vector = q.SparseVector(
-            indices=list(child.sparse_embedding.keys()),
-            values=list(child.sparse_embedding.values()),
+    if child.sparse_embedding is not None:
+        vectors[CHILD_SPARSE_VEC] = q.SparseVector(
+            indices=child.sparse_embedding.indices,
+            values=child.sparse_embedding.values,
         )
-    return q.PointStruct(
-        id=child.id,
-        payload=payload,
-        vector=vectors or None,
-        sparse_vector=sparse_vector,
-    )
+
+    return q.PointStruct(id=child.id, payload=payload, vector=vectors)
 
 
 def record_to_summary(record: q.Record) -> SummaryVector:
     payload = record.payload or {}
     return SummaryVector(
         id=str(record.id),
-        summary_id=payload.get("summary_id"),
-        member_code=payload.get("member_code"),
-        text=payload.get("text", ""),
-        checksum=payload.get("checksum", ""),
-        collection_ids=payload.get("collection_ids", []),
-        embedding=record.vector.get(SUMMARY_VEC) if record.vector else None,
+        summary_id=cast(int, payload.get("summary_id")),
+        member_code=cast(str | None, payload.get("member_code")) or "",
+        text=cast(str | None, payload.get("text")) or "",
+        checksum=cast(str | None, payload.get("checksum")) or "",
+        collection_ids=[
+            value for value in (payload.get("collection_ids") or []) if isinstance(value, int)
+        ],
+        embedding=(record.vector or {}).get(SUMMARY_VEC) if record.vector else None,
     )
 ```
 
