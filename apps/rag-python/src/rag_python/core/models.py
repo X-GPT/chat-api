@@ -1,6 +1,5 @@
 """Domain models representing Qdrant point types."""
 
-from collections.abc import Sequence
 from dataclasses import dataclass, field
 
 
@@ -27,7 +26,15 @@ class SummaryVector:
     text: str
     checksum: str
     collection_ids: list[int] = field(default_factory=list)
-    embedding: Sequence[float] | None = None
+    embedding: list[float] | None = None
+
+
+@dataclass(frozen=True)
+class SparseVector:
+    """Represents a sparse vector entry."""
+
+    indices: list[int]
+    values: list[float]
 
 
 @dataclass(frozen=True)
@@ -42,5 +49,5 @@ class ChildVector:
     chunk_index: int
     text: str
     collection_ids: list[int] = field(default_factory=list)
-    embedding: Sequence[float] | None = None
-    sparse_embedding: dict[str, float] | None = None
+    embedding: list[float] | None = None
+    sparse_embedding: SparseVector | None = None
