@@ -136,7 +136,7 @@ def _extract_named_vector(
         value = vector.get(name)
         if value is None:
             return None
-        if isinstance(value, list) and all(isinstance(x, float) for x in value):
+        if isinstance(value, list) and all(isinstance(x, (int, float)) for x in value):
             return value  # pyright: ignore[reportReturnType]
         raise ValueError(f"Expected vector to be a list, got {type(value)}")
 
@@ -155,7 +155,7 @@ def _extract_sparse_vector(
         if value is None:
             return None
         if isinstance(value, q.SparseVector):
-            return SparseVector(indices=value.indices, values=value.values)
+            return SparseVector(indices=list(value.indices), values=list(value.values))
         raise ValueError(f"Expected vector to be a sparse vector, got {type(value)}")
 
     raise ValueError(f"Expected vector to be a mapping, got {type(vector)}")
@@ -190,6 +190,4 @@ def _coerce_int(value: Any) -> int | None:
 
 
 def _stringify_point_id(value: Any) -> str:
-    if isinstance(value, (str, int)):
-        return str(value)
     return str(value)
