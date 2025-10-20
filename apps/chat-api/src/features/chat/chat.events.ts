@@ -22,7 +22,9 @@ export type EventMessage =
 	| ReadFileStartedEvent
 	| ReadFileCompletedEvent
 	| SearchKnowledgeStartedEvent
-	| SearchKnowledgeCompletedEvent;
+	| SearchKnowledgeCompletedEvent
+	| SearchDocumentsStartedEvent
+	| SearchDocumentsCompletedEvent;
 
 export interface TaskStartEvent {
 	type: "task.started";
@@ -121,5 +123,17 @@ export type SearchKnowledgeCompletedEvent = {
 	type: "search_knowledge.completed";
 	query: string;
 	totalResults: number;
+	error?: string;
+};
+
+export type SearchDocumentsStartedEvent = {
+	type: "search_documents.started";
+	query: string;
+};
+
+export type SearchDocumentsCompletedEvent = {
+	type: "search_documents.completed";
+	query: string;
+	totalDocuments: number;
 	error?: string;
 };

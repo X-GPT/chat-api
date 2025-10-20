@@ -118,45 +118,68 @@ export interface FetchProtectedFilesParams {
 // Summary schemas
 const protectedSummarySchema = z.object({
 	id: z.union([z.string(), z.number()]),
-	memberCode: z.string().nullable().optional(),
-	partnerCode: z.string().nullable().optional(),
-	docId: z.union([z.string(), z.number()]).nullable().optional(),
-	cosKey: z.string().nullable().optional(),
-	fileType: z.string().nullable().optional(),
-	fileName: z.string().nullable().optional(),
-	fileLink: z.string().nullable().optional(),
 	content: z.string().nullable().optional(),
+	parseContent: z.string().nullable().optional(),
 	title: z.string().nullable().optional(),
 	summaryTitle: z.string().nullable().optional(),
-	parseContent: z.string().nullable().optional(),
-	parseContentSlice: z.string().nullable().optional(),
-	addKnowledge: z.string().nullable().optional(),
-	delFlag: z.union([z.string(), z.number()]).nullable().optional(),
-	coverUrl: z.string().nullable().optional(),
-	contentCosKey: z.string().nullable().optional(),
-	coverUrlCosKey: z.string().nullable().optional(),
-	fileLinkCosKey: z.string().nullable().optional(),
-	type: z.number().nullable().optional(),
-	status: z.number().nullable().optional(),
-	shareable: z.union([z.string(), z.number()]).nullable().optional(),
-	taskId: z.string().nullable().optional(),
-	errMsg: z.string().nullable().optional(),
-	chatKey: z.string().nullable().optional(),
-	imgWidth: z.number().nullable().optional(),
-	imgHeight: z.number().nullable().optional(),
-	createBy: z.union([z.string(), z.number()]).nullable().optional(),
-	createTime: z.string().nullable().optional(),
-	updateBy: z.union([z.string(), z.number()]).nullable().optional(),
-	updateTime: z.string().nullable().optional(),
+	fileName: z.string().nullable().optional(),
+	fileType: z.string().nullable().optional(),
 });
 
-export const protectedSummariesResponseSchema = z.object({
-	code: z.number(),
-	msg: z.string(),
-	data: z.array(protectedSummarySchema).optional().nullable(),
-});
+export const protectedSummariesResponseSchema = z.union([
+	z.object({
+		list: z.array(protectedSummarySchema),
+		total: z.number().int().min(0),
+		totalPages: z.number().int().min(0),
+		page: z.number().int().min(1),
+		pageSize: z.number().int().min(1),
+	}),
+	z.object({
+		error: z.object({
+			code: z.number(),
+			message: z.string(),
+			status: z.string(),
+		}),
+	}),
+]);
 
 export type ProtectedSummary = z.infer<typeof protectedSummarySchema>;
+
+// Paginated member summaries schemas (MyBatis-Plus pagination format)
+const paginatedSummariesDataSchema = z.object({
+	list: z.array(protectedSummarySchema), // Array of summary records for current page
+	total: z.number().int().min(0), // Total number of records across all pages
+	totalPages: z.number().int().min(0), // Total number of pages available
+	page: z.number().int().min(1), // Current page number (1-based index)
+	pageSize: z.number().int().min(1).max(100), // Number of records per page (page size)
+});
+
+export const protectedMemberSummariesResponseSchema = z.union([
+	z.object({
+		code: z.number(),
+		msg: z.string(),
+		data: paginatedSummariesDataSchema.optional().nullable(),
+	}),
+	z.object({
+		error: z.object({
+			code: z.number(),
+			message: z.string(),
+			status: z.string(),
+		}),
+	}),
+]);
+
+export type PaginatedSummariesData = z.infer<
+	typeof paginatedSummariesDataSchema
+>;
+
+export interface FetchProtectedMemberSummariesParams {
+	partnerCode?: string | null;
+	collectionId?: string | number | null;
+	summaryId?: string | number | null;
+	pageIndex?: number | null;
+	pageSize?: number | null;
+}
 
 // Chat messages scope validation
 const VALID_CHAT_MESSAGE_SCOPES = new Set<ChatMessagesScope>([
