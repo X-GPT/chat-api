@@ -1,7 +1,8 @@
 import { tool } from "ai";
 import { z } from "zod";
+import type { FetchOptions } from "../api/client";
+import { fetchProtectedFileDetail } from "../api/files";
 import type { EventMessage } from "../chat.events";
-import { type FetchOptions, fetchProtectedFileDetail } from "../chat.external";
 import type { ChatLogger } from "../chat.logger";
 
 // the `tool` helper function ensures correct type inference:

@@ -7,7 +7,7 @@ import {
 	fetchProtectedChatId,
 	fetchProtectedChatMessages,
 	sendChatEntityToProtectedService,
-} from "./chat.external";
+} from "./api/chat";
 import type { ChatLogger } from "./chat.logger";
 import type { ChatRequest } from "./chat.schema";
 import type { MymemoEventSender } from "./chat.streaming";

@@ -1,7 +1,8 @@
 import { tool } from "ai";
 import { z } from "zod";
+import type { FetchOptions } from "../api/client";
+import { fetchProtectedFiles } from "../api/files";
 import type { EventMessage } from "../chat.events";
-import { type FetchOptions, fetchProtectedFiles } from "../chat.external";
 import type { ChatLogger } from "../chat.logger";
 import { normalizeFiles } from "./utils";
 

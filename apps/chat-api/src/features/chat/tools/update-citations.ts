@@ -1,11 +1,9 @@
 import { tool } from "ai";
 import { z } from "zod";
+import type { FetchOptions } from "../api/client";
+import { fetchProtectedSummaries } from "../api/summaries";
+import type { ProtectedSummary } from "../api/types";
 import type { Citation, EventMessage } from "../chat.events";
-import {
-	type FetchOptions,
-	fetchProtectedSummaries,
-	type ProtectedSummary,
-} from "../chat.external";
 import type { ChatLogger } from "../chat.logger";
 
 export const citationSchema = z.object({

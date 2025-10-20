@@ -18,7 +18,7 @@ Create a new LLM tool that searches for relevant documents using AI-powered filt
 - **Question**: What is the API endpoint URL pattern and pagination parameters for fetching all document summaries? (e.g., `/protected/summaries?page=1&limit=100`)
 
 ### 3. **Create API Client Function**
-- **File**: `apps/chat-api/src/features/chat/chat.external.ts`
+- **File**: `apps/chat-api/src/features/chat/api/summaries.ts`
 - **Action**: Add `fetchProtectedSummariesList()` function
 - **Details**:
   - Fetch summaries with pagination support
