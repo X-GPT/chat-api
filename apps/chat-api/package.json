@@ -8,10 +8,10 @@
 	"dependencies": {
 		"@ai-sdk/anthropic": "^2.0.17",
 		"@ai-sdk/google": "^2.0.15",
-		"@ai-sdk/openai": "^2.0.0-beta.16",
+		"@ai-sdk/openai": "^3.0.0-beta.32",
 		"@hono/standard-validator": "^0.1.5",
 		"@scalar/hono-api-reference": "^0.9.18",
-		"ai": "^5.0.0-beta.34",
+		"ai": "^6.0.0-beta.61",
 		"hono": "^4.9.7",
 		"hono-openapi": "^1.0.8",
 		"hono-pino": "^0.10.2",

@@ -61,7 +61,7 @@ export async function handleSearchKnowledge({
 	onEvent,
 }: {
 	query: string;
-	memberCode: string | null;
+	memberCode: string;
 	summaryId: string | null;
 	collectionId: string | null;
 	logger: ChatLogger;
