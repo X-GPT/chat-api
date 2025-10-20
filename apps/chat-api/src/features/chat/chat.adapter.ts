@@ -1,6 +1,6 @@
 import type { ModelMessage } from "ai";
 import invariant from "tiny-invariant";
-import type { ProtectedChatMessage } from "./chat.external";
+import type { ProtectedChatMessage } from "./api/types";
 
 const USER_SENDER_TYPE = "user";
 const TEXT_TYPE = "text";

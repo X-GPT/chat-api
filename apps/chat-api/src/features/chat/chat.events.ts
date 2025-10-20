@@ -1,4 +1,4 @@
-import type { ProtectedSummary } from "./chat.external";
+import type { ProtectedSummary } from "./api/types";
 import type { UpdatePlanToolInput } from "./tools/update-plan";
 
 export interface MymemoEvent {

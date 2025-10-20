@@ -1,6 +1,6 @@
 import { describe, expect, it } from "bun:test";
+import type { ProtectedChatMessage } from "./api/types";
 import { adaptProtectedMessagesToModelMessages } from "./chat.adapter";
-import type { ProtectedChatMessage } from "./chat.external";
 
 const buildMessage = (
 	chatContent: string | null,

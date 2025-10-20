@@ -1,4 +1,4 @@
-import type { ProtectedFileMetadata } from "../chat.external";
+import type { ProtectedFileMetadata } from "../api/types";
 
 export function normalizeFiles(
 	files: ProtectedFileMetadata[],
