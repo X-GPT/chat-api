@@ -1,4 +1,4 @@
-import { openai } from "@ai-sdk/openai";
+import { type OpenAIResponsesProviderOptions, openai } from "@ai-sdk/openai";
 import { generateObject } from "ai";
 import z from "zod";
 import type { ProtectedSummary } from "../api/types";
@@ -107,8 +107,8 @@ Document ${idx + 1}:
 			}),
 			providerOptions: {
 				openai: {
-					reasoning_effort: "minimal",
-				},
+					reasoningEffort: "minimal",
+				} satisfies OpenAIResponsesProviderOptions,
 			},
 		});
 
