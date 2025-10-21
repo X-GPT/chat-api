@@ -101,13 +101,13 @@ Return ONLY the JSON array, no additional text.`;
 			model: openai("gpt-5-nano"),
 			system: systemPrompt,
 			prompt: userPrompt,
-			temperature: 0.3, // Lower temperature for more consistent ranking
 			maxOutputTokens: 2000,
 		});
 
 		logger.info({
 			message: "AI ranking completed",
 			responseLength: result.text.length,
+			response: result.text,
 		});
 
 		// Parse the JSON response
