@@ -107,7 +107,7 @@ Document ${idx + 1}:
 			}),
 			providerOptions: {
 				openai: {
-					reasoningEffort: "minimal",
+					reasoningEffort: "low",
 				} satisfies OpenAIResponsesProviderOptions,
 			},
 		});
