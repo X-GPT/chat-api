@@ -42,21 +42,38 @@ app.post(
 		return streamSSE(
 			c,
 			async (stream) => {
-				await complete(
-					{
-						chatContent: request.chatContent,
-						chatKey: request.chatKey,
-						chatType: request.chatType,
-						collectionId: request.collectionId,
-						summaryId: request.summaryId,
-					},
-					{
-						memberAuthToken,
-						memberCode,
-					},
-					new HonoSSESender(stream),
-					new ChatLogger(c.var.logger, memberCode, request.chatKey),
-				);
+				const sender = new HonoSSESender(stream);
+
+				// Start keepalive ping interval (15 seconds)
+				const keepaliveInterval = setInterval(() => {
+					sender.sendPing().catch((err) => {
+						console.error({
+							message: "Failed to send keepalive ping",
+							error: err,
+						});
+					});
+				}, 15000);
+
+				try {
+					await complete(
+						{
+							chatContent: request.chatContent,
+							chatKey: request.chatKey,
+							chatType: request.chatType,
+							collectionId: request.collectionId,
+							summaryId: request.summaryId,
+						},
+						{
+							memberAuthToken,
+							memberCode,
+						},
+						sender,
+						new ChatLogger(c.var.logger, memberCode, request.chatKey),
+					);
+				} finally {
+					// Always clear the interval when complete finishes
+					clearInterval(keepaliveInterval);
+				}
 			},
 			async (error, stream) => {
 				console.error({
