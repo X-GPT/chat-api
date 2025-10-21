@@ -1,5 +1,6 @@
 import { openai } from "@ai-sdk/openai";
-import { generateText } from "ai";
+import { generateObject } from "ai";
+import z from "zod";
 import type { ProtectedSummary } from "../api/types";
 import type { ChatLogger } from "../chat.logger";
 
@@ -99,26 +100,30 @@ Return ONLY the JSON array, no additional text.`;
 		});
 
 		// Call AI model for ranking
-		const result = await generateText({
+		const result = await generateObject({
 			model: openai("gpt-5-nano"),
 			system: systemPrompt,
 			prompt: userPrompt,
 			maxOutputTokens: 2000,
+			schema: z.array(
+				z.object({
+					id: z.string(),
+					title: z.string(),
+					relevanceScore: z.number(),
+				}),
+			),
 		});
 
 		logger.info({
 			message: "AI ranking completed",
-			responseLength: result.text.length,
-			response: result.text,
+			responseLength: result.object.length,
+			response: result.object,
 		});
 
 		// Parse the JSON response
 		let rankedDocuments: RankedDocument[];
 		try {
-			// Try to extract JSON from the response (in case there's extra text)
-			const jsonMatch = result.text.match(/\[\s*\{[\s\S]*\}\s*\]/);
-			const jsonText = jsonMatch ? jsonMatch[0] : result.text;
-			rankedDocuments = JSON.parse(jsonText);
+			rankedDocuments = result.object;
 
 			// Validate the structure
 			if (!Array.isArray(rankedDocuments)) {
@@ -149,7 +154,7 @@ Return ONLY the JSON array, no additional text.`;
 				message: "Failed to parse AI ranking response",
 				error:
 					parseError instanceof Error ? parseError.message : String(parseError),
-				response: result.text,
+				response: result.object,
 			});
 			throw new Error("Failed to parse AI ranking response");
 		}
