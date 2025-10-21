@@ -97,15 +97,13 @@ Document ${idx + 1}:
 			prompt: userPrompt,
 			maxOutputTokens: 2000,
 			schema: z.object({
-				rankedDocuments: z
-					.array(
-						z.object({
-							id: z.string(),
-							title: z.string(),
-							relevanceScore: z.number(),
-						}),
-					)
-					.max(topK),
+				rankedDocuments: z.array(
+					z.object({
+						id: z.string(),
+						title: z.string(),
+						relevanceScore: z.number(),
+					}),
+				),
 			}),
 		});
 
