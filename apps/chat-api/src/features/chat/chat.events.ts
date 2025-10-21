@@ -11,6 +11,7 @@ export type EventMessage =
 	| TaskStartEvent
 	| ErrorEvent
 	| ChatEntityEvent
+	| PingEvent
 	| PlanUpdatedEvent
 	| CitationsUpdatedEvent
 	| ReadFileStartedEvent
@@ -77,6 +78,10 @@ export type ListCollectionFilesCompletedEvent = {
 export interface ErrorEvent {
 	type: "error";
 	message: string;
+}
+
+export interface PingEvent {
+	type: "ping";
 }
 
 export type ListAllFilesStartedEvent = {

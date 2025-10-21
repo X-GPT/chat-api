@@ -5,7 +5,9 @@ export interface Sender<T> {
 	send(data: T): Promise<void>;
 }
 
-export interface MymemoEventSender extends Sender<MymemoEvent> {}
+export interface MymemoEventSender extends Sender<MymemoEvent> {
+	sendPing(): Promise<void>;
+}
 
 export class HonoSSESender implements MymemoEventSender {
 	constructor(private stream: SSEStreamingApi) {}
@@ -15,6 +17,14 @@ export class HonoSSESender implements MymemoEventSender {
 			data: JSON.stringify(data.message),
 			event: data.message.type,
 			id: data.id,
+		});
+	}
+
+	async sendPing() {
+		await this.stream.writeSSE({
+			data: JSON.stringify({}),
+			event: "ping",
+			id: crypto.randomUUID(),
 		});
 	}
 }
