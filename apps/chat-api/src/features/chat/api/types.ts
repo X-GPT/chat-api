@@ -78,25 +78,25 @@ export type ProtectedFileMetadata = z.infer<typeof protectedFileMetadataSchema>;
 export const protectedFileDataSchema = z.discriminatedUnion("fileType", [
 	z.object({
 		fileType: z.literal("application/pdf"),
-		id: z.union([z.string(), z.number()]),
+		id: z.string(), // Java Long values are parsed as strings
 		parseContent: z.string(),
 		fileName: z.string(),
 	}),
 	z.object({
 		fileType: z.literal("link/normal"),
-		id: z.union([z.string(), z.number()]),
+		id: z.string(), // Java Long values are parsed as strings
 		parseContent: z.string(),
 		fileLink: z.string(),
 	}),
 	z.object({
 		fileType: z.literal("link/video"),
-		id: z.union([z.string(), z.number()]),
+		id: z.string(), // Java Long values are parsed as strings
 		parseContent: z.string(),
 		fileLink: z.string(),
 	}),
 	z.object({
 		fileType: z.literal("image/jpeg"),
-		id: z.union([z.string(), z.number()]),
+		id: z.string(), // Java Long values are parsed as strings
 		content: z.string(),
 		fileName: z.string(),
 	}),
@@ -117,10 +117,10 @@ export interface FetchProtectedFilesParams {
 
 // Summary schemas
 const protectedSummarySchema = z.object({
-	id: z.union([z.string(), z.number()]),
+	id: z.string(), // Java Long values are parsed as strings to prevent truncation
 	memberCode: z.string().nullable().optional(),
 	partnerCode: z.string().nullable().optional(),
-	docId: z.union([z.string(), z.number()]).nullable().optional(),
+	docId: z.string().nullable().optional(), // Java Long values are parsed as strings
 	cosKey: z.string().nullable().optional(),
 	fileType: z.string().nullable().optional(),
 	fileName: z.string().nullable().optional(),

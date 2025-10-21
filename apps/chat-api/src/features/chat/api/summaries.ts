@@ -4,6 +4,7 @@ import {
 } from "@/config/env";
 import type { ChatLogger } from "../chat.logger";
 import { buildHeaders, type FetchOptions } from "./client";
+import { parseJsonSafely } from "./json-parser";
 import {
 	type FetchProtectedMemberSummariesParams,
 	type PaginatedSummariesData,
@@ -29,7 +30,7 @@ export async function fetchProtectedSummaries(
 			throw new Error(`Failed to fetch summaries: ${response.status}`);
 		}
 
-		const rawBody = await response.json();
+		const rawBody = await parseJsonSafely(response);
 		const parseResult = protectedSummariesResponseSchema.safeParse(rawBody);
 
 		if (!parseResult.success) {
@@ -93,7 +94,7 @@ export async function fetchProtectedMemberSummaries(
 			throw new Error(`Failed to fetch member summaries: ${response.status}`);
 		}
 
-		const rawBody = await response.json();
+		const rawBody = await parseJsonSafely(response);
 		const parseResult =
 			protectedMemberSummariesResponseSchema.safeParse(rawBody);
 
