@@ -76,6 +76,7 @@ export async function handleSearchDocuments({
 			totalPages,
 			totalRecords,
 			firstPageRecords: firstPage.list.length,
+			ids: firstPage.list.map((doc) => doc.id),
 		});
 
 		// Handle empty results
