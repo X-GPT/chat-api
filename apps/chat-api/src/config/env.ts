@@ -227,16 +227,12 @@ export const getProtectedMemberSummariesEndpoint = (
 			: null;
 
 	if (!normalizedSummaryId) {
-		// partnerCode is required when summaryId is not provided
 		const normalizedPartnerCode = partnerCode?.trim();
 		if (!normalizedPartnerCode) {
-			throw new Error(
-				"partnerCode is required when summaryId is not provided",
-			);
+			throw new Error("partnerCode is required when summaryId is not provided");
 		}
 		url.searchParams.set("partnerCode", normalizedPartnerCode);
 	} else {
-		// partnerCode is optional when summaryId is provided
 		const normalizedPartnerCode = partnerCode?.trim();
 		if (normalizedPartnerCode) {
 			url.searchParams.set("partnerCode", normalizedPartnerCode);

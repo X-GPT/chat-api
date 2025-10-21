@@ -44,18 +44,18 @@ export async function fetchProtectedSummaries(
 		}
 
 		const body = parseResult.data;
-		if ("error" in body) {
+		if (body.code !== 200) {
 			logger.error({
 				message: "Protected service returned error when fetching summaries",
-				code: body.error.code,
-				msg: body.error.message,
-				status: body.error.status,
+				code: body.code,
+				msg: body.msg,
 				ids,
+				rawBody,
 			});
-			throw new Error(`Failed to fetch summaries: ${body.error.message}`);
+			throw new Error(`Failed to fetch summaries: ${body.msg}`);
 		}
 
-		return body.list ?? [];
+		return body.data ?? [];
 	} catch (error) {
 		if (error instanceof Error) {
 			logger.error({
@@ -122,7 +122,9 @@ export async function fetchProtectedMemberSummaries(
 				memberCode,
 				params,
 			});
-			throw new Error(`Failed to fetch member summaries: ${body.error.message}`);
+			throw new Error(
+				`Failed to fetch member summaries: ${body.error.message}`,
+			);
 		}
 
 		// Handle standard response format with code/msg/data
