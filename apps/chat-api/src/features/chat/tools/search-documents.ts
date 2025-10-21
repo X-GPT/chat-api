@@ -101,82 +101,61 @@ export async function handleSearchDocuments({
 			]);
 		}
 
-		// Collect all ranked documents from all pages
-		const allRankedDocuments: RankedDocument[] = [];
-
-		// Process first page
-		const firstPageRanking = await rankDocumentsByRelevance({
-			query,
-			summaries: firstPage.list,
-			topK: 10,
-			logger,
-		});
-		allRankedDocuments.push(...firstPageRanking.rankedDocuments);
+		// Process all pages concurrently
+		const allPages = Array.from({ length: totalPages }, (_, i) => i + 1);
 
 		logger.info({
-			message: "First page ranked",
-			rankedCount: firstPageRanking.rankedDocuments.length,
+			message: "Processing all pages concurrently",
+			totalPages,
 		});
 
-		// Process remaining pages
-		if (totalPages > 1) {
-			const remainingPages = Array.from(
-				{ length: totalPages - 1 },
-				(_, i) => i + 2,
-			);
-
-			logger.info({
-				message: "Processing remaining pages",
-				remainingPagesCount: remainingPages.length,
-			});
-
-			// Process pages in parallel for better performance
-			const pageRankings = await Promise.all(
-				remainingPages.map(async (pageIndex) => {
-					try {
-						const page = await fetchProtectedMemberSummaries(
-							memberCode,
-							{
-								partnerCode,
-								collectionId: collectionId ? Number(collectionId) : null,
-								pageIndex,
-								pageSize,
-							},
-							protectedFetchOptions,
-							logger,
-						);
-
-						if (page.list.length === 0) {
-							return { rankedDocuments: [], totalProcessed: 0 };
-						}
-
-						return await rankDocumentsByRelevance({
-							query,
-							summaries: page.list,
-							topK: 10,
-							logger,
-						});
-					} catch (error) {
-						logger.error({
-							message: "Error processing page",
+		// Fetch and rank all pages in parallel for better performance
+		const pageRankings = await Promise.all(
+			allPages.map(async (pageIndex) => {
+				try {
+					const page = await fetchProtectedMemberSummaries(
+						memberCode,
+						{
+							partnerCode,
+							collectionId: collectionId ? Number(collectionId) : null,
 							pageIndex,
-							error: error instanceof Error ? error.message : String(error),
-						});
+							pageSize,
+						},
+						protectedFetchOptions,
+						logger,
+					);
+
+					if (page.list.length === 0) {
 						return { rankedDocuments: [], totalProcessed: 0 };
 					}
-				}),
-			);
 
-			// Aggregate results from all pages
-			for (const ranking of pageRankings) {
-				allRankedDocuments.push(...ranking.rankedDocuments);
-			}
+					return await rankDocumentsByRelevance({
+						query,
+						summaries: page.list,
+						topK: 10,
+						logger,
+					});
+				} catch (error) {
+					logger.error({
+						message: "Error processing page",
+						pageIndex,
+						error: error instanceof Error ? error.message : String(error),
+					});
+					return { rankedDocuments: [], totalProcessed: 0 };
+				}
+			}),
+		);
 
-			logger.info({
-				message: "All pages processed",
-				totalRankedDocuments: allRankedDocuments.length,
-			});
+		// Collect all ranked documents from all pages
+		const allRankedDocuments: RankedDocument[] = [];
+		for (const ranking of pageRankings) {
+			allRankedDocuments.push(...ranking.rankedDocuments);
 		}
+
+		logger.info({
+			message: "All pages processed",
+			totalRankedDocuments: allRankedDocuments.length,
+		});
 
 		// Deduplicate and re-rank to get final top 20
 		const uniqueDocuments = new Map<string, RankedDocument>();
