@@ -164,10 +164,10 @@ DO NOT use file name or file link to read the content!
 - If the answer used file content, you MUST give citations, use numeric markers (`number`), for example `[1][2][3]`.
 - After drafting your reply, you MUST call the `update_citations` tool with the ordered list of sources you referenced, including the numeric markers (`number`) matching the [n] references in the answer.
 - **Citation workflow:**
-1. Use `read_file` to fetch content
-2. Draft your answer with inline citations [1], [2], etc.
-3. IMMEDIATELY call `update_citations` with the fileIds and numbers used
-4. Then deliver your response to the user
+	1. Use `read_file` to fetch content
+	2. Draft your answer with inline citations [1], [2], etc.
+	3. IMMEDIATELY call `update_citations` with the fileIds and numbers used
+	4. Then deliver your response to the user
 - **Example:**
 	- User asks: "What does the design doc say about authentication?"
 	- You call `read_file` with fileId="abc123"
