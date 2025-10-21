@@ -1,5 +1,6 @@
-import { openai } from "@ai-sdk/openai";
-import { generateText } from "ai";
+import { type OpenAIResponsesProviderOptions, openai } from "@ai-sdk/openai";
+import { generateObject } from "ai";
+import z from "zod";
 import type { ProtectedSummary } from "../api/types";
 import type { ChatLogger } from "../chat.logger";
 
@@ -56,24 +57,17 @@ export async function rankDocumentsByRelevance({
 		}));
 
 		// Create the prompt for AI ranking
-		const systemPrompt = `You are a relevance ranking assistant. Your task is to analyze document summaries and identify the most relevant ones based on a user's query.
-
-Return your response as a JSON array of objects with this structure:
-[
-  {"id": "document_id", "title": "document_title", "relevanceScore": 0.95},
-  ...
-]
+		const systemPrompt = `You are a relevance ranking assistant. Analyze document summaries and rank them by semantic relevance to the user's query.
 
 Rules:
 - Rank by semantic relevance to the query
-- relevanceScore should be between 0.0 and 1.0
-- Return up to ${topK} most relevant documents
-- Only include documents that have some relevance (score > 0.3)
-- Order by relevance score (highest first)`;
+- relevanceScore must be between 0.0 and 1.0
+- Only include documents with some relevance (score > 0.3)
+- Return up to ${topK} documents, ordered by relevance (highest first)`;
 
 		const userPrompt = `Query: "${query}"
 
-Analyze these ${summariesData.length} document summaries and return the IDs of the most relevant documents:
+Analyze these ${summariesData.length} documents:
 
 ${summariesData
 	.map(
@@ -82,12 +76,10 @@ Document ${idx + 1}:
 - ID: ${doc.id}
 - Title: ${doc.title}
 - Type: ${doc.fileType}
-- Content Preview: ${doc.content.slice(0, 500)}${doc.content.length > 500 ? "..." : ""}
+- Content: ${doc.content.slice(0, 800)}${doc.content.length > 800 ? "..." : ""}
 `,
 	)
-	.join("\n")}
-
-Return ONLY the JSON array, no additional text.`;
+	.join("\n")}`;
 
 		logger.info({
 			message: "Ranking documents with AI",
@@ -99,60 +91,37 @@ Return ONLY the JSON array, no additional text.`;
 		});
 
 		// Call AI model for ranking
-		const result = await generateText({
+		const result = await generateObject({
 			model: openai("gpt-5-nano"),
 			system: systemPrompt,
 			prompt: userPrompt,
 			maxOutputTokens: 2000,
+			schema: z.object({
+				rankedDocuments: z.array(
+					z.object({
+						id: z.string(),
+						title: z.string(),
+						relevanceScore: z.number(),
+					}),
+				),
+			}),
+			providerOptions: {
+				openai: {
+					reasoningEffort: "low",
+				} satisfies OpenAIResponsesProviderOptions,
+			},
 		});
 
 		logger.info({
 			message: "AI ranking completed",
-			responseLength: result.text.length,
-			response: result.text,
+			responseLength: result.object.rankedDocuments.length,
+			response: result.object,
 		});
 
-		// Parse the JSON response
-		let rankedDocuments: RankedDocument[];
-		try {
-			// Try to extract JSON from the response (in case there's extra text)
-			const jsonMatch = result.text.match(/\[\s*\{[\s\S]*\}\s*\]/);
-			const jsonText = jsonMatch ? jsonMatch[0] : result.text;
-			rankedDocuments = JSON.parse(jsonText);
-
-			// Validate the structure
-			if (!Array.isArray(rankedDocuments)) {
-				throw new Error("Response is not an array");
-			}
-
-			// Ensure all entries have required fields
-			rankedDocuments = rankedDocuments
-				.filter((doc) => {
-					return (
-						typeof doc === "object" &&
-						doc !== null &&
-						"id" in doc &&
-						"relevanceScore" in doc &&
-						typeof doc.relevanceScore === "number" &&
-						doc.relevanceScore > 0.3 && // Filter low relevance
-						doc.relevanceScore <= 1.0
-					);
-				})
-				.map((doc) => ({
-					id: String(doc.id),
-					title: doc.title || null,
-					relevanceScore: doc.relevanceScore,
-				}))
-				.slice(0, topK); // Ensure we only return topK documents
-		} catch (parseError) {
-			logger.error({
-				message: "Failed to parse AI ranking response",
-				error:
-					parseError instanceof Error ? parseError.message : String(parseError),
-				response: result.text,
-			});
-			throw new Error("Failed to parse AI ranking response");
-		}
+		// Filter and limit results (Zod schema already validates structure)
+		const rankedDocuments = result.object.rankedDocuments
+			.filter((doc) => doc.relevanceScore > 0.3)
+			.slice(0, topK);
 
 		logger.info({
 			message: "Documents ranked successfully",
