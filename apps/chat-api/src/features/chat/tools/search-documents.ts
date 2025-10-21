@@ -55,7 +55,7 @@ export async function handleSearchDocuments({
 		});
 
 		// Fetch first page to determine total pages
-		const pageSize = 50; // Balance between API calls and processing
+		const pageSize = 25; // Balance between API calls and processing
 		const firstPage = await fetchProtectedMemberSummaries(
 			memberCode,
 			{
