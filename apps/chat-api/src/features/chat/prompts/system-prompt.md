@@ -166,8 +166,8 @@ DO NOT use file name or file link to read the content!
 - **Citation workflow:**
   1. Use `read_file` to fetch content
   2. Draft your answer with inline citations [1], [2], etc.
-	3. IMMEDIATELY call `update_citations` with the fileIds and numbers used
-	4. Then deliver your response to the user
+  3. IMMEDIATELY call `update_citations` with the fileIds and numbers used
+  4. Then deliver your response to the user
 - **Example:**
   - User asks: "What does the design doc say about authentication?"
   - You call `read_file` with fileId="abc123"
