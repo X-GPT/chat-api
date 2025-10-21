@@ -125,11 +125,6 @@ Return ONLY the JSON array, no additional text.`;
 		try {
 			rankedDocuments = result.object;
 
-			// Validate the structure
-			if (!Array.isArray(rankedDocuments)) {
-				throw new Error("Response is not an array");
-			}
-
 			// Ensure all entries have required fields
 			rankedDocuments = rankedDocuments
 				.filter((doc) => {
