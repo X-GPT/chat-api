@@ -44,7 +44,7 @@ app.post(
 			async (stream) => {
 				const sender = new HonoSSESender(stream);
 
-				// Start keepalive ping interval (15 seconds)
+				// Start keepalive ping interval (5 seconds)
 				const keepaliveInterval = setInterval(() => {
 					sender.sendPing().catch((err) => {
 						console.error({
@@ -52,7 +52,7 @@ app.post(
 							error: err,
 						});
 					});
-				}, 15000);
+				}, 5000);
 
 				try {
 					await complete(
