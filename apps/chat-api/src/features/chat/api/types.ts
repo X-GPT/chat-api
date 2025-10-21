@@ -78,25 +78,25 @@ export type ProtectedFileMetadata = z.infer<typeof protectedFileMetadataSchema>;
 export const protectedFileDataSchema = z.discriminatedUnion("fileType", [
 	z.object({
 		fileType: z.literal("application/pdf"),
-		id: z.union([z.string(), z.number()]),
+		id: z.string(), // Java Long values are parsed as strings
 		parseContent: z.string(),
 		fileName: z.string(),
 	}),
 	z.object({
 		fileType: z.literal("link/normal"),
-		id: z.union([z.string(), z.number()]),
+		id: z.string(), // Java Long values are parsed as strings
 		parseContent: z.string(),
 		fileLink: z.string(),
 	}),
 	z.object({
 		fileType: z.literal("link/video"),
-		id: z.union([z.string(), z.number()]),
+		id: z.string(), // Java Long values are parsed as strings
 		parseContent: z.string(),
 		fileLink: z.string(),
 	}),
 	z.object({
 		fileType: z.literal("image/jpeg"),
-		id: z.union([z.string(), z.number()]),
+		id: z.string(), // Java Long values are parsed as strings
 		content: z.string(),
 		fileName: z.string(),
 	}),
@@ -117,10 +117,10 @@ export interface FetchProtectedFilesParams {
 
 // Summary schemas
 const protectedSummarySchema = z.object({
-	id: z.union([z.string(), z.number()]),
+	id: z.string(), // Java Long values are parsed as strings to prevent truncation
 	memberCode: z.string().nullable().optional(),
 	partnerCode: z.string().nullable().optional(),
-	docId: z.union([z.string(), z.number()]).nullable().optional(),
+	docId: z.string().nullable().optional(), // Java Long values are parsed as strings
 	cosKey: z.string().nullable().optional(),
 	fileType: z.string().nullable().optional(),
 	fileName: z.string().nullable().optional(),
@@ -157,6 +157,38 @@ export const protectedSummariesResponseSchema = z.object({
 });
 
 export type ProtectedSummary = z.infer<typeof protectedSummarySchema>;
+
+// Paginated member summaries schemas (MyBatis-Plus pagination format)
+const paginatedSummariesDataSchema = z.object({
+	list: z.array(protectedSummarySchema), // Array of summary records for current page
+	total: z.number().int().min(0), // Total number of records across all pages
+	totalPages: z.number().int().min(0), // Total number of pages available
+	page: z.number().int().min(1), // Current page number (1-based index)
+	pageSize: z.number().int().min(1).max(100), // Number of records per page (page size)
+});
+
+export const protectedMemberSummariesResponseSchema = z.union([
+	paginatedSummariesDataSchema,
+	z.object({
+		error: z.object({
+			code: z.number(),
+			message: z.string(),
+			status: z.string(),
+		}),
+	}),
+]);
+
+export type PaginatedSummariesData = z.infer<
+	typeof paginatedSummariesDataSchema
+>;
+
+export interface FetchProtectedMemberSummariesParams {
+	partnerCode?: string | null;
+	collectionId?: string | number | null;
+	summaryId?: string | number | null;
+	pageIndex?: number | null;
+	pageSize?: number | null;
+}
 
 // Chat messages scope validation
 const VALID_CHAT_MESSAGE_SCOPES = new Set<ChatMessagesScope>([

@@ -199,6 +199,79 @@ export const getProtectedSummariesEndpoint = (ids: Array<string | number>) => {
 	return url.toString();
 };
 
+interface MemberSummariesEndpointOptions {
+	partnerCode?: string | null;
+	collectionId?: string | number | null;
+	summaryId?: string | number | null;
+	pageIndex?: number | null;
+	pageSize?: number | null;
+}
+
+export const getProtectedMemberSummariesEndpoint = (
+	memberCode: string,
+	options: MemberSummariesEndpointOptions,
+) => {
+	const origin = getProtectedApiOrigin();
+	const prefix = getProtectedApiPrefix();
+	const encodedMemberCode = encodeURIComponent(memberCode);
+	const basePath = `/protected/members/${encodedMemberCode}/summaries`;
+	const path = prefix === "/" ? basePath : `${prefix}${basePath}`;
+	const url = new URL(path, origin);
+
+	const { partnerCode, collectionId, summaryId, pageIndex, pageSize } = options;
+
+	// partnerCode is required when summaryId is not provided
+	const normalizedSummaryId =
+		summaryId !== null && summaryId !== undefined
+			? String(summaryId).trim()
+			: null;
+
+	if (!normalizedSummaryId) {
+		const normalizedPartnerCode = partnerCode?.trim();
+		if (!normalizedPartnerCode) {
+			throw new Error("partnerCode is required when summaryId is not provided");
+		}
+		url.searchParams.set("partnerCode", normalizedPartnerCode);
+	} else {
+		const normalizedPartnerCode = partnerCode?.trim();
+		if (normalizedPartnerCode) {
+			url.searchParams.set("partnerCode", normalizedPartnerCode);
+		}
+	}
+
+	// Optional parameters
+	if (collectionId !== null && collectionId !== undefined) {
+		const normalizedCollectionId = String(collectionId).trim();
+		if (normalizedCollectionId) {
+			url.searchParams.set("collectionId", normalizedCollectionId);
+		}
+	}
+
+	if (normalizedSummaryId) {
+		url.searchParams.set("summaryId", normalizedSummaryId);
+	}
+
+	// 1-based pagination with defaults
+	if (
+		typeof pageIndex === "number" &&
+		Number.isFinite(pageIndex) &&
+		pageIndex >= 1
+	) {
+		url.searchParams.set("pageIndex", String(pageIndex));
+	}
+
+	if (
+		typeof pageSize === "number" &&
+		Number.isFinite(pageSize) &&
+		pageSize >= 1 &&
+		pageSize <= 100
+	) {
+		url.searchParams.set("pageSize", String(pageSize));
+	}
+
+	return url.toString();
+};
+
 export const getRagSearchEndpoint = () => {
 	const origin = apiEnv.RAG_API_ORIGIN;
 	return new URL("/api/v1/search", origin).toString();

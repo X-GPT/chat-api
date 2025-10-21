@@ -4,6 +4,7 @@ import {
 } from "@/config/env";
 import type { ChatLogger } from "../chat.logger";
 import { buildHeaders, type FetchOptions } from "./client";
+import { parseJsonSafely } from "./json-parser";
 import {
 	type FetchProtectedFilesParams,
 	type ProtectedFileMetadata,
@@ -33,7 +34,7 @@ export async function fetchProtectedFiles(
 			throw new Error(`Failed to fetch files: ${response.status}`);
 		}
 
-		const rawBody = await response.json();
+		const rawBody = await parseJsonSafely(response);
 		const parseResult = protectedFilesResponseSchema.safeParse(rawBody);
 
 		if (!parseResult.success) {
@@ -103,7 +104,7 @@ export async function fetchProtectedFileDetail(
 			);
 		}
 
-		const rawBody = await response.json();
+		const rawBody = await parseJsonSafely(response);
 		const parseResult = protectedFileDetailResponseSchema.safeParse(rawBody);
 
 		if (!parseResult.success) {

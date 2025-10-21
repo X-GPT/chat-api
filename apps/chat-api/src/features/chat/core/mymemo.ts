@@ -11,6 +11,7 @@ import { buildPrompt, getSystemPrompt } from "../prompts/prompts";
 import { handleListAllFiles } from "../tools/list-all-files";
 import { handleListCollectionFiles } from "../tools/list-collection-files";
 import { handleReadFile } from "../tools/read-file";
+import { handleSearchDocuments } from "../tools/search-documents";
 import { handleSearchKnowledge } from "../tools/search-knowledge";
 import { getTools } from "../tools/tools";
 import { handleUpdateCitations } from "../tools/update-citations";
@@ -300,6 +301,35 @@ async function runTurn(
 					memberCode: turnContext.memberCode,
 					summaryId: turnContext.summaryId,
 					collectionId: turnContext.collectionId,
+					logger: turnContext.logger,
+					onEvent,
+				});
+				output.push({
+					response: null,
+					nextTurnInput: {
+						role: "tool" as const,
+						content: [
+							{
+								toolName: toolCall.toolName,
+								toolCallId: toolCall.toolCallId,
+								type: "tool-result" as const,
+								output: { type: "text" as const, value: toolOutput },
+							},
+						],
+					},
+				});
+			} else if (
+				toolCall.toolName === "search_documents" &&
+				!toolCall.dynamic
+			) {
+				const toolOutput = await handleSearchDocuments({
+					query: toolCall.input.query,
+					memberCode: turnContext.memberCode,
+					partnerCode: turnContext.partnerCode,
+					collectionId: turnContext.collectionId,
+					protectedFetchOptions: {
+						memberAuthToken: turnContext.memberAuthToken,
+					},
 					logger: turnContext.logger,
 					onEvent,
 				});

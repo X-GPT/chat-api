@@ -7,6 +7,7 @@ import {
 import type { ChatEntity } from "../chat.events";
 import type { ChatLogger } from "../chat.logger";
 import { buildHeaders, type FetchOptions } from "./client";
+import { parseJsonSafely } from "./json-parser";
 import {
 	type FetchProtectedChatMessagesParams,
 	normalizeChatMessagesScope,
@@ -40,7 +41,7 @@ export async function fetchProtectedChatId(
 			throw new Error(`Failed to fetch chat id: ${response.status}`);
 		}
 
-		const body = (await response.json()) as ProtectedChatIdResponse;
+		const body = (await parseJsonSafely(response)) as ProtectedChatIdResponse;
 		const chatId = body.data?.chatId;
 
 		if (!chatId) {
@@ -89,7 +90,7 @@ export async function fetchProtectedChatContext(
 			);
 		}
 
-		const rawBody = await response.json();
+		const rawBody = await parseJsonSafely(response);
 		const parseResult = protectedChatContextResponseSchema.safeParse(rawBody);
 
 		if (!parseResult.success) {
@@ -164,7 +165,7 @@ export async function fetchProtectedChatMessages(
 			);
 		}
 
-		const rawBody = await response.json();
+		const rawBody = await parseJsonSafely(response);
 		const parseResult = protectedChatMessagesResponseSchema.safeParse(rawBody);
 
 		if (!parseResult.success) {
@@ -246,7 +247,10 @@ export async function sendChatEntityToProtectedService(
 			throw new Error(`Failed to upsert chat entity: ${response.status}`);
 		}
 
-		const body = (await response.json()) as { code: number; msg: string };
+		const body = (await parseJsonSafely(response)) as {
+			code: number;
+			msg: string;
+		};
 		if (body.code !== 200) {
 			logger.error({
 				message: "Failed to upsert chat entity",
