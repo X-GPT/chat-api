@@ -155,7 +155,11 @@ async function runTurn(
 				break;
 			}
 			case "tool-call": {
-				console.log("\\nCalling tool:", event.toolName);
+				console.log("Calling tool:", event.toolName);
+				break;
+			}
+			case "tool-input-delta": {
+				console.log("Tool input delta:", event.delta);
 				break;
 			}
 		}
