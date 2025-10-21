@@ -105,6 +105,11 @@ Document ${idx + 1}:
 					}),
 				),
 			}),
+			providerOptions: {
+				openai: {
+					reasoning_effort: "minimal",
+				},
+			},
 		});
 
 		logger.info({
