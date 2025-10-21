@@ -127,30 +127,16 @@ export async function fetchProtectedMemberSummaries(
 			);
 		}
 
-		// Handle standard response format with code/msg/data
-		if (body.code !== 200) {
-			logger.error({
-				message:
-					"Protected service returned error when fetching member summaries",
-				code: body.code,
-				msg: body.msg,
-				memberCode,
-				params,
-				rawBody,
-			});
-			throw new Error(`Failed to fetch member summaries: ${body.msg}`);
-		}
-
 		// Return pagination data or default empty structure
-		return (
-			body.data ?? {
-				list: [],
-				total: 0,
-				totalPages: 0,
-				page: params.pageIndex ?? 1,
-				pageSize: params.pageSize ?? 10,
-			}
-		);
+		return "list" in body
+			? body
+			: {
+					list: [],
+					total: 0,
+					totalPages: 0,
+					page: params.pageIndex ?? 1,
+					pageSize: params.pageSize ?? 10,
+				};
 	} catch (error) {
 		if (error instanceof Error) {
 			logger.error({

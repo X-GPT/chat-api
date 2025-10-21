@@ -168,11 +168,7 @@ const paginatedSummariesDataSchema = z.object({
 });
 
 export const protectedMemberSummariesResponseSchema = z.union([
-	z.object({
-		code: z.number(),
-		msg: z.string(),
-		data: paginatedSummariesDataSchema.optional().nullable(),
-	}),
+	paginatedSummariesDataSchema,
 	z.object({
 		error: z.object({
 			code: z.number(),
