@@ -94,6 +94,8 @@ Return ONLY the JSON array, no additional text.`;
 			query,
 			summariesCount: summaries.length,
 			topK,
+			systemPrompt,
+			userPrompt,
 		});
 
 		// Call AI model for ranking
