@@ -46,12 +46,7 @@ export function getAllowedTools(
 						// "search_knowledge" as const,
 						"search_documents" as const,
 					]
-				: [
-						"update_plan" as const,
-						"read_file" as const,
-						"list_collection_files" as const,
-						"update_citations" as const,
-					];
+				: ["update_plan" as const];
 		case "document":
 			return enableKnowledge
 				? [
@@ -60,7 +55,7 @@ export function getAllowedTools(
 						// "search_knowledge" as const,
 						"search_documents" as const,
 					]
-				: ["update_plan" as const, "read_file" as const];
+				: ["update_plan" as const];
 		default:
 			return ["update_plan" as const];
 	}
