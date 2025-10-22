@@ -4,10 +4,15 @@ import type { EventMessage } from "../chat.events";
 
 export const answerWithCitationsTool = tool({
 	description:
-		"Answer a question with the provided answer and cited summary ids. The answer should be the final answer to the question and the cited summary ids should be the ids of the summaries that were used to answer the question.",
+		"Once you've received the answer from all the tool uses and can confirm that the task is complete, " +
+		"use this tool to present the result of your work to the user with the provided answer and cited summary ids.",
 	inputSchema: z.object({
-		answer: z.string(),
-		citedSummaryIds: z.array(z.string()),
+		answer: z.string().describe("The final answer to the question."),
+		citedSummaryIds: z
+			.array(z.string())
+			.describe(
+				"The ids of the summaries that were used to answer the question.",
+			),
 	}),
 });
 
