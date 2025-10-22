@@ -146,7 +146,7 @@ You have two kinds of tools for working with collections:
 
 Rules:
 - If the user gives a collection id only, first run `list_collection_files` to get file ids.
-- Content queries (anything about the information inside documents) → after listing, always call read_file on the selected file(s) before answering.
+- Content queries (anything about the information inside documents) → after listing, always call read_file on every file in the list before answering.
 - Never call read_file with a collection id — it only accepts file ids.
 - Never call `list_collection_files` with a collection name
 
