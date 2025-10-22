@@ -8,6 +8,7 @@ import {
 import type { ChatLogger } from "../chat.logger";
 import { buildEnvironmentContext } from "../prompts/environment-context";
 import { buildPrompt, getSystemPrompt } from "../prompts/prompts";
+import { handleAnswerWithCitations } from "../tools/answer-with-citations";
 import { handleListAllFiles } from "../tools/list-all-files";
 import { handleListCollectionFiles } from "../tools/list-collection-files";
 import { handleReadFile } from "../tools/read-file";
@@ -117,6 +118,7 @@ async function runTurn(
 	onTextEnd: () => Promise<void>,
 	onEvent: (event: EventMessage) => void,
 	onCitationsUpdate: (citations: Citation[]) => void,
+	onAnswerWithCitationsDelta: (answerWithCitationsDelta: string) => void,
 ): Promise<TurnRunResult> {
 	const tools = getTools();
 	const prompt = buildPrompt({
@@ -144,6 +146,7 @@ async function runTurn(
 
 	const output: TurnRunResult["processedItems"] = [];
 
+	let currentToolName = "";
 	for await (const event of result.fullStream) {
 		switch (event.type) {
 			case "text-delta": {
@@ -158,8 +161,21 @@ async function runTurn(
 				console.log("Calling tool:", event.toolName);
 				break;
 			}
+			case "tool-input-start": {
+				console.log("Tool input start");
+				currentToolName = event.toolName;
+				break;
+			}
 			case "tool-input-delta": {
 				console.log("Tool input delta:", event.delta);
+				if (currentToolName === "answer_with_citations") {
+					onAnswerWithCitationsDelta(event.delta);
+				}
+				break;
+			}
+			case "tool-input-end": {
+				console.log("Tool input end");
+				currentToolName = "";
 				break;
 			}
 		}
@@ -351,6 +367,13 @@ async function runTurn(
 						],
 					},
 				});
+			} else if (
+				toolCall.toolName === "answer_with_citations" &&
+				!toolCall.dynamic
+			) {
+				await handleAnswerWithCitations({
+					onEvent,
+				});
 			}
 
 			// Handle other tool calls
@@ -374,6 +397,7 @@ async function runTask({
 	onTextEnd,
 	onEvent,
 	onCitationsUpdate,
+	onAnswerWithCitationsDelta,
 }: {
 	session: Session;
 	turnContext: TurnContext;
@@ -382,6 +406,7 @@ async function runTask({
 	onTextEnd: () => Promise<void>;
 	onEvent: (event: EventMessage) => void;
 	onCitationsUpdate: (citations: Citation[]) => void;
+	onAnswerWithCitationsDelta: (answerWithCitationsDelta: string) => void;
 }) {
 	session.messages.push({
 		role: "user" as const,
@@ -398,6 +423,7 @@ async function runTask({
 			onTextEnd,
 			onEvent,
 			onCitationsUpdate,
+			onAnswerWithCitationsDelta,
 		);
 
 		const nextTurnInput: ModelMessage[] = [];
@@ -430,6 +456,7 @@ export type RunMyMemoOptions = {
 	onTextEnd: () => Promise<void>;
 	onEvent: (event: EventMessage) => void;
 	onCitationsUpdate: (citations: Citation[]) => void;
+	onAnswerWithCitationsDelta: (answerWithCitationsDelta: string) => void;
 	logger: ChatLogger;
 };
 
@@ -441,6 +468,7 @@ export async function runMyMemo({
 	onTextEnd,
 	onEvent,
 	onCitationsUpdate,
+	onAnswerWithCitationsDelta,
 	logger,
 }: RunMyMemoOptions) {
 	const { session, turnContext } = buildSession({
@@ -457,5 +485,6 @@ export async function runMyMemo({
 		onTextEnd,
 		onEvent,
 		onCitationsUpdate,
+		onAnswerWithCitationsDelta,
 	});
 }

@@ -1,13 +1,14 @@
 import type { ChatMessagesScope } from "@/config/env";
-import { adaptProtectedMessagesToModelMessages } from "./chat.adapter";
-import type { ChatConfig } from "./chat.config";
-import type { ChatEntity, Citation } from "./chat.events";
+import { partialParse } from "@/utils/partial-parse";
 import {
 	fetchProtectedChatContext,
 	fetchProtectedChatId,
 	fetchProtectedChatMessages,
 	sendChatEntityToProtectedService,
 } from "./api/chat";
+import { adaptProtectedMessagesToModelMessages } from "./chat.adapter";
+import type { ChatConfig } from "./chat.config";
+import type { ChatEntity, Citation } from "./chat.events";
 import type { ChatLogger } from "./chat.logger";
 import type { ChatRequest } from "./chat.schema";
 import type { MymemoEventSender } from "./chat.streaming";
@@ -97,6 +98,7 @@ export async function complete(
 
 	let lastChatEntity: ChatEntity | null = null;
 	const accumulatedCitations: Citation[] = [];
+	let accumulatedAnswerWithCitations = "";
 
 	await runMyMemo({
 		config: mymemoConfig,
@@ -194,6 +196,47 @@ export async function complete(
 		},
 		onCitationsUpdate: (citations) => {
 			accumulatedCitations.push(...citations);
+		},
+		onAnswerWithCitationsDelta: (answerWithCitationsDelta) => {
+			accumulatedAnswerWithCitations += answerWithCitationsDelta;
+			const partialParsedAnswerWithCitations = partialParse(
+				accumulatedAnswerWithCitations,
+			) as { answer: string; citedSummaryIds: string[] };
+			const accumulatedAnswer = partialParsedAnswerWithCitations?.answer ?? "";
+
+			const chatEntity: ChatEntity = {
+				id: chatId,
+				chatKey,
+				readFlag: "1",
+				delFlag: "0",
+				teamCode: resolvedTeamCode,
+				memberCode: resolvedMemberCode,
+				memberName: resolvedMemberName,
+				partnerCode: resolvedPartnerCode,
+				partnerName: resolvedPartnerName,
+				chatType,
+				senderType: "AI",
+				senderCode: resolvedSenderCode,
+				chatContent: accumulatedAnswer,
+				followup: "",
+				endFlag: 1,
+				collectionId: normalizeCollectionId,
+				summaryId: normalizedSummaryId,
+				refsId: refsId,
+				// Only send the not collapsed messages
+				collapseFlag: "1",
+				refsContent: null,
+			};
+
+			lastChatEntity = chatEntity;
+
+			mymemoEventSender.send({
+				id: crypto.randomUUID(),
+				message: {
+					type: "chat_entity",
+					...chatEntity,
+				},
+			});
 		},
 		onEvent: (event) => {
 			mymemoEventSender.send({

@@ -25,7 +25,8 @@ export type EventMessage =
 	| SearchKnowledgeStartedEvent
 	| SearchKnowledgeCompletedEvent
 	| SearchDocumentsStartedEvent
-	| SearchDocumentsCompletedEvent;
+	| SearchDocumentsCompletedEvent
+	| AnswerWithCitationsEvent;
 
 export interface TaskStartEvent {
 	type: "task.started";
@@ -90,6 +91,11 @@ export type ListAllFilesStartedEvent = {
 
 export type ListAllFilesCompletedEvent = {
 	type: "list_all_files.completed";
+	message: string;
+};
+
+export type AnswerWithCitationsEvent = {
+	type: "answer_with_citations";
 	message: string;
 };
 
