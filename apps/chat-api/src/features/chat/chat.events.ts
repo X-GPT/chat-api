@@ -96,7 +96,8 @@ export type ListAllFilesCompletedEvent = {
 
 export type AnswerWithCitationsEvent = {
 	type: "answer_with_citations";
-	message: string;
+	answer: string;
+	citedSummaryIds: string[];
 };
 
 export interface ChatEntityEvent {

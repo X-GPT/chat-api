@@ -372,6 +372,8 @@ async function runTurn(
 				!toolCall.dynamic
 			) {
 				await handleAnswerWithCitations({
+					answer: toolCall.input.answer,
+					citedSummaryIds: toolCall.input.citedSummaryIds,
 					onEvent,
 				});
 			}
