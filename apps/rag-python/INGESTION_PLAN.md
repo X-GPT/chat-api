@@ -28,7 +28,7 @@
 - [x] Task 1.7 – Create LlamaIndex Document Builders (`services/document_builders.py`)
 - [x] Task 1.8 – Create Constants Module (`core/constants.py`)
 - [x] Task 1.9 – Refactor QdrantService (`services/qdrant_service.py`)
-- [ ] Task 2.1 – Update IngestionPipeline (`services/pipeline.py`)
+- [x] Task 2.1 – Update IngestionPipeline (`services/pipeline.py`)
 - [ ] Task 3.1 – Update SearchService (`services/search_service.py`)
 - [ ] Task 4.1 – Update Handlers (`worker/handlers.py`)
 - [ ] Add / update unit tests (mapper, repository, document builders, ingestion pipeline, search service)
