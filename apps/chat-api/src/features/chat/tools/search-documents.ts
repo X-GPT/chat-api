@@ -225,7 +225,6 @@ function formatSearchResults(
 			"document",
 			[
 				xml("id", String(doc.id), { indent: 3 }),
-				xml("title", doc.title || "Untitled", { indent: 3 }),
 				xml("relevanceScore", doc.relevanceScore.toFixed(4), { indent: 3 }),
 			],
 			{ indent: 2 },

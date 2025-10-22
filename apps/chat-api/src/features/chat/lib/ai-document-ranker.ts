@@ -6,7 +6,6 @@ import type { ChatLogger } from "../chat.logger";
 
 export interface RankedDocument {
 	id: string | number;
-	title: string | null;
 	relevanceScore: number;
 }
 
@@ -100,7 +99,6 @@ Document ${idx + 1}:
 				rankedDocuments: z.array(
 					z.object({
 						id: z.string(),
-						title: z.string(),
 						relevanceScore: z.number(),
 					}),
 				),
