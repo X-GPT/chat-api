@@ -8,9 +8,11 @@ from llama_index.core import Document
 from llama_index.core.node_parser import SemanticSplitterNodeParser, SentenceSplitter
 from llama_index.core.schema import BaseNode
 from llama_index.embeddings.openai import OpenAIEmbedding  # type: ignore
+from llama_index.vector_stores.qdrant import QdrantVectorStore  # type: ignore
 from pydantic import BaseModel
 
 from rag_python.config import Settings
+from rag_python.core.constants import CHILD_SPARSE_VEC, CHILD_VEC
 from rag_python.core.logging import get_logger
 from rag_python.services.qdrant_service import QdrantService
 
@@ -29,7 +31,14 @@ class IngestionStats(BaseModel):
 class IngestionService:
     """Service for document ingestion with hierarchical chunking."""
 
-    def __init__(self, settings: Settings, qdrant_service: QdrantService):
+    def __init__(
+        self,
+        settings: Settings,
+        qdrant_service: QdrantService,
+        *,
+        child_vector_store: QdrantVectorStore | None = None,
+        parent_vector_store: QdrantVectorStore | None = None,
+    ):
         """Initialize ingestion service.
 
         Args:
@@ -43,6 +52,26 @@ class IngestionService:
         self.embed_model = OpenAIEmbedding(
             api_key=settings.openai_api_key,
             model=settings.openai_embedding_model,
+        )
+
+        # Named vector stores leveraging the unified collection.
+        self.child_vector_store = child_vector_store or QdrantVectorStore(
+            collection_name=self.qdrant_service.col,
+            client=self.qdrant_service.client,
+            aclient=self.qdrant_service.aclient,
+            dense_vector_name=CHILD_VEC,
+            sparse_vector_name=CHILD_SPARSE_VEC,
+            enable_hybrid=True,
+            fastembed_sparse_model="Qdrant/bm25",
+            batch_size=20,
+        )
+        self.parent_vector_store = parent_vector_store or QdrantVectorStore(
+            collection_name=self.qdrant_service.col,
+            client=self.qdrant_service.client,
+            aclient=self.qdrant_service.aclient,
+            dense_vector_name=CHILD_VEC,
+            enable_hybrid=False,
+            batch_size=20,
         )
 
         # Initialize parent chunker (semantic splitter for larger chunks)
@@ -164,20 +193,18 @@ class IngestionService:
             # Step 4: Store nodes to vector stores
             # Store child nodes to children collection (with hybrid indexing)
             logger.info(f"Adding {len(all_child_nodes)} child nodes to vector store...")
-            await self.qdrant_service.children_vector_store.async_add(all_child_nodes)
+            await self.child_vector_store.async_add(all_child_nodes)
 
             logger.info(
-                f"Stored {len(all_child_nodes)} child nodes to "
-                f"{self.qdrant_service.children_collection_name}"
+                f"Stored {len(all_child_nodes)} child nodes to {self.qdrant_service.col}"
             )
 
             # Store parent nodes to parents collection (dense embeddings only)
             logger.info(f"Adding {len(parent_nodes)} parent nodes to vector store...")
-            await self.qdrant_service.parents_vector_store.async_add(parent_nodes)
+            await self.parent_vector_store.async_add(parent_nodes)
 
             logger.info(
-                f"Stored {len(parent_nodes)} parent nodes to "
-                f"{self.qdrant_service.parents_collection_name}"
+                f"Stored {len(parent_nodes)} parent nodes to {self.qdrant_service.col}"
             )
 
             stats = IngestionStats(

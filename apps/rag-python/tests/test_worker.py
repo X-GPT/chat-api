@@ -27,7 +27,7 @@ def mock_settings():
         # Qdrant settings required for MessageProcessor initialization
         qdrant_url="http://localhost:6333",
         qdrant_api_key="test-key",
-        qdrant_collection_prefix="test-collection",
+        qdrant_collection_name="test-collection",
         # OpenAI settings (optional but good to have)
         openai_api_key="test-openai-key",
         openai_embedding_model="text-embedding-3-small",
@@ -78,7 +78,9 @@ async def test_summary_lifecycle_handler():
             id=12345,
             memberCode="user123",
             teamCode="team456",
+            content="This is a test summary content",
             parseContent="This is a test summary content",
+            collectionIds=None,
             action=SummaryAction.CREATED,
             timestamp=datetime.now(UTC),
         ),

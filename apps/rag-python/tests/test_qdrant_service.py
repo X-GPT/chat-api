@@ -1,457 +1,224 @@
-"""Tests for Qdrant service."""
+"""Tests for the minimal Qdrant service."""
+
+from __future__ import annotations
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from qdrant_client.models import CollectionsResponse
+from qdrant_client import models as q
 
 from rag_python.config import Settings
 from rag_python.services.qdrant_service import QdrantService
 
 
 @pytest.fixture
-def settings():
-    """Create test settings."""
+def settings() -> Settings:
+    """Return test settings configured for the new single collection."""
     return Settings(
         qdrant_url="http://localhost:6333",
         qdrant_api_key="test-key",
-        qdrant_collection_prefix="test-collection",
-        openai_api_key="test-openai-key",
+        qdrant_collection_name="test-collection",
     )
 
 
 @pytest.fixture
-def mock_async_qdrant_client():
-    """Create mock async Qdrant client."""
-    mock_client = MagicMock()
-    mock_client.get_collections = AsyncMock()
-    mock_client.delete = AsyncMock()
-    mock_client.retrieve = AsyncMock()
-    mock_client.get_collection = AsyncMock()
-    return mock_client
-
-
-@pytest.fixture
-def mock_children_vector_store():
-    """Create mock children vector store."""
-    mock_store = MagicMock()
-    mock_store.async_add = AsyncMock()
-    mock_store.aquery = AsyncMock()
-    return mock_store
-
-
-@pytest.fixture
-def mock_parents_vector_store():
-    """Create mock parents vector store."""
-    mock_store = MagicMock()
-    mock_store.async_add = AsyncMock()
-    mock_store.aquery = AsyncMock()
-    return mock_store
-
-
-@pytest.fixture
-def qdrant_service(
-    settings: Settings,
-    mock_async_qdrant_client: MagicMock,
-    mock_children_vector_store: MagicMock,
-    mock_parents_vector_store: MagicMock,
-):
-    """Create Qdrant service with mocked clients."""
+def mock_clients():
+    """Patch Qdrant clients used by the service."""
     with (
-        patch("rag_python.services.qdrant_service.AsyncQdrantClient") as mock_client_class,
-        patch("rag_python.services.qdrant_service.QdrantVectorStore") as mock_store_class,
+        patch("rag_python.services.qdrant_service.QdrantClient") as mock_client_cls,
+        patch("rag_python.services.qdrant_service.AsyncQdrantClient") as mock_async_cls,
     ):
-        mock_client_class.return_value = mock_async_qdrant_client
-        # Return different stores for children and parents
-        mock_store_class.side_effect = [mock_children_vector_store, mock_parents_vector_store]
-        service = QdrantService(settings)
-        # Assign to private attributes since properties don't have setters
-        service._aclient = mock_async_qdrant_client  # pyright: ignore[reportPrivateUsage]
-        service._children_vector_store = mock_children_vector_store  # pyright: ignore[reportPrivateUsage]
-        service._parents_vector_store = mock_parents_vector_store  # pyright: ignore[reportPrivateUsage]
-        service._clients_initialized = True  # pyright: ignore[reportPrivateUsage] # Mark as initialized to bypass lazy init
-        yield service
+        mock_client = MagicMock()
+        mock_async = MagicMock()
+
+        # Common async mocks used across tests
+        mock_async.collection_exists = AsyncMock(return_value=False)
+        mock_async.create_collection = AsyncMock()
+        mock_async.create_payload_index = AsyncMock()
+        mock_async.upsert = AsyncMock()
+        mock_async.retrieve = AsyncMock()
+        mock_async.scroll = AsyncMock()
+        mock_async.delete = AsyncMock()
+        mock_async.set_payload = AsyncMock()
+
+        mock_client_cls.return_value = mock_client
+        mock_async_cls.return_value = mock_async
+
+        yield mock_client, mock_async
+
+
+@pytest.fixture
+def service(settings: Settings, mock_clients: tuple[MagicMock, MagicMock]) -> QdrantService:
+    """Create a QdrantService instance with mocked clients."""
+    return QdrantService(settings)
 
 
 @pytest.mark.asyncio
-async def test_ensure_collection_exists_new(
-    qdrant_service: QdrantService,
-):
-    """Test collection check when it doesn't exist."""
-    # Configure mock to return empty collections
-    qdrant_service.aclient.get_collections = AsyncMock(
-        return_value=CollectionsResponse(collections=[])
-    )
-    # Mock the create_collection and create_payload_index methods
-    qdrant_service.aclient.create_collection = AsyncMock()
-    qdrant_service.aclient.create_payload_index = AsyncMock()
+async def test_ensure_schema_creates_collection(
+    service: QdrantService,
+    mock_clients: tuple[MagicMock, MagicMock],
+) -> None:
+    """Collection creation path should provision collection and indexes."""
+    mock_async = mock_clients[1]
+    mock_async.collection_exists.return_value = False
 
-    await qdrant_service.ensure_collection_exists()
+    await service.ensure_schema()
 
-    # Verify collection check was called (twice: once in ensure_collection_exists,
-    # once in ensure_payload_indexes)
-    assert qdrant_service.aclient.get_collections.call_count == 2
-    # Verify create_collection was called for both children and parents collections
-    assert qdrant_service.aclient.create_collection.call_count == 2
+    mock_async.collection_exists.assert_awaited_once()
+    mock_async.create_collection.assert_awaited_once()
+    # 5 payload indexes (member_code, summary_id, collection_ids, type, checksum)
+    assert mock_async.create_payload_index.await_count == 5
 
 
 @pytest.mark.asyncio
-async def test_ensure_collection_exists_already_exists(
-    qdrant_service: QdrantService,
-):
-    """Test when collections already exist."""
-    from qdrant_client.models import CollectionDescription
+async def test_ensure_schema_existing_collection_skips_create(
+    service: QdrantService,
+    mock_clients: tuple[MagicMock, MagicMock],
+) -> None:
+    """When collection already exists, ensure_schema should skip creation."""
+    mock_async = mock_clients[1]
+    mock_async.collection_exists.return_value = True
 
-    # Mock both collections exist
-    mock_children = CollectionDescription(name="test-collection_children")
-    mock_parents = CollectionDescription(name="test-collection_parents")
-    qdrant_service.aclient.get_collections = AsyncMock(
-        return_value=CollectionsResponse(collections=[mock_children, mock_parents])
-    )
-    # Mock create_payload_index since ensure_payload_indexes is called
-    qdrant_service.aclient.create_payload_index = AsyncMock()
+    await service.ensure_schema()
 
-    await qdrant_service.ensure_collection_exists()
-
-    # Verify collection check was called twice:
-    # once in ensure_collection_exists, once in ensure_payload_indexes
-    assert qdrant_service.aclient.get_collections.call_count == 2
-    # Verify payload indexes were created (3 for children, 3 for parents = 6 total)
-    assert qdrant_service.aclient.create_payload_index.call_count == 6
+    mock_async.create_collection.assert_not_called()
+    assert mock_async.create_payload_index.await_count == 5
 
 
 @pytest.mark.asyncio
-async def test_delete_by_summary_id(qdrant_service: QdrantService):
-    """Test deleting points by summary ID from both collections."""
-    summary_id = 123
+async def test_upsert_points_delegates_to_client(
+    service: QdrantService,
+    mock_clients: tuple[MagicMock, MagicMock],
+) -> None:
+    """Upsert should call the async client with provided points."""
+    mock_async = mock_clients[1]
+    points = [MagicMock(id="p1"), MagicMock(id="p2")]
 
-    # Configure mock
-    qdrant_service.aclient.delete = AsyncMock()
+    await service.upsert_points(points)
 
-    await qdrant_service.delete_by_summary_id(summary_id)
-
-    # Verify delete was called twice (once for each collection)
-    assert qdrant_service.aclient.delete.call_count == 2
-    call_args_list = qdrant_service.aclient.delete.call_args_list
-    collection_names = {call[1]["collection_name"] for call in call_args_list}
-    assert collection_names == {"test-collection_children", "test-collection_parents"}
-
-
-@pytest.mark.asyncio
-async def test_delete_by_ids(qdrant_service: QdrantService):
-    """Test deleting points by IDs from both collections."""
-    # Configure mock
-    qdrant_service.aclient.delete = AsyncMock()
-
-    await qdrant_service.delete_by_ids(point_ids=["point1", "point2", "point3"])
-
-    # Verify delete was called twice (default is "both")
-    assert qdrant_service.aclient.delete.call_count == 2
-    call_args_list = qdrant_service.aclient.delete.call_args_list
-    collection_names = {call[1]["collection_name"] for call in call_args_list}
-    assert collection_names == {"test-collection_children", "test-collection_parents"}
+    mock_async.upsert.assert_awaited_once()
+    call = mock_async.upsert.await_args_list[0]
+    assert call.kwargs["collection_name"] == service.col
+    assert call.kwargs["points"] == points
+    assert call.kwargs["wait"] is True
 
 
 @pytest.mark.asyncio
-async def test_search_hybrid(qdrant_service: QdrantService):
-    """Test hybrid search for similar vectors on children collection."""
-    from llama_index.core.schema import NodeWithScore, TextNode
-
-    query = "Sample text"
-    member_code = "user123"
-
-    # Mock search results
-    mock_node = TextNode(
-        id_="node1",
-        text="Sample text",
-        metadata={"summary_id": 1, "member_code": "user123", "parent_id": "parent1"},
-    )
-    mock_node_with_score = NodeWithScore(node=mock_node, score=0.95)
-
-    # Mock both LlamaIndexSettings and VectorStoreIndex to avoid real API calls
-    with (
-        patch("rag_python.services.qdrant_service.LlamaIndexSettings") as mock_settings,
-        patch("rag_python.services.qdrant_service.VectorStoreIndex") as mock_index_class,
-        patch("rag_python.services.qdrant_service.OpenAIEmbedding") as mock_embedding_class,
-    ):
-        # Mock embed_model to avoid OpenAI API key validation
-        mock_embed_model = MagicMock()
-        mock_embed_model.model_name = "text-embedding-3-small"
-        mock_settings.embed_model = mock_embed_model
-
-        # Mock OpenAIEmbedding creation
-        mock_embedding_instance = MagicMock()
-        mock_embedding_class.return_value = mock_embedding_instance
-
-        # Mock retriever
-        mock_retriever = AsyncMock()
-        mock_retriever.aretrieve = AsyncMock(return_value=[mock_node_with_score])
-
-        # Mock index
-        mock_index = MagicMock()
-        mock_index.as_retriever = MagicMock(return_value=mock_retriever)
-        mock_index_class.from_vector_store.return_value = mock_index
-
-        results = await qdrant_service.search(
-            query=query,
-            member_code=member_code,
-            limit=10,
-            sparse_top_k=10,
-        )
-
-        # Verify VectorStoreIndex was created from vector store
-        mock_index_class.from_vector_store.assert_called_once_with(
-            qdrant_service.children_vector_store
-        )
-
-        # Verify retriever was called with correct query
-        mock_retriever.aretrieve.assert_called_once_with(query)
-
-        # Verify results
-        assert len(results) == 1
-        assert results[0].id == "node1"
-        assert results[0].score == 0.95
-        assert results[0].payload is not None
-        assert results[0].payload["summary_id"] == 1
+async def test_upsert_points_noop_for_empty(
+    service: QdrantService,
+    mock_clients: tuple[MagicMock, MagicMock],
+) -> None:
+    """Upserting nothing should not call the client."""
+    mock_async = mock_clients[1]
+    await service.upsert_points([])
+    mock_async.upsert.assert_not_called()
 
 
 @pytest.mark.asyncio
-async def test_search_without_member_filter(qdrant_service: QdrantService):
-    """Test searching without member code filter."""
-    query = "Sample text"
+async def test_retrieve_by_ids(
+    service: QdrantService,
+    mock_clients: tuple[MagicMock, MagicMock],
+) -> None:
+    """retrieve_by_ids should delegate to AsyncQdrantClient.retrieve."""
+    mock_async = mock_clients[1]
+    record = MagicMock()
+    mock_async.retrieve.return_value = [record]
 
-    # Mock both LlamaIndexSettings and VectorStoreIndex to avoid real API calls
-    with (
-        patch("rag_python.services.qdrant_service.LlamaIndexSettings") as mock_settings,
-        patch("rag_python.services.qdrant_service.VectorStoreIndex") as mock_index_class,
-        patch("rag_python.services.qdrant_service.OpenAIEmbedding") as mock_embedding_class,
-    ):
-        # Mock embed_model to avoid OpenAI API key validation
-        mock_embed_model = MagicMock()
-        mock_embed_model.model_name = "text-embedding-3-small"
-        mock_settings.embed_model = mock_embed_model
+    result = await service.retrieve_by_ids(["id-1"], with_payload=True)
 
-        # Mock OpenAIEmbedding creation
-        mock_embedding_instance = MagicMock()
-        mock_embedding_class.return_value = mock_embedding_instance
-
-        # Mock retriever returning no results
-        mock_retriever = AsyncMock()
-        mock_retriever.aretrieve = AsyncMock(return_value=[])
-
-        # Mock index
-        mock_index = MagicMock()
-        mock_index.as_retriever = MagicMock(return_value=mock_retriever)
-        mock_index_class.from_vector_store.return_value = mock_index
-
-        results = await qdrant_service.search(
-            query=query,
-            member_code=None,
-            limit=5,
-        )
-
-        # Verify retriever was called with correct query
-        mock_retriever.aretrieve.assert_called_once_with(query)
-        assert len(results) == 0
+    mock_async.retrieve.assert_awaited_once()
+    call = mock_async.retrieve.await_args_list[0]
+    assert call.kwargs["collection_name"] == service.col
+    assert call.kwargs["ids"] == ["id-1"]
+    assert result == [record]
 
 
 @pytest.mark.asyncio
-async def test_get_collection_info(qdrant_service: QdrantService):
-    """Test getting collection information."""
-    # Mock collection info
-    mock_info = MagicMock()
-    mock_info.vectors_count = 100
-    mock_info.points_count = 50
-    mock_info.status = "green"
-    qdrant_service.aclient.get_collection = AsyncMock(return_value=mock_info)
+async def test_retrieve_by_filter(
+    service: QdrantService,
+    mock_clients: tuple[MagicMock, MagicMock],
+) -> None:
+    """retrieve_by_filter should use scroll under the hood."""
+    mock_async = mock_clients[1]
+    record = MagicMock()
+    mock_async.scroll.return_value = ([record], None)
 
-    # Test getting children collection info
-    info = await qdrant_service.get_collection_info(collection_name="test-collection_children")
+    filter_obj = MagicMock()
+    result = await service.retrieve_by_filter(filter_obj, limit=10, with_payload=True)
 
-    # Verify info
-    assert info.vectors_count == 100
-    assert info.points_count == 50
-    assert info.status == "green"
-
-    # Test getting parents collection info
-    info_parents = await qdrant_service.get_collection_info(
-        collection_name="test-collection_parents"
-    )
-    assert info_parents.vectors_count == 100
-    assert info_parents.points_count == 50
-    assert info_parents.status == "green"
+    mock_async.scroll.assert_awaited_once()
+    call = mock_async.scroll.await_args_list[0]
+    assert call.kwargs["collection_name"] == service.col
+    assert call.kwargs["scroll_filter"] == filter_obj
+    assert call.kwargs["limit"] == 10
+    assert result == [record]
 
 
 @pytest.mark.asyncio
-async def test_get_node_by_id(qdrant_service: QdrantService):
-    """Test retrieving a parent node by ID."""
-    import json
-
-    from llama_index.core.schema import TextNode
-
-    # Mock retrieved point with LlamaIndex's actual storage format
-    # LlamaIndex stores node content as JSON in "_node_content" field
-    mock_point = MagicMock()
-    mock_point.id = "parent_1"
-    node_content = {
-        "id_": "parent_1",
-        "text": "Parent node text",
-        "metadata": {
-            "summary_id": 1,
-            "member_code": "user1",
-            "chunk_index": 0,
-        },
-        "embedding": None,
-    }
-    mock_point.payload = {
-        "_node_content": json.dumps(node_content),
-        "_node_type": "TextNode",
-        "summary_id": 1,
-        "member_code": "user1",
-        "chunk_index": 0,
-        "doc_id": "None",
-        "document_id": "None",
-        "ref_doc_id": "None",
-    }
-    qdrant_service.aclient.retrieve = AsyncMock(return_value=[mock_point])
-
-    node = await qdrant_service.get_node_by_id("parent_1")
-
-    # Verify node was retrieved from parents collection
-    qdrant_service.aclient.retrieve.assert_called_once()
-    call_kwargs = qdrant_service.aclient.retrieve.call_args[1]
-    assert call_kwargs["collection_name"] == "test-collection_parents"
-
-    # Verify node content
-    assert node is not None
-    assert isinstance(node, TextNode)
-    assert node.id_ == "parent_1"
-    assert node.text == "Parent node text"
-    assert node.metadata["summary_id"] == 1
+async def test_delete_requires_selector(service: QdrantService) -> None:
+    """Deleting without ids or filter should raise."""
+    with pytest.raises(ValueError):
+        await service.delete()
 
 
 @pytest.mark.asyncio
-async def test_get_node_by_id_not_found(qdrant_service: QdrantService):
-    """Test retrieving a node that doesn't exist."""
-    qdrant_service.aclient.retrieve = AsyncMock(return_value=[])
+async def test_delete_by_ids(
+    service: QdrantService,
+    mock_clients: tuple[MagicMock, MagicMock],
+) -> None:
+    """delete_by_ids should forward to delete with ids."""
+    mock_async = mock_clients[1]
 
-    node = await qdrant_service.get_node_by_id("nonexistent")
+    await service.delete_by_ids(["p1", "p2"])
 
-    # Verify None is returned
-    assert node is None
-
-
-@pytest.mark.asyncio
-async def test_get_node_by_id_legacy_format(qdrant_service: QdrantService):
-    """Test retrieving a node with legacy format (no _node_content)."""
-    from llama_index.core.schema import TextNode
-
-    # Mock retrieved point with legacy format (text directly in payload)
-    mock_point = MagicMock()
-    mock_point.id = "parent_2"
-    mock_point.payload = {
-        "text": "Legacy parent node text",
-        "summary_id": 2,
-        "member_code": "user2",
-        "chunk_index": 1,
-    }
-    qdrant_service.aclient.retrieve = AsyncMock(return_value=[mock_point])
-
-    node = await qdrant_service.get_node_by_id("parent_2")
-
-    # Verify node content from legacy format
-    assert node is not None
-    assert isinstance(node, TextNode)
-    assert node.id_ == "parent_2"
-    assert node.text == "Legacy parent node text"
-    assert node.metadata["summary_id"] == 2
-    assert node.metadata["member_code"] == "user2"
+    mock_async.delete.assert_awaited_once()
+    call = mock_async.delete.await_args_list[0]
+    assert call.kwargs["collection_name"] == service.col
+    assert call.kwargs["points_selector"] == ["p1", "p2"]
 
 
 @pytest.mark.asyncio
-async def test_get_child_by_id(qdrant_service: QdrantService):
-    """Test retrieving a child node by ID."""
-    import json
+async def test_delete_by_summary_id(
+    service: QdrantService,
+    mock_clients: tuple[MagicMock, MagicMock],
+) -> None:
+    """delete_by_summary_id should build summary filter."""
+    mock_async = mock_clients[1]
 
-    from llama_index.core.schema import TextNode
+    await service.delete_by_summary_id(123)
 
-    # Mock retrieved point with LlamaIndex's actual storage format
-    mock_point = MagicMock()
-    mock_point.id = "child_1"
-    node_content = {
-        "id_": "child_1",
-        "text": "Child node text content",
-        "metadata": {
-            "summary_id": 1,
-            "member_code": "user1",
-            "parent_id": "parent_1",
-            "chunk_index": 0,
-        },
-        "embedding": None,
-    }
-    mock_point.payload = {
-        "_node_content": json.dumps(node_content),
-        "_node_type": "TextNode",
-        "summary_id": 1,
-        "member_code": "user1",
-        "parent_id": "parent_1",
-        "chunk_index": 0,
-        "doc_id": "None",
-        "document_id": "None",
-        "ref_doc_id": "None",
-    }
-    qdrant_service.aclient.retrieve = AsyncMock(return_value=[mock_point])
-
-    node = await qdrant_service.get_child_by_id("child_1")
-
-    # Verify node was retrieved from children collection
-    qdrant_service.aclient.retrieve.assert_called_once()
-    call_kwargs = qdrant_service.aclient.retrieve.call_args[1]
-    assert call_kwargs["collection_name"] == "test-collection_children"
-
-    # Verify node content
-    assert node is not None
-    assert isinstance(node, TextNode)
-    assert node.id_ == "child_1"
-    assert node.text == "Child node text content"
-    assert node.metadata["summary_id"] == 1
-    assert node.metadata["parent_id"] == "parent_1"
+    mock_async.delete.assert_awaited_once()
+    call = mock_async.delete.await_args_list[0]
+    selector = call.kwargs["points_selector"]
+    assert isinstance(selector, q.Filter)
+    must_conditions = selector.must or []
+    assert len(must_conditions) == 1  # pyright: ignore[reportArgumentType]
+    condition = must_conditions[0]  # pyright: ignore[reportIndexIssue, reportUnknownVariableType]
+    assert isinstance(condition, q.FieldCondition)
+    assert condition.key == "summary_id"
+    assert isinstance(condition.match, q.MatchValue)
+    assert condition.match.value == 123
 
 
 @pytest.mark.asyncio
-async def test_get_child_by_id_not_found(qdrant_service: QdrantService):
-    """Test retrieving a child node that doesn't exist."""
-    qdrant_service.aclient.retrieve = AsyncMock(return_value=[])
-
-    node = await qdrant_service.get_child_by_id("nonexistent")
-
-    # Verify None is returned
-    assert node is None
+async def test_set_payload_requires_selector(service: QdrantService) -> None:
+    """set_payload should validate selectors."""
+    with pytest.raises(ValueError):
+        await service.set_payload(payload={"foo": "bar"})
 
 
 @pytest.mark.asyncio
-async def test_get_child_by_id_legacy_format(qdrant_service: QdrantService):
-    """Test retrieving a child node with legacy format (no _node_content)."""
-    from llama_index.core.schema import TextNode
+async def test_set_payload_with_ids(
+    service: QdrantService,
+    mock_clients: tuple[MagicMock, MagicMock],
+) -> None:
+    """set_payload should pass ids through to the client."""
+    mock_async = mock_clients[1]
 
-    # Mock retrieved point with legacy format
-    mock_point = MagicMock()
-    mock_point.id = "child_2"
-    mock_point.payload = {
-        "text": "Legacy child node text",
-        "summary_id": 2,
-        "member_code": "user2",
-        "parent_id": "parent_2",
-        "chunk_index": 1,
-    }
-    qdrant_service.aclient.retrieve = AsyncMock(return_value=[mock_point])
+    await service.set_payload(payload={"collection_ids": [1]}, ids=["id-123"])
 
-    node = await qdrant_service.get_child_by_id("child_2")
-
-    # Verify node content from legacy format
-    assert node is not None
-    assert isinstance(node, TextNode)
-    assert node.id_ == "child_2"
-    assert node.text == "Legacy child node text"
-    assert node.metadata["summary_id"] == 2
-    assert node.metadata["parent_id"] == "parent_2"
+    mock_async.set_payload.assert_awaited_once()
+    call = mock_async.set_payload.await_args_list[0]
+    assert call.kwargs["collection_name"] == service.col
+    assert call.kwargs["payload"] == {"collection_ids": [1]}
+    assert call.kwargs["points"] == ["id-123"]

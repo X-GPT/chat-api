@@ -15,7 +15,7 @@ def settings():
     return Settings(
         qdrant_url="http://localhost:6333",
         qdrant_api_key="test-key",
-        qdrant_collection_prefix="test-collection",
+        qdrant_collection_name="test-collection",
         openai_api_key="test-openai-key",
         openai_embedding_model="text-embedding-3-small",
     )
