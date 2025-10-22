@@ -4,6 +4,7 @@ import type { FetchOptions } from "../api/client";
 import { fetchProtectedFileDetail } from "../api/files";
 import type { EventMessage } from "../chat.events";
 import type { ChatLogger } from "../chat.logger";
+import { xml } from "./utils";
 
 // the `tool` helper function ensures correct type inference:
 export const readFileTool = tool({
@@ -43,17 +44,12 @@ export async function handleReadFile({
 				fileId: fileId,
 				fileName: fileDetail?.fileName || "",
 			});
-			return `
-			<fileContent>
-				${fileDetail.parseContent}
-			</fileContent>
-			<fileName>
-				${fileDetail.fileName}
-			</fileName>
-			<fileType>
-				${fileDetail.fileType}
-			</fileType>
-			`;
+			return xml("file", [
+				xml("id", fileDetail.id, { indent: 1 }),
+				xml("content", fileDetail.parseContent, { indent: 1 }),
+				xml("name", fileDetail.fileName ?? "", { indent: 1 }),
+				xml("type", fileDetail.fileType ?? "", { indent: 1 }),
+			]);
 
 		case "link/normal":
 			onEvent({
@@ -61,17 +57,12 @@ export async function handleReadFile({
 				fileId: fileId,
 				fileName: fileDetail.fileLink,
 			});
-			return `
-			<fileContent>
-				${fileDetail.parseContent}
-			</fileContent>
-			<fileLink>
-				${fileDetail.fileLink}
-			</fileLink>
-			<fileType>
-				${fileDetail.fileType}
-			</fileType>
-			`;
+			return xml("file", [
+				xml("id", fileDetail.id, { indent: 1 }),
+				xml("content", fileDetail.parseContent, { indent: 1 }),
+				xml("link", fileDetail.fileLink ?? "", { indent: 1 }),
+				xml("type", fileDetail.fileType ?? "", { indent: 1 }),
+			]);
 
 		case "link/video":
 			onEvent({
@@ -79,17 +70,12 @@ export async function handleReadFile({
 				fileId: fileId,
 				fileName: fileDetail.fileLink,
 			});
-			return `
-			<fileContent>
-				${fileDetail.parseContent}
-			</fileContent>
-			<fileLink>
-				${fileDetail.fileLink}
-			</fileLink>
-			<fileType>
-				${fileDetail.fileType}
-			</fileType>
-			`;
+			return xml("file", [
+				xml("id", fileDetail.id, { indent: 1 }),
+				xml("content", fileDetail.parseContent, { indent: 1 }),
+				xml("link", fileDetail.fileLink ?? "", { indent: 1 }),
+				xml("type", fileDetail.fileType ?? "", { indent: 1 }),
+			]);
 
 		case "image/jpeg":
 			onEvent({
@@ -97,17 +83,12 @@ export async function handleReadFile({
 				fileId: fileId,
 				fileName: fileDetail.fileName,
 			});
-			return `
-			<fileContent>
-				${fileDetail.content}
-			</fileContent>
-			<fileName>
-				${fileDetail.fileName}
-			</fileName>
-			<fileType>
-				${fileDetail.fileType}
-			</fileType>
-			`;
+			return xml("file", [
+				xml("id", fileDetail.id, { indent: 1 }),
+				xml("content", fileDetail.content ?? "", { indent: 1 }),
+				xml("name", fileDetail.fileName ?? "", { indent: 1 }),
+				xml("type", fileDetail.fileType ?? "", { indent: 1 }),
+			]);
 
 		default:
 			logger.error({
