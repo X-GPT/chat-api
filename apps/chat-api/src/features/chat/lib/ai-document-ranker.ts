@@ -51,6 +51,7 @@ export async function rankDocumentsByRelevance({
 			id: String(summary.id),
 			title:
 				summary.title || summary.summaryTitle || summary.fileName || "Untitled",
+			link: summary.fileLink || "",
 			content: summary.content || summary.parseContent || "",
 			fileType: summary.fileType || "unknown",
 		}));
@@ -75,6 +76,7 @@ Document ${idx + 1}:
 - ID: ${doc.id}
 - Title: ${doc.title}
 - Type: ${doc.fileType}
+- Link: ${doc.link}
 - Content: ${doc.content.slice(0, 800)}${doc.content.length > 800 ? "..." : ""}
 `,
 	)
