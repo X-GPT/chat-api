@@ -215,7 +215,7 @@ uv run python -m rag_python.migration.scripts.setup_qdrant
 ### How the Collection is Created
 
 The setup script uses `QdrantService.ensure_schema()` which creates a collection with:
-   - **Dense vector** (`child`): 1536 dimensions, cosine distance, HNSW index (m=16, ef_construct=100)
+   - **Dense vector** (`child`): 1536 dimensions, cosine distance, HNSW index (m=16, ef_construct=256)
    - **Sparse vector** (`child-sparse`): BM25-based, with IDF modifier
    - **Payload indexes**: `member_code` (keyword, tenant isolation), `summary_id` (integer), `collection_ids` (integer), `type` (keyword), `checksum` (keyword)
 
