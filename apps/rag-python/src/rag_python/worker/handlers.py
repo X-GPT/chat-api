@@ -75,7 +75,7 @@ class SummaryLifecycleHandler:
         """Handle CREATED action.
 
         Args:
-            event: The summary event.
+            event: The summary event with content fields.
 
         Returns:
             bool: True if successful.
@@ -85,23 +85,28 @@ class SummaryLifecycleHandler:
             f"Team: {event.team_code}"
         )
 
-        # Ingest document into vector database
-        if event.parse_content:
-            logger.info(f"Content preview: {event.parse_content[:100]}...")
+        summary_text, original_content = self._validate_event_content(event)
+        if summary_text is None or original_content is None:
+            return False
 
-            try:
-                stats = await self.ingestion_service.ingest_document(
-                    summary_id=event.id,
-                    member_code=event.member_code,
-                    content=event.parse_content,
-                    collection_ids=event.collection_ids,
-                )
-                logger.info(f"Successfully ingested document: {stats}")
-            except Exception as e:
-                logger.error(f"Failed to ingest document: {e}", exc_info=True)
-                return False
+        logger.info(
+            "Content lengths - summary=%s, original=%s",
+            len(summary_text),
+            len(original_content),
+        )
 
-        return True
+        try:
+            stats = await self.ingestion_service.ingest_document(
+                summary_id=event.id,
+                member_code=event.member_code,
+                original_content=original_content,
+                collection_ids=event.collection_ids,
+            )
+            logger.info("Successfully ingested document: %s", stats)
+            return True
+        except Exception as exc:
+            logger.error("Failed to ingest document: %s", exc, exc_info=True)
+            return False
 
     async def _handle_updated(self, event: SummaryEvent) -> bool:
         """Handle UPDATED action.
@@ -117,23 +122,28 @@ class SummaryLifecycleHandler:
             f"Team: {event.team_code}"
         )
 
-        # Update document in vector database
-        if event.parse_content:
-            logger.info(f"Updated content preview: {event.parse_content[:100]}...")
+        summary_text, original_content = self._validate_event_content(event)
+        if summary_text is None or original_content is None:
+            return False
 
-            try:
-                stats = await self.ingestion_service.update_document(
-                    summary_id=event.id,
-                    member_code=event.member_code,
-                    content=event.parse_content,
-                    collection_ids=event.collection_ids,
-                )
-                logger.info(f"Successfully updated document: {stats}")
-            except Exception as e:
-                logger.error(f"Failed to update document: {e}", exc_info=True)
-                return False
+        logger.info(
+            "Updated content lengths - summary=%s, original=%s",
+            len(summary_text),
+            len(original_content),
+        )
 
-        return True
+        try:
+            stats = await self.ingestion_service.update_document(
+                summary_id=event.id,
+                member_code=event.member_code,
+                original_content=original_content,
+                collection_ids=event.collection_ids,
+            )
+            logger.info("Successfully updated document: %s", stats)
+            return True
+        except Exception as exc:
+            logger.error("Failed to update document: %s", exc, exc_info=True)
+            return False
 
     async def _handle_deleted(self, event: SummaryEvent) -> bool:
         """Handle DELETED action.
@@ -158,6 +168,25 @@ class SummaryLifecycleHandler:
             return False
 
         return True
+
+    @staticmethod
+    def _validate_event_content(event: SummaryEvent) -> tuple[str | None, str | None]:
+        """Ensure the event contains both summary and original content."""
+        summary_text = event.content or ""
+        original_content = event.parse_content
+
+        if not summary_text:
+            logger.error("Missing content (summary text) for summary_id=%s", event.id)
+            return None, None
+
+        if not original_content:
+            logger.error(
+                "Missing parse_content (original document) for summary_id=%s",
+                event.id,
+            )
+            return None, None
+
+        return summary_text, original_content
 
 
 class CollectionRelationshipHandler:

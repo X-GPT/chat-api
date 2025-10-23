@@ -182,8 +182,10 @@ class SQSWorker:
 
 async def main() -> None:
     """Main entry point for the worker."""
-    worker = SQSWorker()
-    await worker.start()
+    # TODO: Start worker after the migration
+    # worker = SQSWorker()
+    # await worker.start()
+    pass
 
 
 if __name__ == "__main__":

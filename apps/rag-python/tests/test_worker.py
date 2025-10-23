@@ -27,7 +27,7 @@ def mock_settings():
         # Qdrant settings required for MessageProcessor initialization
         qdrant_url="http://localhost:6333",
         qdrant_api_key="test-key",
-        qdrant_collection_prefix="test-collection",
+        qdrant_collection_name="test-collection",
         # OpenAI settings (optional but good to have)
         openai_api_key="test-openai-key",
         openai_embedding_model="text-embedding-3-small",
@@ -50,7 +50,14 @@ def mock_qdrant_service():
 @pytest.fixture
 def message_processor(mock_settings: Settings, mock_qdrant_service: MagicMock):
     """Create message processor instance with mocked QdrantService."""
-    with patch("rag_python.worker.processor.QdrantService", return_value=mock_qdrant_service):
+    mock_qdrant_service.col = "test-collection"
+    mock_qdrant_service.client = MagicMock()
+    mock_qdrant_service.aclient = MagicMock()
+
+    with patch("rag_python.worker.processor.QdrantService", return_value=mock_qdrant_service), patch(
+        "rag_python.services.ingestion_service.QdrantVectorStore"
+    ) as mock_vector_store_cls:
+        mock_vector_store_cls.return_value = MagicMock()
         processor = MessageProcessor(mock_settings)
         yield processor
 
@@ -78,7 +85,9 @@ async def test_summary_lifecycle_handler():
             id=12345,
             memberCode="user123",
             teamCode="team456",
+            content="This is a test summary content",
             parseContent="This is a test summary content",
+            collectionIds=None,
             action=SummaryAction.CREATED,
             timestamp=datetime.now(UTC),
         ),
@@ -91,7 +100,7 @@ async def test_summary_lifecycle_handler():
     mock_ingestion_service.ingest_document.assert_called_once_with(
         summary_id=12345,
         member_code="user123",
-        content="This is a test summary content",
+        original_content="This is a test summary content",
         collection_ids=None,
     )
 
@@ -124,6 +133,7 @@ async def test_message_processor_validate_message(message_processor: MessageProc
             "id": 12345,
             "memberCode": "user123",
             "teamCode": "team456",
+            "content": "Summary content",
             "parseContent": "Test content",
             "action": "CREATED",
             "timestamp": datetime.now(UTC).isoformat(),

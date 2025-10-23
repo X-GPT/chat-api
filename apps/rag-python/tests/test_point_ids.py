@@ -7,25 +7,24 @@ from rag_python.services.point_ids import (
     chunk_point_id,
     generate_point_id,
     parent_point_id,
-    summary_point_id,
 )
 
 
 def test_generate_point_id_deterministic() -> None:
     """Same inputs should produce identical UUIDs."""
-    first = generate_point_id("summary", "user123", 42)
-    second = generate_point_id("summary", "user123", 42)
+    first = generate_point_id("parent", "user123", 42)
+    second = generate_point_id("parent", "user123", 42)
     assert first == second
 
 
 def test_generate_point_id_varies_with_inputs() -> None:
     """Changing any component should produce a different UUID."""
-    base = generate_point_id("summary", "user123", 42)
-    assert base != generate_point_id("summary", "user456", 42)
-    assert base != generate_point_id("summary", "user123", 99)
-    assert base != generate_point_id("summary", "user123", 42, extra="foo")
+    base = generate_point_id("parent", "user123", 42)
+    assert base != generate_point_id("parent", "user456", 42)
+    assert base != generate_point_id("parent", "user123", 99)
+    assert base != generate_point_id("parent", "user123", 42, extra="foo")
     # Different point type even with same identifiers must differ
-    assert base != generate_point_id("parent", "user123", 42)
+    assert base != generate_point_id("child", "user123", 42)
 
 
 def test_generate_point_id_rejects_invalid_type() -> None:
@@ -35,16 +34,15 @@ def test_generate_point_id_rejects_invalid_type() -> None:
     assert "Unsupported point_type" in str(exc.value)
 
 
-def test_summary_parent_child_helpers() -> None:
+def test_parent_child_helpers() -> None:
     """Helper wrappers should leverage generate_point_id appropriately."""
-    summary_id = summary_point_id("tenant", 7)
     parent_first = parent_point_id("tenant", 7, 0)
     parent_second = parent_point_id("tenant", 7, 1)
     child_first = child_point_id("tenant", 7, 0, 0)
     child_second = child_point_id("tenant", 7, 0, 1)
 
     # Helpers should produce distinct IDs within/between types
-    assert len({summary_id, parent_first, parent_second, child_first, child_second}) == 5
+    assert len({parent_first, parent_second, child_first, child_second}) == 4
 
     # Parent index differentiates IDs
     assert parent_first != parent_second

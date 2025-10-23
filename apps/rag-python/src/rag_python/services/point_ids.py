@@ -12,7 +12,7 @@ from typing import Final, Literal, get_args
 # Bind a project-specific namespace derived from the URL namespace.
 POINT_ID_NAMESPACE: Final = uuid.uuid5(uuid.NAMESPACE_URL, "mymemo/chat-api/qdrant-point-id")
 # Allowed point types for runtime validation and type safety.
-PointType = Literal["summary", "parent", "child"]
+PointType = Literal["parent", "child"]
 _VALID_POINT_TYPES: Final = set(get_args(PointType))
 
 
@@ -25,7 +25,7 @@ def generate_point_id(
     """Generate a deterministic UUID for a Qdrant point.
 
     Args:
-        point_type: Logical point type (e.g., "summary", "parent", "child").
+        point_type: Logical point type (e.g., "parent", "child").
         member_code: Tenant identifier for isolation.
         summary_id: Summary identifier (int from upstream services).
         extra: Optional suffix to differentiate siblings (e.g., parent/child indices).
@@ -39,11 +39,6 @@ def generate_point_id(
 
     seed = f"{point_type}:{member_code}:{summary_id}:{extra}"
     return str(uuid.uuid5(POINT_ID_NAMESPACE, seed))
-
-
-def summary_point_id(member_code: str, summary_id: int) -> str:
-    """Point ID for summary-level vectors."""
-    return generate_point_id("summary", member_code, summary_id)
 
 
 def parent_point_id(member_code: str, summary_id: int, parent_idx: int) -> str:

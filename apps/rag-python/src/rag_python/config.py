@@ -57,18 +57,9 @@ class Settings(BaseSettings):
     # Qdrant Configuration
     qdrant_url: str = "https://your-cluster.qdrant.io"
     qdrant_api_key: str | None = None
-    qdrant_collection_prefix: str = "summaries"
+    qdrant_collection_name: str = "memos"
     qdrant_prefer_grpc: bool = False
-
-    @property
-    def qdrant_children_collection(self) -> str:
-        """Get the children collection name."""
-        return f"{self.qdrant_collection_prefix}_children"
-
-    @property
-    def qdrant_parents_collection(self) -> str:
-        """Get the parents collection name."""
-        return f"{self.qdrant_collection_prefix}_parents"
+    qdrant_local_mode: bool = False
 
     # RAG Configuration
     chunk_size: int = 512  # Child chunk size

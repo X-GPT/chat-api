@@ -44,7 +44,7 @@ def test_settings():
     return Settings(
         qdrant_url="http://localhost:6333",
         qdrant_api_key="dummy-key",  # Local Qdrant doesn't require auth
-        qdrant_collection_prefix="test_collection_filter",
+        qdrant_collection_name="test_collection_filter",
         openai_api_key=os.getenv("OPENAI_API_KEY", "test-key"),
         openai_embedding_model="text-embedding-3-small",
     )
@@ -60,7 +60,7 @@ async def qdrant_service(test_settings: Settings):
     service = QdrantService(test_settings)
 
     # Ensure collections exist
-    await service.ensure_collection_exists()
+    await service.ensure_schema()
 
     yield service
 

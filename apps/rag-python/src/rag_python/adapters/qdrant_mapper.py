@@ -10,55 +10,47 @@ from qdrant_client import models as q
 from rag_python.core.constants import (
     CHILD_SPARSE_VEC,
     CHILD_VEC,
+    K_CHECKSUM,
+    K_CHUNK_INDEX,
+    K_COLLECTION_IDS,
+    K_MEMBER_CODE,
+    K_PARENT_ID,
+    K_PARENT_IDX,
+    K_PARENT_TEXT,
+    K_SUMMARY_ID,
+    K_TEXT,
+    K_TYPE,
     POINT_TYPE_CHILD,
     POINT_TYPE_PARENT,
-    POINT_TYPE_SUMMARY,
-    SUMMARY_VEC,
 )
-from rag_python.core.models import ChildVector, Parent, SparseVector, SummaryVector
+from rag_python.core.models import ChildVector, Parent, SparseVector
 
 
 def parent_to_point(parent: Parent) -> q.PointStruct:
     """Convert a parent payload into a Qdrant point."""
     payload = {
-        "type": POINT_TYPE_PARENT,
-        "summary_id": parent.summary_id,
-        "member_code": parent.member_code,
-        "parent_idx": parent.parent_idx,
-        "parent_text": parent.text,
-        "collection_ids": list(parent.collection_ids),
-        "checksum": parent.checksum,
+        K_TYPE: POINT_TYPE_PARENT,
+        K_SUMMARY_ID: parent.summary_id,
+        K_MEMBER_CODE: parent.member_code,
+        K_PARENT_IDX: parent.parent_idx,
+        K_PARENT_TEXT: parent.text,
+        K_COLLECTION_IDS: list(parent.collection_ids),
+        K_CHECKSUM: parent.checksum,
     }
     return q.PointStruct(id=parent.id, payload=payload, vector={})
-
-
-def summary_to_point(summary: SummaryVector) -> q.PointStruct:
-    """Convert a summary vector into a Qdrant point with named vectors."""
-    payload = {
-        "type": POINT_TYPE_SUMMARY,
-        "summary_id": summary.summary_id,
-        "member_code": summary.member_code,
-        "collection_ids": list(summary.collection_ids),
-        "checksum": summary.checksum,
-        "text": summary.text,
-    }
-    vectors: q.VectorStruct = {}
-    if summary.embedding is not None:
-        vectors[SUMMARY_VEC] = summary.embedding
-    return q.PointStruct(id=summary.id, payload=payload, vector=vectors)
 
 
 def child_to_point(child: ChildVector) -> q.PointStruct:
     """Convert a child vector (dense + sparse) into a Qdrant point."""
     payload = {
-        "type": POINT_TYPE_CHILD,
-        "summary_id": child.summary_id,
-        "member_code": child.member_code,
-        "parent_id": child.parent_id,
-        "parent_idx": child.parent_idx,
-        "chunk_index": child.chunk_index,
-        "collection_ids": list(child.collection_ids),
-        "text": child.text,
+        K_TYPE: POINT_TYPE_CHILD,
+        K_SUMMARY_ID: child.summary_id,
+        K_MEMBER_CODE: child.member_code,
+        K_PARENT_ID: child.parent_id,
+        K_PARENT_IDX: child.parent_idx,
+        K_CHUNK_INDEX: child.chunk_index,
+        K_COLLECTION_IDS: list(child.collection_ids),
+        K_TEXT: child.text,
     }
 
     dense_vectors = child.embedding
@@ -77,20 +69,6 @@ def child_to_point(child: ChildVector) -> q.PointStruct:
         id=child.id,
         payload=payload,
         vector=vectors,
-    )
-
-
-def record_to_summary(record: q.Record) -> SummaryVector:
-    """Convert a Qdrant record back into a SummaryVector."""
-    payload = record.payload or {}
-    return SummaryVector(
-        id=_stringify_point_id(record.id),
-        summary_id=cast(int, payload.get("summary_id")),
-        member_code=cast(str | None, payload.get("member_code")) or "",
-        text=cast(str | None, payload.get("text")) or "",
-        checksum=cast(str | None, payload.get("checksum")) or "",
-        collection_ids=_coerce_int_list(payload.get("collection_ids")),
-        embedding=_extract_named_vector(record.vector, SUMMARY_VEC),
     )
 
 

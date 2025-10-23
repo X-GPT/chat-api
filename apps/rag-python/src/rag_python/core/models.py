@@ -17,19 +17,6 @@ class Parent:
 
 
 @dataclass(frozen=True)
-class SummaryVector:
-    """Represents the summary-level vector entry."""
-
-    id: str
-    summary_id: int
-    member_code: str
-    text: str
-    checksum: str
-    collection_ids: list[int] = field(default_factory=list)
-    embedding: list[float] | None = None
-
-
-@dataclass(frozen=True)
 class SparseVector:
     """Represents a sparse vector entry."""
 

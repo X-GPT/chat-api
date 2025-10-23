@@ -24,14 +24,15 @@
 - [x] Task 1.3 – Create Text Processing Package (`text_processing/`)
 - [x] Task 1.4 – Create Core Models (`core/models.py`)
 - [x] Task 1.5 – Create Qdrant Mapper (`adapters/qdrant_mapper.py`)
-- [ ] Task 1.6 – Create Vector Repository (`repositories/vector_repository.py`)
-- [ ] Task 1.7 – Create LlamaIndex Document Builders (`services/document_builders.py`)
-- [ ] Task 1.8 – Create Constants Module (`core/constants.py`)
-- [ ] Task 1.9 – Refactor QdrantService (`services/qdrant_service.py`)
-- [ ] Task 2.1 – Update IngestionPipeline (`services/pipeline.py`)
-- [ ] Task 3.1 – Update SearchService (`services/search_service.py`)
-- [ ] Task 4.1 – Update Handlers (`worker/handlers.py`)
-- [ ] Add / update unit tests (mapper, repository, document builders, ingestion pipeline, search service)
+- [x] Task 1.6 – Create Vector Repository (`repositories/vector_repository.py`)
+- [x] Task 1.7 – Create LlamaIndex Document Builders (`services/document_builders.py`)
+- [x] Task 1.8 – Create Constants Module (`core/constants.py`)
+- [x] Task 1.9 – Refactor QdrantService (`services/qdrant_service.py`)
+- [x] Task 2.1 – Update IngestionPipeline (`services/pipeline.py`)
+- [x] Task 3.1 – Update SearchService (`services/search_service.py`)
+- [x] Task 4.1 – Update Handlers (`worker/handlers.py`)
+- [x] Add / update unit tests (mapper, repository, document builders, ingestion pipeline, search service)
+- [x] Fix test failures in `test_search_service.py` (global mock embedding configuration)
 - [ ] Refresh integration tests (end-to-end ingestion, search, update flows)
 - [ ] Execute migration strategy (dev/staging) and validate production plan
 
@@ -59,11 +60,8 @@ Collection: summaries_parents
 Collection: memos
 
   Named Vectors:
-    - "summary" (dense, 1536 dim, INT8 quantized, on_disk)
-      → Document-level summaries for first-stage retrieval
-
     - "child" (dense, 1536 dim, INT8 quantized, on_disk, HNSW m=16)
-      → Chunk-level embeddings for detailed search
+      → Chunk-level embeddings for direct search
 
     - "child-sparse" (sparse, BM25, on_disk)
       → Keyword/lexical search for hybrid retrieval
@@ -74,14 +72,9 @@ Collection: memos
       → Stores parent text for context assembly
       → Payload: {type, summary_id, member_code, parent_idx, parent_text, checksum, collection_ids}
 
-    - summary::<summary_id>
-      → Has "summary" vector
-      → For first-stage retrieval (find relevant docs)
-      → Payload: {type, summary_id, member_code, checksum, collection_ids}
-
     - chunk::<summary_id>::<parent_idx>::<chunk_idx>
       → Has "child" vector + "child-sparse" vector
-      → For second-stage retrieval (find specific chunks)
+      → For direct chunk retrieval
       → Payload: {type, summary_id, member_code, parent_id, parent_idx, chunk_index, collection_ids}
 
   Payload Indexes:
@@ -101,14 +94,15 @@ Collection: memos
 1. **Collection name:** `memos` (simple, no prefix/suffix)
 2. **Config rename:** `qdrant_collection_name` (was `qdrant_collection_prefix`)
 3. **Keep sparse vectors** for hybrid search on children
-4. **Keep naming:** `member_code` (not `user_id`), `summary_id` (not `doc_id`)
-5. **Use event.content** for summary text, **event.parse_content** for original document
-6. **Text normalization:** Yes (improved version with HTML entities, zero-width chars, structure preservation)
-7. **Checksumming:** Yes (SHA256 for idempotency)
-8. **Parent size control:** If ≤2500 tokens → 1 parent, else semantic split
-9. **Child cap:** Warn if >60 children per parent (don't block, just log)
-10. **Overlap:** Keep 128 tokens (current setting)
-11. **Skip:** Language detection, token estimation, section_path, page_range (for now)
+4. **Search directly on chunks** (no dedicated summary vectors or multi-stage retrieval)
+5. **Keep naming:** `member_code` (not `user_id`), `summary_id` (not `doc_id`)
+6. **Use event.content** for summary text, **event.parse_content** for original document
+7. **Text normalization:** Yes (improved version with HTML entities, zero-width chars, structure preservation)
+8. **Checksumming:** Yes (SHA256 for idempotency)
+9. **Parent size control:** If ≤2500 tokens → 1 parent, else semantic split
+10. **Child cap:** Warn if >60 children per parent (don't block, just log)
+11. **Overlap:** Keep 128 tokens (current setting)
+12. **Skip:** Language detection, token estimation, section_path, page_range (for now)
 
 ### ⚠️ To Verify with Java Backend
 
@@ -180,11 +174,6 @@ def generate_point_id(
     return str(uuid.uuid5(NAMESPACE, seed))
 
 
-def summary_point_id(member_code: str, summary_id: int) -> str:
-    """Generate point ID for a summary vector."""
-    return generate_point_id("summary", member_code, summary_id)
-
-
 def parent_point_id(member_code: str, summary_id: int, parent_idx: int) -> str:
     """Generate point ID for a parent (payload-only) point."""
     return generate_point_id("parent", member_code, summary_id, str(parent_idx))
@@ -210,7 +199,7 @@ def test_generate_point_id_deterministic():
 
 
 def test_point_id_format():
-    point_id = summary_point_id("user123", 456)
+    point_id = parent_point_id("user123", 456, 0)
     assert len(point_id) == 36
     assert point_id.count('-') == 4
     import uuid
@@ -230,20 +219,17 @@ def test_parent_uniqueness():
 
 
 def test_cross_type_uniqueness():
-    summary_id = summary_point_id("user123", 456)
     parent_id = parent_point_id("user123", 456, 0)
     chunk_id = chunk_point_id("user123", 456, 0, 0)
-    assert summary_id != parent_id
-    assert summary_id != chunk_id
     assert parent_id != chunk_id
 
 
 def test_idempotency_guarantees():
-    first_run_summary = summary_point_id("user123", 456)
+    first_run_parent = parent_point_id("user123", 456, 0)
     first_run_chunk = chunk_point_id("user123", 456, 0, 5)
-    second_run_summary = summary_point_id("user123", 456)
+    second_run_parent = parent_point_id("user123", 456, 0)
     second_run_chunk = chunk_point_id("user123", 456, 0, 5)
-    assert first_run_summary == second_run_summary
+    assert first_run_parent == second_run_parent
     assert first_run_chunk == second_run_chunk
 ```
 
@@ -351,9 +337,9 @@ Compared to basic normalization, this improved version:
 #### Task 1.4: Create Core Models (30 min)
 **File:** `src/rag_python/core/models.py` (NEW)
 
-**Purpose:** Provide immutable data structures that represent the three Qdrant point types. These models become the single source of truth for payload fields and help decouple business logic from storage adapters.
+**Purpose:** Provide immutable data structures that represent the Qdrant point types (parents and children) plus shared sparse vector helpers. These models become the single source of truth for payload fields and help decouple business logic from storage adapters.
 
-**Implementation:** `src/rag_python/core/models.py` (see repository for full definitions of `Parent`, `SummaryVector`, `ChildVector`)
+**Implementation:** `src/rag_python/core/models.py` (see repository for full definitions of `Parent`, `ChildVector`, `SparseVector`)
 
 **Notes:**
 - Keep models immutable (`frozen=True`) to make accidental mutation obvious.
@@ -379,10 +365,8 @@ from rag_python.core.constants import (
     CHILD_VEC,
     POINT_TYPE_CHILD,
     POINT_TYPE_PARENT,
-    POINT_TYPE_SUMMARY,
-    SUMMARY_VEC,
 )
-from rag_python.core.models import ChildVector, Parent, SparseVector, SummaryVector
+from rag_python.core.models import ChildVector, Parent, SparseVector
 
 
 def parent_to_point(parent: Parent) -> q.PointStruct:
@@ -396,21 +380,6 @@ def parent_to_point(parent: Parent) -> q.PointStruct:
         "checksum": parent.checksum,
     }
     return q.PointStruct(id=parent.id, payload=payload, vector={})
-
-
-def summary_to_point(summary: SummaryVector) -> q.PointStruct:
-    payload = {
-        "type": POINT_TYPE_SUMMARY,
-        "summary_id": summary.summary_id,
-        "member_code": summary.member_code,
-        "collection_ids": list(summary.collection_ids),
-        "checksum": summary.checksum,
-        "text": summary.text,
-    }
-    vectors: q.VectorStruct = {}
-    if summary.embedding is not None:
-        vectors[SUMMARY_VEC] = summary.embedding
-    return q.PointStruct(id=summary.id, payload=payload, vector=vectors)
 
 
 def child_to_point(child: ChildVector) -> q.PointStruct:
@@ -437,18 +406,18 @@ def child_to_point(child: ChildVector) -> q.PointStruct:
     return q.PointStruct(id=child.id, payload=payload, vector=vectors)
 
 
-def record_to_summary(record: q.Record) -> SummaryVector:
+def record_to_parent(record: q.Record) -> Parent:
     payload = record.payload or {}
-    return SummaryVector(
+    return Parent(
         id=str(record.id),
         summary_id=cast(int, payload.get("summary_id")),
         member_code=cast(str | None, payload.get("member_code")) or "",
-        text=cast(str | None, payload.get("text")) or "",
+        parent_idx=cast(int, payload.get("parent_idx")),
+        text=cast(str | None, payload.get("parent_text")) or "",
         checksum=cast(str | None, payload.get("checksum")) or "",
         collection_ids=[
             value for value in (payload.get("collection_ids") or []) if isinstance(value, int)
         ],
-        embedding=(record.vector or {}).get(SUMMARY_VEC) if record.vector else None,
     )
 ```
 
@@ -461,16 +430,18 @@ def record_to_summary(record: q.Record) -> SummaryVector:
 #### Task 1.6: Create Vector Repository (45 min)
 **File:** `src/rag_python/repositories/vector_repository.py` (NEW)
 
-**Purpose:** Encapsulate parent persistence plus shared metadata utilities (collection IDs, deletes, checksum lookups). Summaries and children will be written through LlamaIndex vector stores instead of this repository.
+**Purpose:** Encapsulate parent persistence plus shared metadata utilities (collection IDs, deletes, checksum lookups). Child vectors will be written through LlamaIndex vector stores instead of this repository.
 
 **Implementation Outline:**
 ```python
 from collections.abc import Sequence
+from typing import cast
+
 from qdrant_client import models as q
-from rag_python.core.models import Parent, SummaryVector
+
+from rag_python.core.models import Parent
 from rag_python.core.constants import (
     POINT_TYPE_PARENT,
-    POINT_TYPE_SUMMARY,
     POINT_TYPE_CHILD,
 )
 from rag_python.adapters import qdrant_mapper
@@ -485,21 +456,23 @@ class VectorRepository:
         points = [qdrant_mapper.parent_to_point(parent) for parent in parents]
         await self._qdrant.upsert_points(points)
 
-    async def get_summary(self, summary_id: int, member_code: str) -> SummaryVector | None:
+    async def get_existing_checksum(self, summary_id: int) -> str | None:
         records = await self._qdrant.retrieve_by_filter(
             filter_=q.Filter(
                 must=[
                     q.FieldCondition(key="summary_id", match=q.MatchValue(value=summary_id)),
-                    q.FieldCondition(key="member_code", match=q.MatchValue(value=member_code)),
-                    q.FieldCondition(key="type", match=q.MatchValue(value=POINT_TYPE_SUMMARY)),
+                    q.FieldCondition(key="type", match=q.MatchValue(value=POINT_TYPE_PARENT)),
                 ]
             ),
             limit=1,
-            with_vectors=True,
+            with_vectors=False,
+            with_payload=True,
         )
         if not records:
             return None
-        return qdrant_mapper.record_to_summary(records[0])
+        payload = records[0].payload or {}
+        checksum = payload.get("checksum")
+        return cast(str | None, checksum) if isinstance(checksum, str) else None
 
     async def get_parents(self, parent_ids: Sequence[str]) -> list[Parent]:
         if not parent_ids:
@@ -544,10 +517,7 @@ class VectorRepository:
                         key="summary_id",
                         match=q.MatchValue(value=summary_id),
                     ),
-                    q.FieldCondition(
-                        key="type",
-                        match=q.MatchValue(value=POINT_TYPE_SUMMARY),
-                    ),
+                    q.FieldCondition(key="type", match=q.MatchValue(value=POINT_TYPE_PARENT)),
                 ]
             ),
             limit=1,
@@ -567,7 +537,7 @@ class VectorRepository:
 
 **Notes:**
 - Add convenience helpers like `retrieve_by_summary_id` using `retrieve_by_filter` for children when needed by the ingestion/search layers.
-- Repository owns delete/payload updates via generic QdrantService helpers, while summary/child writes flow through LlamaIndex-managed vector stores.
+- Repository owns delete/payload updates via generic QdrantService helpers, while child writes flow through LlamaIndex-managed vector stores.
 - Repository becomes the unit under test for idempotency queries and parent orchestration.
 
 ---
@@ -582,32 +552,7 @@ class VectorRepository:
 from collections.abc import Sequence
 from llama_index.core.schema import BaseNode, Document
 
-from rag_python.services.point_ids import summary_point_id
 from rag_python.core.models import Parent
-
-
-def build_summary_docs(
-    *,
-    summary_id: int,
-    member_code: str,
-    summary_text: str,
-    checksum: str,
-    collection_ids: Sequence[int],
-) -> list[Document]:
-    metadata = {
-        "type": "summary",
-        "summary_id": summary_id,
-        "member_code": member_code,
-        "collection_ids": list(collection_ids),
-        "checksum": checksum,
-    }
-    return [
-        Document(
-            id_=summary_point_id(member_code, summary_id),
-            text=summary_text,
-            metadata=metadata,
-        )
-    ]
 
 
 def build_child_docs(
@@ -661,12 +606,10 @@ def build_child_docs(
 """Core constants for the RAG system."""
 
 # Qdrant vector names (named vectors in single collection)
-SUMMARY_VEC = "summary"
 CHILD_VEC = "child"
 CHILD_SPARSE_VEC = "child-sparse"
 
 # Point types (for filtering by type field in payload)
-POINT_TYPE_SUMMARY = "summary"
 POINT_TYPE_PARENT = "parent"
 POINT_TYPE_CHILD = "child"
 ```
@@ -712,7 +655,7 @@ from qdrant_client import AsyncQdrantClient, QdrantClient
 from qdrant_client import models as q
 
 from rag_python.config import Settings
-from rag_python.core.constants import CHILD_SPARSE_VEC, CHILD_VEC, POINT_TYPE_SUMMARY, SUMMARY_VEC
+from rag_python.core.constants import CHILD_SPARSE_VEC, CHILD_VEC, POINT_TYPE_CHILD, POINT_TYPE_PARENT
 from rag_python.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -757,21 +700,10 @@ class QdrantService:
 
         logger.info(f"Creating collection {self.col} with named vectors")
 
-        # Create collection with 3 named vectors
+        # Create collection with named child vectors
         await self.aclient.create_collection(
             collection_name=self.col,
             vectors_config={
-                # Summary vector (dense only, INT8 quantized)
-                SUMMARY_VEC: q.VectorParams(
-                    size=1536,  # text-embedding-3-small
-                    distance=q.Distance.COSINE,
-                    on_disk=True,
-                    quantization_config=q.ScalarQuantization(
-                        type=q.ScalarType.INT8,
-                        quantile=0.99,
-                        always_ram=False,
-                    ),
-                ),
                 # Child vector (dense, INT8 quantized, HNSW tuned)
                 CHILD_VEC: q.VectorParams(
                     size=1536,
@@ -832,7 +764,7 @@ class QdrantService:
                 field_schema=q.PayloadSchemaType.INTEGER,
             )
 
-            # type (point type filtering: parent/summary/child)
+            # type (point type filtering: parent/child)
             await self.aclient.create_payload_index(
                 collection_name=self.col,
                 field_name="type",
@@ -940,7 +872,7 @@ class QdrantService:
 2. **Minimal API surface**: Only essential CRUD operations
 3. **Clear naming**: `self.col` instead of verbose property methods
 4. **Both sync/async**: Support both client types for flexibility
-5. **Constants imported**: Uses `SUMMARY_VEC`, `CHILD_VEC` from `core.constants`
+5. **Constants imported**: Uses `CHILD_VEC`, `CHILD_SPARSE_VEC` from `core.constants`
 6. **UUID-ready**: Methods accept UUID strings for point IDs
 7. **Error handling**: Logs errors but doesn't suppress them
 8. **Repository-friendly:** Provides generic helpers (`upsert_points`, `retrieve_by_ids`, `retrieve_by_filter`, `set_payload`, `delete`) so higher layers own business logic
@@ -953,15 +885,7 @@ LlamaIndex `QdrantVectorStore` integration happens in the **ingestion/search lay
 # In IngestionPipeline or SearchService:
 from llama_index.vector_stores.qdrant import QdrantVectorStore
 
-# Create vector stores pointing to same collection with different named vectors
-summary_vector_store = QdrantVectorStore(
-    collection_name=qdrant_service.col,
-    client=qdrant_service.client,
-    aclient=qdrant_service.aclient,
-    dense_vector_name="summary",
-    enable_hybrid=False,
-)
-
+# Create vector store pointing to the child/parent collection
 child_vector_store = QdrantVectorStore(
     collection_name=qdrant_service.col,
     client=qdrant_service.client,
@@ -992,7 +916,7 @@ async def ingest_document(
     original_content: str,        # From event.parse_content (full doc)
     collection_ids: list[int] | None = None,
 ) -> IngestionStats:
-    """Ingest a document with parent-child chunking and summary vector.
+    """Ingest a document with parent-child chunking and direct chunk vectors.
 
     Prerequisites: Qdrant collection and payload indexes are provisioned externally.
 
@@ -1001,13 +925,13 @@ async def ingest_document(
     2. Check idempotency (skip if checksum unchanged)
     3. Build parent chunks (1 parent if ≤2500 tokens, else semantic split)
     4. Build child chunks from each parent (cap warning at 60 children)
-    5. Build LlamaIndex documents for summary + children
-    6. Persist parents, then write vectors via LlamaIndex
+    5. Build LlamaIndex documents for children
+    6. Persist parents, then write child vectors via LlamaIndex
 
     Args:
         summary_id: The summary ID
         member_code: The member code for partitioning
-        summary_text: Summary text (150-250 tokens) for summary vector
+        summary_text: Summary text (150-250 tokens) used for metadata and parent context
         original_content: Full original document text for chunking
         collection_ids: List of collection IDs
 
@@ -1025,7 +949,7 @@ from rag_python.text_processing.normalize_text import normalize_text
 from rag_python.text_processing.checksum import compute_checksum
 from rag_python.text_processing.token_estimator import estimate_tokens
 from rag_python.services.point_ids import parent_point_id, chunk_point_id
-from rag_python.services.document_builders import build_summary_docs, build_child_docs
+from rag_python.services.document_builders import build_child_docs
 from rag_python.core.models import Parent
 
 async def ingest_document(
@@ -1055,8 +979,8 @@ async def ingest_document(
         logger.info(f"Content checksum: {checksum}")
 
         # Check if content already ingested with same checksum
-        existing_summary = await self.vector_repository.get_summary(summary_id, member_code)
-        if existing_summary and existing_summary.checksum == checksum:
+        existing_checksum = await self.vector_repository.get_existing_checksum(summary_id)
+        if existing_checksum == checksum:
             logger.info(
                 f"Content unchanged for summary_id={summary_id} "
                 f"(checksum={checksum[:8]}...), skipping ingestion"
@@ -1133,14 +1057,6 @@ async def ingest_document(
         # STEP 4: Build LlamaIndex Documents
         # ============================================================
 
-        summary_docs = build_summary_docs(
-            summary_id=summary_id,
-            member_code=member_code,
-            summary_text=summary_text,
-            checksum=checksum,
-            collection_ids=collection_ids or [],
-        )
-
         child_docs = build_child_docs(
             member_code=member_code,
             summary_id=summary_id,
@@ -1150,13 +1066,11 @@ async def ingest_document(
             collection_ids=collection_ids or [],
         )
 
-        logger.info(
-            f"Prepared {len(summary_docs)} summary docs and {len(child_docs)} child docs for LlamaIndex"
-        )
+        logger.info(f"Prepared {len(child_docs)} child docs for LlamaIndex")
 
         # LlamaIndex handles embedding generation internally when `VectorStoreIndex.from_documents`
-        # is invoked, so there is no direct dependency on `self.embed_model` for summary/child vectors.
-        # The `build_summary_docs` / `build_child_docs` helpers live in `services/document_builders.py`
+        # is invoked, so there is no direct dependency on `self.embed_model` for child vectors.
+        # The `build_child_docs` helper lives in `services/document_builders.py`
         # and can be unit tested independently.
 
         # ============================================================
@@ -1165,15 +1079,6 @@ async def ingest_document(
 
         logger.info(f"Upserting {len(parents)} parent points...")
         await self.vector_repository.upsert_parents(parents)
-
-        logger.info("Writing summaries through LlamaIndex...")
-        summary_storage = StorageContext.from_defaults(vector_store=self.summary_vector_store)
-        VectorStoreIndex.from_documents(
-            summary_docs,
-            storage_context=summary_storage,
-            show_progress=False,
-            use_async=True,
-        )
 
         logger.info(f"Writing {len(child_docs)} child docs through LlamaIndex...")
         child_storage = StorageContext.from_defaults(vector_store=self.child_vector_store)
@@ -1186,7 +1091,7 @@ async def ingest_document(
 
         logger.info(
             f"✅ Ingestion completed for summary_id={summary_id}: "
-            f"{len(parents)} parents, 1 summary, {len(child_docs)} children"
+            f"{len(parents)} parents, {len(child_docs)} children"
         )
 
         return IngestionStats(
@@ -1256,7 +1161,7 @@ async def ingest_document(
 
 ```
 
-**Repository integration:** Inject `VectorRepository`, `summary_vector_store`, and `child_vector_store` (and optionally `QdrantMapper`) via the pipeline constructor so the ingestion flow remains testable and storage-agnostic.
+**Repository integration:** Inject `VectorRepository` and `child_vector_store` (and optionally `QdrantMapper`) via the pipeline constructor so the ingestion flow remains testable and storage-agnostic.
 
 **Update update_document method:**
 ```python
@@ -1323,12 +1228,12 @@ async def delete_document(self, summary_id: int) -> IngestionStats:
 
 ---
 
-### Phase 3: Search Service - Two-Stage Retrieval (2-3 hours)
+### Phase 3: Search Service - Single-Stage Retrieval (2-3 hours)
 
 #### Task 3.1: Update SearchService
 **File:** `src/rag_python/services/search_service.py`
 
-**New two-stage search implementation:**
+**New single-stage search implementation:**
 
 ```python
 async def search(
@@ -1340,16 +1245,12 @@ async def search(
     limit: int = 10,
     sparse_top_k: int = 10,
 ) -> SearchResponse:
-    """Perform two-stage hybrid search.
-
-    Stage 1: Search summary vectors to shortlist relevant documents
-    Stage 2: Search child vectors (hybrid) filtered to shortlisted docs
-    Stage 3: Fetch parent context and assemble results
+    """Perform single-stage hybrid search across child chunks.
 
     Args:
         query: Search query text
         member_code: Optional member code filter
-        summary_id: Optional summary ID filter (bypasses stage 1 if provided)
+        summary_id: Optional summary ID filter
         collection_id: Optional collection ID filter
         limit: Maximum number of final results
         sparse_top_k: Number of results from sparse (BM25) search
@@ -1359,81 +1260,30 @@ async def search(
     """
     try:
         logger.info(
-            f"Two-stage search: query='{query}', member_code={member_code}, "
+            f"Single-stage search: query='{query}', member_code={member_code}, "
             f"summary_id={summary_id}, collection_id={collection_id}, limit={limit}"
         )
 
-        # Build base filters (apply to both stages)
-        base_filters = []
+        # Build base filters (applied directly to child vectors)
+        must_filters = [
+            FieldCondition(key="type", match=MatchValue(value="child")),
+        ]
         if member_code:
-            base_filters.append(
+            must_filters.append(
                 FieldCondition(key="member_code", match=MatchValue(value=member_code))
             )
+        if summary_id is not None:
+            must_filters.append(
+                FieldCondition(key="summary_id", match=MatchValue(value=summary_id))
+            )
         if collection_id:
-            base_filters.append(
+            must_filters.append(
                 FieldCondition(key="collection_ids", match=MatchValue(value=collection_id))
             )
 
-        # ============================================================
-        # STAGE 1: Search Summary Vectors (Document-level)
-        # ============================================================
-        shortlisted_summary_ids: list[int] = []
+        child_filters = Filter(must=must_filters)
 
-        if summary_id is not None:
-            # Bypass stage 1: user specified exact summary_id
-            logger.info(f"Bypassing stage 1: summary_id={summary_id} specified")
-            shortlisted_summary_ids = [summary_id]
-        else:
-            # Search summary vectors to find relevant documents
-            summary_filters = Filter(
-                must=[
-                    *base_filters,
-                    FieldCondition(key="type", match=MatchValue(value="summary")),
-                ]
-            )
-
-            logger.info("Stage 1: Searching summary vectors...")
-            summary_index = VectorStoreIndex.from_vector_store(
-                self.qdrant_service.summary_vector_store
-            )
-            summary_retriever = summary_index.as_retriever(
-                similarity_top_k=limit * 2,  # Get more candidates for stage 2
-                vector_store_kwargs={"qdrant_filters": summary_filters},
-            )
-            summary_results = await summary_retriever.aretrieve(query)
-
-            # Extract shortlisted summary_ids
-            shortlisted_summary_ids = [
-                r.metadata.get("summary_id")
-                for r in summary_results
-                if r.metadata.get("summary_id") is not None
-            ]
-
-            logger.info(
-                f"Stage 1 complete: shortlisted {len(shortlisted_summary_ids)} documents"
-            )
-
-        if not shortlisted_summary_ids:
-            logger.info("No documents found in stage 1, returning empty results")
-            return SearchResponse(query=query, results={}, total_results=0)
-
-        # ============================================================
-        # STAGE 2: Search Child Vectors (Chunk-level, Hybrid)
-        # ============================================================
-        child_filters = Filter(
-            must=[
-                *base_filters,
-                FieldCondition(key="type", match=MatchValue(value="child")),
-                FieldCondition(
-                    key="summary_id",
-                    match=MatchAny(any=shortlisted_summary_ids)
-                ),
-            ]
-        )
-
-        logger.info(
-            f"Stage 2: Searching child vectors in {len(shortlisted_summary_ids)} docs..."
-        )
+        logger.info("Searching child vectors (hybrid)...")
         child_index = VectorStoreIndex.from_vector_store(
             self.qdrant_service.child_vector_store
         )
@@ -1445,15 +1295,11 @@ async def search(
         )
         child_results = await child_retriever.aretrieve(query)
 
-        logger.info(f"Stage 2 complete: found {len(child_results)} child matches")
+        logger.info(f"Child search returned {len(child_results)} matches")
 
         if not child_results:
-            logger.info("No child chunks found in stage 2")
+            logger.info("No child chunks found, returning empty results")
             return SearchResponse(query=query, results={}, total_results=0)
-
-        # ============================================================
-        # STAGE 3: Group by Parent & Fetch Parent Context
-        # ============================================================
 
         # Group children by parent_id
         parent_groups: dict[str, list] = defaultdict(list)
@@ -1462,12 +1308,12 @@ async def search(
             if parent_id:
                 parent_groups[parent_id].append(child_result)
 
-        logger.info(f"Stage 3: Grouped into {len(parent_groups)} unique parents")
+        logger.info(f"Grouped matches across {len(parent_groups)} parents")
 
         # Fetch all parent payloads (batch)
         parent_ids = list(parent_groups.keys())
         parent_points = await self.qdrant_service.aclient.retrieve(
-            collection_name=self.qdrant_service.collection_name,
+            collection_name=self.qdrant_service.col,
             ids=parent_ids,
             with_payload=True,
             with_vectors=False,
@@ -1480,7 +1326,7 @@ async def search(
         }
 
         # ============================================================
-        # STAGE 4: Assemble Results
+        # Assemble Results
         # ============================================================
 
         # Build parent-based results
@@ -1525,12 +1371,10 @@ async def search(
 
         logger.info(f"Created {len(parent_results)} parent-based results")
 
-        # Aggregate by summary_id
         aggregated: dict[int, list[SearchResultItem]] = defaultdict(list)
         for item, result_summary_id in parent_results:
             aggregated[result_summary_id].append(item)
 
-        # Build final response
         results_by_summary: dict[str, SummaryResults] = {}
 
         for sum_id, items in aggregated.items():
@@ -1571,6 +1415,12 @@ async def search(
         logger.error(f"Error performing search: {e}", exc_info=True)
         raise
 ```
+
+**Status:** ✅ Implemented in `src/rag_python/services/search_service.py`
+
+- Instantiates a shared `QdrantVectorStore`+`VectorStoreIndex` for the child collection with named vectors (`child`, `child-sparse`) and LlamaIndex-hybrid retrieval enabled.
+- Applies tenant/summary/collection filters via native `qdrant.filters`, retrieves parents in a single async batch, and aggregates per-summary responses using the new schemas.
+- Added focused coverage in `tests/test_search_service.py` using lightweight dependency stubs to avoid heavy protobuf requirements; revisit once full-stack integration tests run against a live Qdrant instance.
 
 ---
 
@@ -1660,6 +1510,12 @@ async def _handle_updated(self, event: SummaryEvent) -> bool:
         return False
 ```
 
+**Status:** ✅ Implemented in `src/rag_python/worker/handlers.py`
+
+- Validates presence of both summary (`content`) and original (`parse_content`) text, logging their lengths before invoking ingestion.
+- Routes those fields through `summary_text` / `original_content` arguments to the new ingestion/update APIs for checksum-driven idempotency.
+- Updated coverage in `tests/test_handlers_integration.py` and `tests/test_worker.py`, using lightweight qdrant stubs so handler tests run without protobuf/grpc dependencies.
+
 **Delete handler stays the same:**
 ```python
 async def _handle_deleted(self, event: SummaryEvent) -> bool:
@@ -1736,7 +1592,7 @@ async def migrate():
   - [ ] Rough estimate for short samples
   - [ ] Rough estimate for longer passages
 - [ ] `tests/adapters/test_qdrant_mapper.py`
-  - [ ] Parent/Summary/Child → PointStruct mapping
+  - [ ] Parent/Child → PointStruct mapping
   - [ ] Record → model reconstruction
 - [ ] `tests/repositories/test_vector_repository.py`
   - [ ] Upsert batches call QdrantService with expected payloads
@@ -1751,17 +1607,16 @@ async def migrate():
   - [ ] Delete by summary_id (all point types)
 
 - [ ] `tests/services/test_document_builders.py`
-  - [ ] Summary doc metadata (checksum, collection_ids, stable id)
-  - [ ] Child doc metadata (parent linkage, indices)
+  - [ ] Child doc metadata (parent linkage, indices, checksum propagation)
 - [ ] `test_ingestion_pipeline.py`
   - [ ] Idempotency (same checksum → skip)
   - [ ] Parent size control (≤2500 → 1 parent, >2500 → split)
   - [ ] 60-child cap warning
   - [ ] Parents persisted via repository
-  - [ ] Summary/child docs forwarded to LlamaIndex with expected storage contexts
+  - [ ] Child docs forwarded to LlamaIndex with expected storage context
 
 - [ ] `test_search_service.py`
-  - [ ] Two-stage retrieval (summary → children)
+  - [ ] Single-stage chunk retrieval
   - [ ] Filtering (member_code, collection_id)
   - [ ] Result aggregation by summary_id
 
@@ -1769,8 +1624,8 @@ async def migrate():
 
 - [ ] **End-to-end ingestion:**
   - [ ] Create document with both content fields
-  - [ ] Verify 3 point types created (parent, summary, child)
-  - [ ] Verify vectors populated correctly via LlamaIndex stores (summary + child)
+  - [ ] Verify parent and child points created with correct payloads
+  - [ ] Verify child vectors populated correctly via LlamaIndex store
   - [ ] Verify metadata correct
 
 - [ ] **Idempotency:**
@@ -1780,10 +1635,9 @@ async def migrate():
   - [ ] Update content
   - [ ] Verify re-ingestion triggered
 
-- [ ] **Two-stage search:**
+- [ ] **Single-stage search:**
   - [ ] Ingest multiple documents
-  - [ ] Search query matches summaries
-  - [ ] Verify child results filtered to shortlisted docs
+  - [ ] Search query surfaces relevant child chunks
   - [ ] Verify parent context assembled correctly
 
 - [ ] **Collection filtering:**
@@ -1801,7 +1655,7 @@ async def migrate():
 - [ ] **Delete operations:**
   - [ ] Ingest document
   - [ ] Delete by summary_id
-  - [ ] Verify all point types deleted (parent, summary, children)
+  - [ ] Verify all point types deleted (parents and children)
 
 ### Performance Tests
 
@@ -1994,13 +1848,13 @@ if len(child_nodes) > 60:
 
 ## Success Criteria
 
-- [ ] Single unified collection `memos` created with 3 named vectors
-- [ ] All 3 point types stored correctly with stable UUIDs (parent, summary, child)
+- [ ] Single unified collection `memos` created with dense+sparse child vectors
+- [ ] Parent and child point types stored correctly with stable UUIDs
 - [ ] UUID idempotency working (same inputs → same UUIDs)
 - [ ] Checksum idempotency working (skip re-ingestion if unchanged)
-- [ ] Two-stage search returning correct results
+- [ ] Single-stage chunk search returning correct results
 - [ ] Vector repository + mapper isolate payload translation from business logic
-- [ ] Summaries/children persisted via LlamaIndex vector stores with correct metadata
+- [ ] Child vectors persisted via LlamaIndex vector store with correct metadata
 - [ ] All existing tests passing
 - [ ] New tests added and passing (point IDs, text processing, repository/mapper/doc-builders, UUID stability)
 - [ ] Performance comparable or better than current
