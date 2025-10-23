@@ -134,7 +134,7 @@ class IngestionPipeline:
                 parent_doc = Document(text=parent.text, metadata={})
                 nodes = await self._child_parser.aget_nodes_from_documents([parent_doc])
 
-                if len(nodes) > 60:
+                if len(nodes) > self._warn_child_nodes_over:
                     logger.warning(
                         "Parent %s has %s child nodes (summary_id=%s, member_code=%s)",
                         parent.parent_idx,
@@ -254,7 +254,7 @@ class IngestionPipeline:
         estimated_tokens: int,
     ) -> list[Parent]:
         """Build parent payload objects based on the normalized content."""
-        if estimated_tokens <= 2500:
+        if estimated_tokens <= self._max_tokens_before_split:
             return [
                 Parent(
                     id=parent_point_id(member_code, summary_id, 0),

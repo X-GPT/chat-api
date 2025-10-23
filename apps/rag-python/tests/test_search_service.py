@@ -12,8 +12,7 @@ from qdrant_client import AsyncQdrantClient, QdrantClient
 
 from rag_python.config import Settings
 from rag_python.core.constants import CHILD_SPARSE_VEC, CHILD_VEC
-from rag_python.repositories.vector_repository import VectorRepository
-from rag_python.services.pipeline import IngestionPipeline
+from rag_python.services.ingestion_service import IngestionService
 from rag_python.services.qdrant_service import QdrantService
 from rag_python.services.search_service import SearchService
 
@@ -77,20 +76,11 @@ def child_vector_store(
 
 
 @pytest.fixture
-def pipeline(
-    qdrant_service: QdrantService,
-    child_vector_store: QdrantVectorStore,
-    child_sentence_splitter: SentenceSplitter,
-) -> IngestionPipeline:
-    # Wire a real VectorRepository (hitting embedded Qdrant)
-    repo = VectorRepository(qdrant_service)
-    parent_parser = StubParentParser()  # semantic branch (async)
-    child_parser = child_sentence_splitter  # sentence-level child split
-    return IngestionPipeline(
-        vector_repository=repo,
-        parent_parser=parent_parser,  # pyright: ignore[reportArgumentType]
-        child_parser=child_parser,
-        child_vector_store=child_vector_store,
+def ingestion_service(qdrant_service: QdrantService) -> IngestionService:
+    return IngestionService(
+        settings=Settings(qdrant_collection_name="test-unified"),
+        qdrant_service=qdrant_service,
+        embed_model=_FakeEmbedding(),  # pyright: ignore[reportAbstractUsage, reportArgumentType]
     )
 
 
@@ -107,13 +97,13 @@ def search_service(
 
 
 async def test_search_by_member_code_returns_results(
-    pipeline: IngestionPipeline,
+    ingestion_service: IngestionService,
     search_service: SearchService,
 ):
     # Ingest document under same summary
     # Note: Small content (<2500 tokens) will be kept as a single parent chunk
     content = "Alpha paragraph. More alpha.\n\nBeta paragraph. More beta."
-    stats = await pipeline.ingest_document(
+    stats = await ingestion_service.ingest_document(
         summary_id=1001,
         member_code="tenant-A",
         original_content=content,
@@ -141,16 +131,16 @@ async def test_search_by_member_code_returns_results(
 
 
 async def test_search_filter_by_summary_id(
-    pipeline: IngestionPipeline,
+    ingestion_service: IngestionService,
     search_service: SearchService,
 ):
-    await pipeline.ingest_document(
+    await ingestion_service.ingest_document(
         summary_id=2001,
         member_code="tenant-B",
         original_content="gamma words here. more gamma.",
         collection_ids=[99],
     )
-    await pipeline.ingest_document(
+    await ingestion_service.ingest_document(
         summary_id=2002,
         member_code="tenant-B",
         original_content="delta words here. more delta.",
@@ -171,17 +161,17 @@ async def test_search_filter_by_summary_id(
 
 
 async def test_search_filter_by_collection_id(
-    pipeline: IngestionPipeline,
+    ingestion_service: IngestionService,
     search_service: SearchService,
 ):
     # Two docs, different collections
-    await pipeline.ingest_document(
+    await ingestion_service.ingest_document(
         summary_id=3001,
         member_code="tenant-C",
         original_content="epsilon term present.",
         collection_ids=[1],
     )
-    await pipeline.ingest_document(
+    await ingestion_service.ingest_document(
         summary_id=3002,
         member_code="tenant-C",
         original_content="zeta term present.",
