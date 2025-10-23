@@ -2,8 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Sequence
 
 from llama_index.core import Document, StorageContext, VectorStoreIndex
 from llama_index.core.node_parser import SemanticSplitterNodeParser, SentenceSplitter
@@ -44,18 +45,21 @@ class IngestionPipeline:
         parent_parser: SemanticSplitterNodeParser,
         child_parser: SentenceSplitter,
         child_vector_store: QdrantVectorStore,
+        max_tokens_before_split: int = 2500,
+        warn_child_nodes_over: int = 60,
     ) -> None:
         self._vector_repository = vector_repository
         self._parent_parser = parent_parser
         self._child_parser = child_parser
         self._child_vector_store = child_vector_store
+        self._max_tokens_before_split = max_tokens_before_split
+        self._warn_child_nodes_over = warn_child_nodes_over
 
     async def ingest_document(
         self,
         *,
         summary_id: int,
         member_code: str,
-        summary_text: str,
         original_content: str,
         collection_ids: Sequence[int] | None = None,
     ) -> IngestionStats:
@@ -64,23 +68,17 @@ class IngestionPipeline:
             collection_ids_list = list(collection_ids or [])
 
             logger.info(
-                "Starting ingestion summary_id=%s member_code=%s summary_length=%s content_length=%s",
+                "Starting ingestion summary_id=%s member_code=%s content_length=%s",
                 summary_id,
                 member_code,
-                len(summary_text),
                 len(original_content),
             )
 
             normalized_content = normalize_text(original_content)
-            checksum = compute_checksum(normalized_content)
-            logger.info("Computed checksum for summary_id=%s: %s", summary_id, checksum)
-
-            existing_checksum = await self._vector_repository.get_existing_checksum(summary_id)
-            if existing_checksum == checksum:
+            if not normalized_content.strip():
                 logger.info(
-                    "Content unchanged for summary_id=%s (checksum=%s), skipping ingestion",
+                    "Empty content after normalization; skipping ingestion for summary_id=%s",
                     summary_id,
-                    checksum[:8],
                 )
                 return IngestionStats(
                     summary_id=summary_id,
@@ -91,10 +89,35 @@ class IngestionPipeline:
                     operation="skipped",
                 )
 
+            checksum = compute_checksum(normalized_content)
+            logger.info("Computed checksum for summary_id=%s: %s", summary_id, checksum)
+
+            existing_checksum = await self._vector_repository.get_existing_checksum(summary_id)
+            if existing_checksum == checksum:
+                logger.info(
+                    "Content unchanged for summary_id=%s (checksum=%s), skipping ingestion",
+                    summary_id,
+                    checksum[:8],
+                )
+                # ensure membership up to date
+                if collection_ids_list:
+                    current = await self._vector_repository.get_collection_ids(summary_id)
+                    if sorted(current) != sorted(collection_ids_list):
+                        await self._vector_repository.update_collection_ids(
+                            summary_id=summary_id,
+                            collection_ids=collection_ids_list,
+                        )
+                return IngestionStats(
+                    summary_id=summary_id,
+                    member_code=member_code,
+                    parent_chunks=0,
+                    child_chunks=0,
+                    total_nodes=0,
+                    operation="skipped",
+                )
+
             estimated_tokens = estimate_tokens(normalized_content)
-            logger.info(
-                "Estimated tokens for summary_id=%s: %s", summary_id, estimated_tokens
-            )
+            logger.info("Estimated tokens for summary_id=%s: %s", summary_id, estimated_tokens)
 
             parents = await self._build_parents(
                 summary_id=summary_id,
@@ -138,9 +161,7 @@ class IngestionPipeline:
                     }
                     child_nodes.append(node)
 
-            logger.info(
-                "Created %s child nodes for summary_id=%s", len(child_nodes), summary_id
-            )
+            logger.info("Created %s child nodes for summary_id=%s", len(child_nodes), summary_id)
 
             child_docs = build_child_docs(
                 member_code=member_code,
@@ -157,16 +178,13 @@ class IngestionPipeline:
             )
 
             await self._vector_repository.upsert_parents(parents)
-            logger.info(
-                "Persisted %s parents for summary_id=%s", len(parents), summary_id
-            )
+            logger.info("Persisted %s parents for summary_id=%s", len(parents), summary_id)
 
             storage_context = StorageContext.from_defaults(vector_store=self._child_vector_store)
-            VectorStoreIndex.from_documents(  # LlamaIndex handles embeddings internally.
-                child_docs,
-                storage_context=storage_context,
-                show_progress=False,
-                use_async=True,
+            await asyncio.to_thread(
+                lambda: VectorStoreIndex.from_documents(
+                    child_docs, storage_context=storage_context, show_progress=False, use_async=True
+                )
             )
             logger.info(
                 "Persisted %s child documents for summary_id=%s via LlamaIndex",
@@ -198,7 +216,6 @@ class IngestionPipeline:
         *,
         summary_id: int,
         member_code: str,
-        summary_text: str,
         original_content: str,
         collection_ids: Sequence[int] | None = None,
     ) -> IngestionStats:
@@ -208,7 +225,6 @@ class IngestionPipeline:
         stats = await self.ingest_document(
             summary_id=summary_id,
             member_code=member_code,
-            summary_text=summary_text,
             original_content=original_content,
             collection_ids=collection_ids,
         )

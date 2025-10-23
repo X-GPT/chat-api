@@ -62,6 +62,7 @@ async def test_handle_created(handler: SummaryLifecycleHandler, mock_rag_service
         id=123,
         memberCode="user123",
         teamCode="team456",
+        content="Short summary overview.",
         parseContent="This is test content for ingestion.",
         action=SummaryAction.CREATED,
         timestamp=datetime.now(),
@@ -79,7 +80,7 @@ async def test_handle_created(handler: SummaryLifecycleHandler, mock_rag_service
     mock_rag_service.ingest_document.assert_called_once_with(
         summary_id=123,
         member_code="user123",
-        content="This is test content for ingestion.",
+        original_content="This is test content for ingestion.",
         collection_ids=None,
     )
 
@@ -94,6 +95,7 @@ async def test_handle_created_without_content(
         id=123,
         memberCode="user123",
         teamCode="team456",
+        content=None,
         parseContent=None,
         action=SummaryAction.CREATED,
         timestamp=datetime.now(),
@@ -104,8 +106,8 @@ async def test_handle_created_without_content(
     # Handle message
     result = await handler.handle(message)
 
-    # Verify success (but no ingestion)
-    assert result is True
+    # Verify failure due to missing content
+    assert result is False
 
     # Verify RAG service was NOT called
     mock_rag_service.ingest_document.assert_not_called()
@@ -119,6 +121,7 @@ async def test_handle_updated(handler: SummaryLifecycleHandler, mock_rag_service
         id=123,
         memberCode="user123",
         teamCode="team456",
+        content="Updated summary overview.",
         parseContent="Updated content for the summary.",
         action=SummaryAction.UPDATED,
         timestamp=datetime.now(),
@@ -136,7 +139,7 @@ async def test_handle_updated(handler: SummaryLifecycleHandler, mock_rag_service
     mock_rag_service.update_document.assert_called_once_with(
         summary_id=123,
         member_code="user123",
-        content="Updated content for the summary.",
+        original_content="Updated content for the summary.",
         collection_ids=None,
     )
 
@@ -151,6 +154,7 @@ async def test_handle_updated_without_content(
         id=123,
         memberCode="user123",
         teamCode="team456",
+        content="Summary text without original.",
         parseContent=None,
         action=SummaryAction.UPDATED,
         timestamp=datetime.now(),
@@ -161,8 +165,8 @@ async def test_handle_updated_without_content(
     # Handle message
     result = await handler.handle(message)
 
-    # Verify success (but no update)
-    assert result is True
+    # Verify failure due to missing original content
+    assert result is False
 
     # Verify RAG service was NOT called
     mock_rag_service.update_document.assert_not_called()
@@ -206,6 +210,7 @@ async def test_handle_created_with_error(
         id=123,
         memberCode="user123",
         teamCode="team456",
+        content="Summary text.",
         parseContent="Test content.",
         action=SummaryAction.CREATED,
         timestamp=datetime.now(),
@@ -233,6 +238,7 @@ async def test_handle_updated_with_error(
         id=123,
         memberCode="user123",
         teamCode="team456",
+        content="Updated summary text.",
         parseContent="Updated content.",
         action=SummaryAction.UPDATED,
         timestamp=datetime.now(),
@@ -285,6 +291,7 @@ async def test_handle_with_long_content(
         id=123,
         memberCode="user123",
         teamCode="team456",
+        content="Summary snippet.",
         parseContent=long_content,
         action=SummaryAction.CREATED,
         timestamp=datetime.now(),
@@ -301,7 +308,7 @@ async def test_handle_with_long_content(
     # Verify RAG service was called with full content
     mock_rag_service.ingest_document.assert_called_once()
     call_args = mock_rag_service.ingest_document.call_args[1]
-    assert call_args["content"] == long_content
+    assert call_args["original_content"] == long_content
 
 
 @pytest.mark.asyncio
@@ -316,6 +323,7 @@ async def test_multiple_events_sequence(
         id=123,
         memberCode="user123",
         teamCode="team456",
+        content="Initial summary.",
         parseContent="Initial content.",
         action=SummaryAction.CREATED,
         timestamp=timestamp,
@@ -330,6 +338,7 @@ async def test_multiple_events_sequence(
         id=123,
         memberCode="user123",
         teamCode="team456",
+        content="Updated summary.",
         parseContent="Updated content.",
         action=SummaryAction.UPDATED,
         timestamp=timestamp,

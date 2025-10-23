@@ -1,11 +1,27 @@
 """Search service for hybrid semantic + keyword search."""
 
-import asyncio
 from collections import defaultdict
+from typing import Any
 
+from llama_index.core import VectorStoreIndex  # type: ignore
 from llama_index.embeddings.openai import OpenAIEmbedding  # type: ignore
+from llama_index.vector_stores.qdrant import QdrantVectorStore  # type: ignore
+from qdrant_client import models as q
 
 from rag_python.config import Settings
+from rag_python.core.constants import (
+    CHILD_SPARSE_VEC,
+    CHILD_VEC,
+    K_CHUNK_INDEX,
+    K_COLLECTION_IDS,
+    K_MEMBER_CODE,
+    K_PARENT_ID,
+    K_PARENT_IDX,
+    K_PARENT_TEXT,
+    K_SUMMARY_ID,
+    K_TYPE,
+    POINT_TYPE_CHILD,
+)
 from rag_python.core.logging import get_logger
 from rag_python.schemas.search import (
     MatchingChild,
@@ -13,7 +29,7 @@ from rag_python.schemas.search import (
     SearchResultItem,
     SummaryResults,
 )
-from rag_python.services.qdrant_service import QdrantService, SearchResult
+from rag_python.services.qdrant_service import QdrantService
 
 logger = get_logger(__name__)
 
@@ -21,23 +37,44 @@ logger = get_logger(__name__)
 class SearchService:
     """Service for hybrid search operations."""
 
-    def __init__(self, settings: Settings, qdrant_service: QdrantService):
+    def __init__(
+        self,
+        settings: Settings,
+        qdrant_service: QdrantService,
+        embed_model: OpenAIEmbedding | None = None,
+        child_vector_store: QdrantVectorStore | None = None,
+    ):
         """Initialize search service.
 
         Args:
             settings: Application settings.
             qdrant_service: Qdrant service instance.
+            child_vector_store: Optional preconfigured Qdrant vector store (primarily for tests).
         """
         self.settings = settings
         self.qdrant_service = qdrant_service
 
-        # Initialize OpenAI embedding model
-        self.embed_model = OpenAIEmbedding(
+        self.embed_model = embed_model or OpenAIEmbedding(
             api_key=settings.openai_api_key,
             model=settings.openai_embedding_model,
         )
 
-        logger.info("Search service initialized")
+        self.child_vector_store = child_vector_store or QdrantVectorStore(
+            collection_name=self.qdrant_service.col,
+            client=self.qdrant_service.client,
+            aclient=self.qdrant_service.aclient,
+            dense_vector_name=CHILD_VEC,
+            sparse_vector_name=CHILD_SPARSE_VEC,
+            enable_hybrid=True,
+            fastembed_sparse_model="Qdrant/bm25",
+        )
+
+        self.child_index = VectorStoreIndex.from_vector_store(  # type: ignore[reportUnknownReturnType]
+            self.child_vector_store,
+            embed_model=self.embed_model,
+        )
+
+        logger.info("Search service initialized with hybrid child retriever")
 
     async def search(
         self,
@@ -48,130 +85,142 @@ class SearchService:
         limit: int = 10,
         sparse_top_k: int = 10,
     ) -> SearchResponse:
-        """Perform hybrid search and aggregate results by summary_id.
-
-        Args:
-            query: Search query text.
-            member_code: Optional member code to filter by.
-            summary_id: Optional summary ID to filter by.
-            collection_id: Optional collection ID to filter by.
-            limit: Maximum number of results to return.
-            sparse_top_k: Number of results from sparse search.
-
-        Returns:
-            SearchResponse with results aggregated by summary_id.
-        """
+        """Perform single-stage hybrid search and aggregate results by summary_id."""
         try:
             logger.info(
-                f"Performing search: query='{query}', member_code={member_code}, "
-                f"summary_id={summary_id}, collection_id={collection_id}, limit={limit}"
+                "Single-stage search: query='%s', member_code=%s, summary_id=%s, collection_id=%s, limit=%s",
+                query,
+                member_code,
+                summary_id,
+                collection_id,
+                limit,
             )
 
-            # Perform hybrid search using QdrantService (searches children collection)
-            search_results = await self.qdrant_service.search(
-                query=query,
-                member_code=member_code,
-                collection_id=collection_id,
-                limit=limit,
+            must_filters: list[q.Condition] = [
+                q.FieldCondition(
+                    key=K_TYPE,
+                    match=q.MatchValue(value=POINT_TYPE_CHILD),
+                ),
+            ]
+
+            if member_code:
+                must_filters.append(
+                    q.FieldCondition(
+                        key=K_MEMBER_CODE,
+                        match=q.MatchValue(value=member_code),
+                    )
+                )
+
+            if summary_id is not None:
+                must_filters.append(
+                    q.FieldCondition(
+                        key=K_SUMMARY_ID,
+                        match=q.MatchValue(value=summary_id),
+                    )
+                )
+
+            if collection_id is not None:
+                must_filters.append(
+                    q.FieldCondition(
+                        key=K_COLLECTION_IDS,
+                        match=q.MatchValue(value=collection_id),
+                    )
+                )
+
+            child_filters = q.Filter(must=must_filters)
+
+            child_retriever = self.child_index.as_retriever(
+                similarity_top_k=max(limit, sparse_top_k),
                 sparse_top_k=sparse_top_k,
+                hybrid_top_k=limit,
+                vector_store_kwargs={"qdrant_filters": child_filters},
             )
+            child_results = await child_retriever.aretrieve(query)
 
-            logger.info(f"Found {len(search_results)} child chunk matches")
+            logger.info("Child search returned %s matches", len(child_results))
 
-            # Step 1: Group results by parent_id
-            parent_groups: dict[str, list[tuple[SearchResult, float]]] = defaultdict(list)
+            if not child_results:
+                logger.info("No child chunks found, returning empty results")
+                return SearchResponse(query=query, results={}, total_results=0)
 
-            for result in search_results:
-                if result.payload is None:
-                    continue
-
-                parent_id = result.payload.get("parent_id")
+            parent_groups: dict[str, list[Any]] = defaultdict(list)
+            for child_result in child_results:
+                parent_id = child_result.metadata.get(K_PARENT_ID)
                 if not parent_id:
-                    logger.warning(f"Child result {result.id} has no parent_id")
+                    logger.warning("Child %s missing parent_id", child_result.node_id)
                     continue
 
-                parent_groups[parent_id].append((result, result.score))
+                parent_groups[parent_id].append(child_result)
 
-            logger.info(f"Grouped results into {len(parent_groups)} unique parents")
+            logger.info("Grouped matches across %s parents", len(parent_groups))
 
-            # Step 2: Batch fetch all parent nodes
             parent_ids = list(parent_groups.keys())
-            parent_nodes = await asyncio.gather(
-                *[self.qdrant_service.get_node_by_id(pid) for pid in parent_ids]
+            parent_points = await self.qdrant_service.retrieve_by_ids(
+                point_ids=parent_ids,
+                with_payload=True,
+                with_vectors=False,
             )
 
-            # Step 3: Build deduplicated parent-based results
+            parent_lookup: dict[str, dict[str, Any]] = {
+                str(point.id): point.payload if point.payload else {} for point in parent_points
+            }
+
             parent_results: list[tuple[SearchResultItem, int]] = []
 
-            for parent_id, parent_node in zip(parent_ids, parent_nodes):
-                if not parent_node:
-                    logger.warning(f"Parent node {parent_id} not found")
+            for parent_id, child_matches in parent_groups.items():
+                parent_payload = parent_lookup.get(parent_id)
+                if not parent_payload:
+                    logger.warning("Parent %s not found", parent_id)
                     continue
 
-                child_matches = parent_groups[parent_id]
-
-                # Create MatchingChild objects
-                matching_children = [
-                    MatchingChild(
-                        id=str(child_result.id),
-                        text=(child_result.payload.get("text", "") if child_result.payload else ""),
-                        score=child_score,
-                        chunk_index=(
-                            child_result.payload.get("chunk_index", 0)
-                            if child_result.payload
-                            else 0
-                        ),
+                # Convert child matches into schema objects.
+                matching_children: list[MatchingChild] = []
+                for child in child_matches:
+                    chunk_index = child.metadata.get(K_CHUNK_INDEX, 0)
+                    score = child.score if child.score is not None else 0.0
+                    matching_children.append(
+                        MatchingChild(
+                            id=str(child.node_id),
+                            text=child.get_content(),
+                            score=score,
+                            chunk_index=chunk_index,
+                        )
                     )
-                    for child_result, child_score in child_matches
-                ]
 
-                # Sort matching children by score (best first)
+                if not matching_children:
+                    continue
+
                 matching_children.sort(key=lambda x: x.score, reverse=True)
 
-                # Get summary_id from parent metadata
-                result_summary_id = parent_node.metadata.get("summary_id")
+                result_summary_id = parent_payload.get(K_SUMMARY_ID)
                 if result_summary_id is None:
-                    logger.warning(f"Parent {parent_id} has no summary_id")
+                    logger.warning("Parent %s missing summary_id", parent_id)
                     continue
 
-                # Apply summary_id filter if specified
-                if summary_id is not None and result_summary_id != summary_id:
-                    continue
-
-                # Create parent-based SearchResultItem
                 parent_item = SearchResultItem(
                     id=parent_id,
-                    text=parent_node.get_content(),
-                    max_score=max(c.score for c in matching_children),
-                    chunk_index=parent_node.metadata.get("chunk_index", 0),
+                    text=parent_payload.get(K_PARENT_TEXT, ""),
+                    max_score=max(child.score for child in matching_children),
+                    chunk_index=parent_payload.get(K_PARENT_IDX, 0),
                     matching_children=matching_children,
                 )
 
                 parent_results.append((parent_item, result_summary_id))
 
-            logger.info(f"Created {len(parent_results)} parent-based results")
+            logger.info("Created %s parent-based results", len(parent_results))
 
-            # Step 4: Aggregate by summary_id
             aggregated: dict[int, list[SearchResultItem]] = defaultdict(list)
-
             for item, result_summary_id in parent_results:
                 aggregated[result_summary_id].append(item)
 
-            # Step 5: Build final response with SummaryResults
             results_by_summary: dict[str, SummaryResults] = {}
-
             for sum_id, items in aggregated.items():
-                # Sort by max_score descending
                 items.sort(key=lambda x: x.max_score, reverse=True)
 
-                # Get member_code from first parent's metadata
                 member_code_value = "unknown"
                 if items:
-                    # Get from parent node metadata (already loaded)
-                    for parent_node in parent_nodes:
-                        if parent_node and parent_node.metadata.get("summary_id") == sum_id:
-                            member_code_value = parent_node.metadata.get("member_code", "unknown")
-                            break
+                    first_parent_payload = parent_lookup.get(items[0].id, {})
+                    member_code_value = first_parent_payload.get(K_MEMBER_CODE, "unknown")
 
                 summary_result = SummaryResults(
                     summary_id=sum_id,
@@ -180,14 +229,14 @@ class SearchService:
                     total_chunks=len(items),
                     max_score=max(item.max_score for item in items) if items else 0.0,
                 )
-
                 results_by_summary[str(sum_id)] = summary_result
 
             total_results = sum(sr.total_chunks for sr in results_by_summary.values())
 
             logger.info(
-                f"Search completed: {total_results} total results "
-                f"across {len(results_by_summary)} summaries"
+                "Search completed: %s total results across %s summaries",
+                total_results,
+                len(results_by_summary),
             )
 
             return SearchResponse(
@@ -196,6 +245,6 @@ class SearchService:
                 total_results=total_results,
             )
 
-        except Exception as e:
-            logger.error(f"Error performing search: {e}", exc_info=True)
+        except Exception as exc:
+            logger.error("Error performing search: %s", exc, exc_info=True)
             raise

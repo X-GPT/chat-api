@@ -2,212 +2,184 @@
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from collections.abc import Sequence
 
 import pytest
+from llama_index.core import Document
+from llama_index.core.node_parser import SentenceSplitter
+from llama_index.core.schema import TextNode
+from llama_index.vector_stores.qdrant import QdrantVectorStore  # type: ignore
+from qdrant_client import AsyncQdrantClient, QdrantClient
+from qdrant_client import models as q
 
 from rag_python.config import Settings
-from rag_python.services.pipeline import IngestionStats
+from rag_python.core.constants import (
+    CHILD_SPARSE_VEC,
+    CHILD_VEC,
+    K_MEMBER_CODE,
+    K_SUMMARY_ID,
+    K_TYPE,
+    POINT_TYPE_PARENT,
+)
+from rag_python.repositories.vector_repository import VectorRepository
+from rag_python.services.ingestion_service import IngestionService
+from rag_python.services.pipeline import IngestionPipeline
 from rag_python.services.qdrant_service import QdrantService
+from rag_python.text_processing.checksum import compute_checksum
+from rag_python.text_processing.normalize_text import normalize_text
+
+
+class StubParentParser:
+    """
+    Deterministic "semantic" splitter for parent nodes (no embeddings).
+    It splits on '\n\n' into TextNodes and supports async API.
+    """
+
+    async def aget_nodes_from_documents(self, docs: Sequence[Document]) -> list[TextNode]:
+        nodes: list[TextNode] = []
+        for doc in docs:
+            parts = [p for p in doc.text.split("\n\n") if p.strip()]
+            for chunk in parts:
+                nodes.append(TextNode(text=chunk))
+        return nodes
 
 
 @pytest.fixture
-def settings() -> Settings:
-    """Return settings configured for tests."""
-    return Settings(
-        openai_api_key="test-key",
-        openai_embedding_model="text-embedding-3-small",
-        qdrant_url="http://localhost:6333",
-        qdrant_api_key="test-qdrant-key",
-        qdrant_collection_name="test-collection",
-        chunk_size=256,
-        chunk_overlap=64,
+def child_sentence_splitter():
+    # Simple sentence splitter for child nodes
+    return SentenceSplitter(chunk_size=80, chunk_overlap=0)
+
+
+@pytest.fixture
+def child_vector_store(
+    client_local: QdrantClient,
+    aclient_local: AsyncQdrantClient,
+    test_settings: Settings,
+):
+    return QdrantVectorStore(
+        client=client_local,
+        aclient=aclient_local,
+        collection_name=test_settings.qdrant_collection_name,
+        dense_vector_name=CHILD_VEC,
+        sparse_vector_name=CHILD_SPARSE_VEC,
+        enable_hybrid=True,
+        fastembed_sparse_model="Qdrant/bm25",
+        batch_size=20,
     )
 
 
 @pytest.fixture
-def qdrant_service(settings: Settings) -> QdrantService:
-    """Create a QdrantService with mocked clients."""
-    with (
-        patch("rag_python.services.qdrant_service.QdrantClient") as mock_client_cls,
-        patch("rag_python.services.qdrant_service.AsyncQdrantClient") as mock_async_cls,
-    ):
-        mock_client_cls.return_value = MagicMock()
-        mock_async = MagicMock()
-        mock_async.collection_exists = AsyncMock(return_value=True)
-        mock_async.create_collection = AsyncMock()
-        mock_async.create_payload_index = AsyncMock()
-        mock_async.upsert = AsyncMock()
-        mock_async.delete = AsyncMock()
-        mock_async.set_payload = AsyncMock()
-        mock_async.retrieve = AsyncMock()
-        mock_async.scroll = AsyncMock()
-        mock_async_cls.return_value = mock_async
-
-        service = QdrantService(settings)
-        service.ensure_collection_exists = AsyncMock()
-        return service
-
-
-@pytest.fixture
-def ingestion_service(
-    settings: Settings,
+def pipeline(
     qdrant_service: QdrantService,
-) -> tuple["IngestionService", MagicMock]:
-    """Instantiate IngestionService with patched dependencies."""
-
-    with (
-        patch("rag_python.services.ingestion_service.LlamaIndexSettings") as mock_settings,
-        patch("rag_python.services.ingestion_service.OpenAIEmbedding") as mock_embedding,
-        patch("rag_python.services.ingestion_service.SemanticSplitterNodeParser") as mock_parent_parser,
-        patch("rag_python.services.ingestion_service.SentenceSplitter") as mock_child_parser,
-        patch("rag_python.services.ingestion_service.QdrantVectorStore") as mock_vector_store,
-        patch("rag_python.services.ingestion_service.IngestionPipeline") as mock_pipeline_cls,
-    ):
-        mock_settings.embed_model = MagicMock()
-        mock_embedding.return_value = MagicMock()
-        mock_parent_parser.return_value = MagicMock()
-        mock_child_parser.return_value = MagicMock()
-        mock_vector_store.return_value = MagicMock()
-
-        pipeline_instance = MagicMock()
-        pipeline_instance.ingest_document = AsyncMock(
-            return_value=IngestionStats(
-                summary_id=42,
-                member_code="tenant",
-                parent_chunks=1,
-                child_chunks=2,
-                total_nodes=3,
-                operation="create",
-            )
-        )
-        pipeline_instance.update_document = AsyncMock(
-            return_value=IngestionStats(
-                summary_id=42,
-                member_code="tenant",
-                parent_chunks=2,
-                child_chunks=4,
-                total_nodes=6,
-                operation="update",
-            )
-        )
-        pipeline_instance.delete_document = AsyncMock(
-            return_value=IngestionStats(
-                summary_id=42,
-                member_code=None,
-                parent_chunks=None,
-                child_chunks=None,
-                total_nodes=None,
-                operation="delete",
-            )
-        )
-
-        mock_pipeline_cls.return_value = pipeline_instance
-
-        from rag_python.services.ingestion_service import IngestionService
-
-        service = IngestionService(settings, qdrant_service)
-        return service, pipeline_instance
+    child_vector_store: QdrantVectorStore,
+    child_sentence_splitter: SentenceSplitter,
+) -> IngestionPipeline:
+    # Wire a real VectorRepository (hitting embedded Qdrant)
+    repo = VectorRepository(qdrant_service)
+    parent_parser = StubParentParser()  # semantic branch (async)
+    child_parser = child_sentence_splitter  # sentence-level child split
+    return IngestionPipeline(
+        vector_repository=repo,
+        parent_parser=parent_parser,  # pyright: ignore[reportArgumentType]
+        child_parser=child_parser,
+        child_vector_store=child_vector_store,
+    )
 
 
-@pytest.mark.asyncio
-async def test_ingest_document_delegates_to_pipeline(
-    ingestion_service: tuple["IngestionService", MagicMock],
+pytestmark = pytest.mark.asyncio
+
+
+async def test_ingest_document(
     qdrant_service: QdrantService,
 ) -> None:
     """ingest_document should delegate to the pipeline without schema setup."""
-    service, pipeline = ingestion_service
+    settings = Settings(
+        qdrant_collection_name="test-unified",
+        qdrant_url="http://unused-in-local-mode",
+        qdrant_api_key=None,
+        qdrant_prefer_grpc=False,
+    )
+    service = IngestionService(settings=settings, qdrant_service=qdrant_service)
 
     result = await service.ingest_document(
         summary_id=101,
         member_code="tenant-a",
         content="Full original content",
         collection_ids=[1, 2],
-        summary_text="Short summary",
     )
 
-    qdrant_service.ensure_collection_exists.assert_not_called()
-    pipeline.ingest_document.assert_awaited_once_with(
-        summary_id=101,
-        member_code="tenant-a",
-        summary_text="Short summary",
-        original_content="Full original content",
-        collection_ids=[1, 2],
-    )
     assert result.operation == "create"
+    assert result.summary_id == 101
+    assert result.member_code == "tenant-a"
+    assert result.parent_chunks == 1
+    assert result.child_chunks == 1
+    assert result.total_nodes == 2
 
-
-@pytest.mark.asyncio
-async def test_ingest_document_uses_content_when_summary_missing(
-    ingestion_service: tuple["IngestionService", MagicMock],
-) -> None:
-    """If summary_text not provided, the service should fall back to content."""
-    service, pipeline = ingestion_service
-
-    await service.ingest_document(
-        summary_id=7,
-        member_code="tenant-b",
-        content="Original body",
+    records = await qdrant_service.retrieve_by_filter(
+        filter_=q.Filter(
+            must=[
+                q.FieldCondition(key=K_SUMMARY_ID, match=q.MatchValue(value=101)),
+                q.FieldCondition(key=K_MEMBER_CODE, match=q.MatchValue(value="tenant-a")),
+                q.FieldCondition(key=K_TYPE, match=q.MatchValue(value=POINT_TYPE_PARENT)),
+            ],
+        ),
+        limit=2,
+        with_payload=True,
+        with_vectors=False,
+    )
+    assert len(records) == 1
+    assert records[0].payload and records[0].payload["summary_id"] == 101
+    assert records[0].payload and records[0].payload["member_code"] == "tenant-a"
+    assert records[0].payload and records[0].payload["type"] == POINT_TYPE_PARENT
+    assert records[0].payload and records[0].payload["collection_ids"] == [1, 2]
+    assert records[0].payload and records[0].payload["checksum"] == compute_checksum(
+        normalize_text("Full original content")
     )
 
-    args = pipeline.ingest_document.await_args_list[0].kwargs
-    assert args["summary_text"] == "Original body"
-    assert args["original_content"] == "Original body"
 
-
-@pytest.mark.asyncio
-async def test_ingest_document_requires_content(
-    ingestion_service: tuple["IngestionService", MagicMock],
-) -> None:
-    """The service should raise if neither content nor original_content provided."""
-    service, _ = ingestion_service
-
-    with pytest.raises(ValueError):
-        await service.ingest_document(
-            summary_id=9,
-            member_code="tenant-c",
-            content=None,
-            summary_text=None,
-            original_content=None,
-        )
-
-
-@pytest.mark.asyncio
-async def test_update_document_delegates_to_pipeline(
-    ingestion_service: tuple["IngestionService", MagicMock],
+async def test_update_document(
     qdrant_service: QdrantService,
 ) -> None:
     """update_document should delegate to the pipeline without schema setup."""
-    service, pipeline = ingestion_service
+    settings = Settings(
+        qdrant_collection_name="test-unified",
+        qdrant_url="http://unused-in-local-mode",
+        qdrant_api_key=None,
+        qdrant_prefer_grpc=False,
+    )
+    service = IngestionService(settings=settings, qdrant_service=qdrant_service)
 
     result = await service.update_document(
         summary_id=55,
         member_code="tenant-x",
         original_content="Updated body",
-        summary_text="Updated summary",
     )
 
-    qdrant_service.ensure_collection_exists.assert_not_called()
-    pipeline.update_document.assert_awaited_once_with(
-        summary_id=55,
-        member_code="tenant-x",
-        summary_text="Updated summary",
-        original_content="Updated body",
-        collection_ids=None,
-    )
     assert result.operation == "update"
+    assert result.summary_id == 55
+    assert result.member_code == "tenant-x"
+    assert result.parent_chunks == 1
+    assert result.child_chunks == 1
+    assert result.total_nodes == 2
 
 
-@pytest.mark.asyncio
-async def test_delete_document_delegates_to_pipeline(
-    ingestion_service: tuple["IngestionService", MagicMock],
+async def test_delete_document(
     qdrant_service: QdrantService,
 ) -> None:
     """delete_document should delegate to the pipeline without schema setup."""
-    service, pipeline = ingestion_service
+    settings = Settings(
+        qdrant_collection_name="test-unified",
+        qdrant_url="http://unused-in-local-mode",
+        qdrant_api_key=None,
+        qdrant_prefer_grpc=False,
+    )
+    service = IngestionService(settings=settings, qdrant_service=qdrant_service)
 
     result = await service.delete_document(summary_id=321)
 
-    qdrant_service.ensure_collection_exists.assert_not_called()
-    pipeline.delete_document.assert_awaited_once_with(321)
     assert result.operation == "delete"
+    assert result.summary_id == 321
+    assert result.member_code is None
+    assert result.parent_chunks is None
+    assert result.child_chunks is None
+    assert result.total_nodes is None

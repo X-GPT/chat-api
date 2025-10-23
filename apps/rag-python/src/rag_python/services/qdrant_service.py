@@ -11,7 +11,16 @@ from qdrant_client import models as q
 from qdrant_client.conversions.common_types import PointId
 
 from rag_python.config import Settings
-from rag_python.core.constants import CHILD_SPARSE_VEC, CHILD_VEC
+from rag_python.core.constants import (
+    CHILD_SPARSE_VEC,
+    CHILD_VEC,
+    K_CHECKSUM,
+    K_COLLECTION_IDS,
+    K_MEMBER_CODE,
+    K_SUMMARY_ID,
+    K_TYPE,
+    POINT_TYPE_PARENT,
+)
 from rag_python.core.logging import get_logger
 
 logger = get_logger(__name__)
@@ -31,16 +40,21 @@ class QdrantService:
 
     _DENSE_VECTOR_SIZE: Final[int] = 1536
 
-    def __init__(self, settings: Settings):
+    def __init__(
+        self,
+        settings: Settings,
+        client: QdrantClient | None = None,
+        aclient: AsyncQdrantClient | None = None,
+    ):
         self.settings = settings
         self.col = settings.qdrant_collection_name
 
-        self.client = QdrantClient(
+        self.client = client or QdrantClient(
             url=settings.qdrant_url,
             api_key=settings.qdrant_api_key,
             prefer_grpc=settings.qdrant_prefer_grpc,
         )
-        self.aclient = AsyncQdrantClient(
+        self.aclient = aclient or AsyncQdrantClient(
             url=settings.qdrant_url,
             api_key=settings.qdrant_api_key,
             prefer_grpc=settings.qdrant_prefer_grpc,
@@ -48,15 +62,10 @@ class QdrantService:
 
         logger.info("QdrantService initialized for collection '%s'", self.col)
 
-    @property
-    def children_collection_name(self) -> str:
-        """Backward compatible alias returning the unified collection name."""
-        return self.col
-
-    @property
-    def parents_collection_name(self) -> str:
-        """Backward compatible alias returning the unified collection name."""
-        return self.col
+    async def aclose(self) -> None:
+        """Close the clients."""
+        await self.aclient.close()
+        self.client.close()
 
     async def ensure_schema(self) -> None:
         """Ensure the single collection exists with required vectors and indexes."""
@@ -95,51 +104,35 @@ class QdrantService:
 
     async def _ensure_payload_indexes(self) -> None:
         """Create payload indexes required for the new schema."""
-        try:
-            logger.info("Ensuring payload indexes for '%s'", self.col)
 
-            await self.aclient.create_payload_index(
-                collection_name=self.col,
-                field_name="member_code",
-                field_schema=q.KeywordIndexParams(
-                    type=q.KeywordIndexType.KEYWORD,
-                    is_tenant=True,
-                ),
-            )
+        async def _create(field_name: str, schema: q.PayloadSchemaType | q.KeywordIndexParams):
+            try:
+                await self.aclient.create_payload_index(
+                    collection_name=self.col,
+                    field_name=field_name,
+                    field_schema=schema,
+                )
+            except Exception as exc:  # pragma: no cover
+                # Only ignore already-exists errors; otherwise warn
+                msg = str(exc).lower()
+                if "already exists" in msg or "exists" in msg:
+                    logger.debug("Index '%s' already exists", field_name)
+                else:
+                    logger.warning("Failed to create index '%s': %s", field_name, exc)
 
-            await self.aclient.create_payload_index(
-                collection_name=self.col,
-                field_name="summary_id",
-                field_schema=q.PayloadSchemaType.INTEGER,
-            )
-
-            await self.aclient.create_payload_index(
-                collection_name=self.col,
-                field_name="collection_ids",
-                field_schema=q.PayloadSchemaType.INTEGER,
-            )
-
-            await self.aclient.create_payload_index(
-                collection_name=self.col,
-                field_name="type",
-                field_schema=q.PayloadSchemaType.KEYWORD,
-            )
-
-            await self.aclient.create_payload_index(
-                collection_name=self.col,
-                field_name="checksum",
-                field_schema=q.PayloadSchemaType.KEYWORD,
-            )
-        except Exception as exc:  # pragma: no cover - defensive, depends on backend
-            logger.warning("Failed to ensure payload indexes: %s", exc)
+        logger.info("Ensuring payload indexes for '%s'", self.col)
+        await _create(
+            K_MEMBER_CODE,
+            q.KeywordIndexParams(type=q.KeywordIndexType.KEYWORD, is_tenant=True),
+        )
+        await _create(K_SUMMARY_ID, q.PayloadSchemaType.INTEGER)
+        await _create(K_COLLECTION_IDS, q.PayloadSchemaType.INTEGER)
+        await _create(K_TYPE, q.PayloadSchemaType.KEYWORD)
+        await _create(K_CHECKSUM, q.PayloadSchemaType.KEYWORD)
 
     async def collection_exists(self) -> bool:
         """Return True if the collection already exists."""
         return await self.aclient.collection_exists(self.col)
-
-    async def ensure_collection_exists(self) -> None:
-        """Backward compatible alias for ensure_schema()."""
-        await self.ensure_schema()
 
     async def get_collection_info(
         self,
@@ -274,16 +267,48 @@ class QdrantService:
     ) -> None:
         """Convenience helper to update collection_ids via payload mutation."""
         await self.set_payload(
-            payload={"collection_ids": list(collection_ids)},
+            payload={K_COLLECTION_IDS: list(collection_ids)},
             filter_=q.Filter(
                 must=[
                     q.FieldCondition(
-                        key="summary_id",
+                        key=K_SUMMARY_ID,
                         match=q.MatchValue(value=summary_id),
                     )
                 ]
             ),
         )
+
+    async def get_collection_ids(self, summary_id: int) -> list[int]:
+        """Fetch collection_ids for a summary (parent payload)."""
+        records = await self.retrieve_by_filter(
+            q.Filter(
+                must=[
+                    q.FieldCondition(
+                        key=K_SUMMARY_ID,
+                        match=q.MatchValue(value=summary_id),
+                    ),
+                    q.FieldCondition(
+                        key=K_TYPE,
+                        match=q.MatchValue(value=POINT_TYPE_PARENT),
+                    ),
+                ]
+            ),
+            limit=1,
+            with_payload=True,
+            with_vectors=False,
+        )
+
+        if not records:
+            return []
+
+        payload = records[0].payload or {}
+        ids = payload.get(K_COLLECTION_IDS)
+        if not isinstance(ids, list):
+            return []
+
+        if all(isinstance(item, int) for item in ids):  # pyright: ignore[reportUnknownVariableType]
+            return list(ids)  # pyright: ignore[reportUnknownArgumentType]
+        return [int(value) for value in ids]  # pyright: ignore[reportUnknownArgumentType, reportUnknownVariableType]
 
     async def delete_by_summary_id(self, summary_id: int) -> None:
         """Legacy helper to delete all points for a summary."""
@@ -291,50 +316,11 @@ class QdrantService:
             filter_=q.Filter(
                 must=[
                     q.FieldCondition(
-                        key="summary_id",
+                        key=K_SUMMARY_ID,
                         match=q.MatchValue(value=summary_id),
                     )
                 ]
             )
-        )
-
-    async def delete_by_ids(
-        self,
-        point_ids: Sequence[str],
-    ) -> None:
-        """Legacy helper to delete points by IDs."""
-        await self.delete(ids=point_ids)
-
-    async def search(  # pragma: no cover - to be removed in task 3.1
-        self,
-        *args: Any,
-        **kwargs: Any,
-    ) -> list[SearchResult]:
-        """Legacy entry point retained temporarily for compatibility.
-
-        Search responsibilities are moving to services that orchestrate embeddings and result
-        aggregation. Callers should migrate away from this method.
-        """
-        raise NotImplementedError(
-            "QdrantService.search is no longer implemented. Use SearchService once updated."
-        )
-
-    async def get_node_by_id(  # pragma: no cover - to be removed in task 3.1
-        self,
-        point_id: str,
-    ) -> Any:
-        """Legacy method kept for compatibility while SearchService is refactored."""
-        raise NotImplementedError(
-            "QdrantService.get_node_by_id is no longer implemented under the new schema."
-        )
-
-    async def get_child_by_id(  # pragma: no cover - to be removed in task 3.1
-        self,
-        point_id: str,
-    ) -> Any:
-        """Legacy method kept for compatibility while SearchService is refactored."""
-        raise NotImplementedError(
-            "QdrantService.get_child_by_id is no longer implemented under the new schema."
         )
 
 

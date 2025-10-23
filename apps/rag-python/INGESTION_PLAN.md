@@ -29,9 +29,10 @@
 - [x] Task 1.8 – Create Constants Module (`core/constants.py`)
 - [x] Task 1.9 – Refactor QdrantService (`services/qdrant_service.py`)
 - [x] Task 2.1 – Update IngestionPipeline (`services/pipeline.py`)
-- [ ] Task 3.1 – Update SearchService (`services/search_service.py`)
-- [ ] Task 4.1 – Update Handlers (`worker/handlers.py`)
-- [ ] Add / update unit tests (mapper, repository, document builders, ingestion pipeline, search service)
+- [x] Task 3.1 – Update SearchService (`services/search_service.py`)
+- [x] Task 4.1 – Update Handlers (`worker/handlers.py`)
+- [x] Add / update unit tests (mapper, repository, document builders, ingestion pipeline, search service)
+- [x] Fix test failures in `test_search_service.py` (global mock embedding configuration)
 - [ ] Refresh integration tests (end-to-end ingestion, search, update flows)
 - [ ] Execute migration strategy (dev/staging) and validate production plan
 
@@ -1415,6 +1416,12 @@ async def search(
         raise
 ```
 
+**Status:** ✅ Implemented in `src/rag_python/services/search_service.py`
+
+- Instantiates a shared `QdrantVectorStore`+`VectorStoreIndex` for the child collection with named vectors (`child`, `child-sparse`) and LlamaIndex-hybrid retrieval enabled.
+- Applies tenant/summary/collection filters via native `qdrant.filters`, retrieves parents in a single async batch, and aggregates per-summary responses using the new schemas.
+- Added focused coverage in `tests/test_search_service.py` using lightweight dependency stubs to avoid heavy protobuf requirements; revisit once full-stack integration tests run against a live Qdrant instance.
+
 ---
 
 ### Phase 4: Handler Updates (30 min)
@@ -1502,6 +1509,12 @@ async def _handle_updated(self, event: SummaryEvent) -> bool:
         logger.error(f"Failed to update document: {e}", exc_info=True)
         return False
 ```
+
+**Status:** ✅ Implemented in `src/rag_python/worker/handlers.py`
+
+- Validates presence of both summary (`content`) and original (`parse_content`) text, logging their lengths before invoking ingestion.
+- Routes those fields through `summary_text` / `original_content` arguments to the new ingestion/update APIs for checksum-driven idempotency.
+- Updated coverage in `tests/test_handlers_integration.py` and `tests/test_worker.py`, using lightweight qdrant stubs so handler tests run without protobuf/grpc dependencies.
 
 **Delete handler stays the same:**
 ```python

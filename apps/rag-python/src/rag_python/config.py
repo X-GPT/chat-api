@@ -59,6 +59,7 @@ class Settings(BaseSettings):
     qdrant_api_key: str | None = None
     qdrant_collection_name: str = "memos"
     qdrant_prefer_grpc: bool = False
+    qdrant_local_mode: bool = False
 
     # RAG Configuration
     chunk_size: int = 512  # Child chunk size

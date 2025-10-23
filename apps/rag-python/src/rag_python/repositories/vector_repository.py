@@ -8,9 +8,18 @@ from typing import cast
 from qdrant_client import models as q
 
 from rag_python.adapters import qdrant_mapper
-from rag_python.core.constants import POINT_TYPE_PARENT
+from rag_python.core.constants import (
+    K_CHECKSUM,
+    K_COLLECTION_IDS,
+    K_SUMMARY_ID,
+    K_TYPE,
+    POINT_TYPE_PARENT,
+)
+from rag_python.core.logging import get_logger
 from rag_python.core.models import Parent
 from rag_python.services.qdrant_service import QdrantService
+
+logger = get_logger(__name__)
 
 
 class VectorRepository:
@@ -32,11 +41,11 @@ class VectorRepository:
             filter_=q.Filter(
                 must=[
                     q.FieldCondition(
-                        key="summary_id",
+                        key=K_SUMMARY_ID,
                         match=q.MatchValue(value=summary_id),
                     ),
                     q.FieldCondition(
-                        key="type",
+                        key=K_TYPE,
                         match=q.MatchValue(value=POINT_TYPE_PARENT),
                     ),
                 ]
@@ -47,8 +56,12 @@ class VectorRepository:
         )
         if not records:
             return None
+
+        if len(records) > 1:
+            logger.warning("Multiple records found for summary_id=%s: %s", summary_id, records)
+
         payload = records[0].payload or {}
-        checksum = payload.get("checksum")
+        checksum = payload.get(K_CHECKSUM)
         return cast(str | None, checksum) if isinstance(checksum, str) else None
 
     async def get_parents(self, parent_ids: Sequence[str]) -> list[Parent]:
@@ -60,7 +73,10 @@ class VectorRepository:
             with_payload=True,
             with_vectors=False,
         )
-        return [qdrant_mapper.record_to_parent(record) for record in records]
+        # If order matters, restore it:
+        by_id = {r.id: r for r in records}
+        ordered = [by_id[i] for i in parent_ids if i in by_id]
+        return [qdrant_mapper.record_to_parent(record) for record in ordered]
 
     async def delete_summary_tree(self, summary_id: int) -> None:
         """Remove all points (parents + children) for a summary."""
@@ -82,11 +98,11 @@ class VectorRepository:
     ) -> None:
         """Update collection membership payload across all summary points."""
         await self._qdrant.set_payload(
-            payload={"collection_ids": list(collection_ids)},
+            payload={K_COLLECTION_IDS: list(collection_ids)},
             filter_=q.Filter(
                 must=[
                     q.FieldCondition(
-                        key="summary_id",
+                        key=K_SUMMARY_ID,
                         match=q.MatchValue(value=summary_id),
                     )
                 ]
@@ -95,27 +111,4 @@ class VectorRepository:
 
     async def get_collection_ids(self, summary_id: int) -> list[int]:
         """Retrieve collection IDs for the summary's parent payload."""
-        records = await self._qdrant.retrieve_by_filter(
-            filter_=q.Filter(
-                must=[
-                    q.FieldCondition(
-                        key="summary_id",
-                        match=q.MatchValue(value=summary_id),
-                    ),
-                    q.FieldCondition(
-                        key="type",
-                        match=q.MatchValue(value=POINT_TYPE_PARENT),
-                    ),
-                ]
-            ),
-            limit=1,
-            with_payload=True,
-            with_vectors=False,
-        )
-        if not records:
-            return []
-        payload = records[0].payload or {}
-        raw_value = payload.get("collection_ids")
-        if isinstance(raw_value, list) and all(isinstance(item, int) for item in raw_value):  # pyright: ignore[reportUnknownVariableType]
-            return list(raw_value)  # pyright: ignore[reportUnknownArgumentType]
-        return []
+        return await self._qdrant.get_collection_ids(summary_id)

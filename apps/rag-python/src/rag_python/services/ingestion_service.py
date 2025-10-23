@@ -72,23 +72,16 @@ class IngestionService:
         content: str | None = None,
         collection_ids: list[int] | None = None,
         *,
-        summary_text: str | None = None,
         original_content: str | None = None,
     ) -> IngestionStats:
         """Ingest a new document or reingest with idempotency."""
         resolved_original = original_content if original_content is not None else content
         if resolved_original is None:
             raise ValueError("original_content or content must be provided for ingestion")
-        resolved_summary = (
-            summary_text
-            if summary_text is not None
-            else (content if content is not None else "")
-        )
 
         return await self.pipeline.ingest_document(
             summary_id=summary_id,
             member_code=member_code,
-            summary_text=resolved_summary,
             original_content=resolved_original,
             collection_ids=collection_ids,
         )
@@ -100,23 +93,16 @@ class IngestionService:
         content: str | None = None,
         collection_ids: list[int] | None = None,
         *,
-        summary_text: str | None = None,
         original_content: str | None = None,
     ) -> IngestionStats:
         """Update an existing document, forcing re-ingestion of new content."""
         resolved_original = original_content if original_content is not None else content
         if resolved_original is None:
             raise ValueError("original_content or content must be provided for update")
-        resolved_summary = (
-            summary_text
-            if summary_text is not None
-            else (content if content is not None else "")
-        )
 
         return await self.pipeline.update_document(
             summary_id=summary_id,
             member_code=member_code,
-            summary_text=resolved_summary,
             original_content=resolved_original,
             collection_ids=collection_ids,
         )

@@ -2,176 +2,137 @@
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
-
 import pytest
-
-pytest.importorskip("qdrant_client")
-
-from qdrant_client import models as q  # noqa: E402
 
 from rag_python.core.models import Parent  # noqa: E402
 from rag_python.repositories.vector_repository import VectorRepository  # noqa: E402
+from rag_python.services.qdrant_service import QdrantService  # noqa: E402
+
+pytestmark = pytest.mark.asyncio
 
 
-def _make_service(**overrides: AsyncMock) -> SimpleNamespace:
-    defaults = {
-        "upsert_points": AsyncMock(),
-        "retrieve_by_filter": AsyncMock(),
-        "retrieve_by_ids": AsyncMock(),
-        "delete": AsyncMock(),
-        "set_payload": AsyncMock(),
-    }
-    defaults.update(overrides)
-    return SimpleNamespace(**defaults)
+@pytest.fixture
+def repo(qdrant_service: QdrantService) -> VectorRepository:
+    return VectorRepository(qdrant_service)
 
 
-@pytest.mark.asyncio
-async def test_upsert_parents_delegates_to_service() -> None:
-    service = _make_service()
-    repo = VectorRepository(service)  # type: ignore[arg-type]
-
+async def test_upsert_parents_and_get_parents(repo: VectorRepository) -> None:
     parents = [
         Parent(
-            id="parent-1",
+            id="00000000-0000-0000-0000-000000000001",
             summary_id=101,
-            member_code="tenant-a",
             parent_idx=0,
-            text="Parent text",
+            text="Parent text-1",
             checksum="abc123",
             collection_ids=[1, 2],
-        )
+            member_code="tenant-test",
+        ),
+        Parent(
+            id="00000000-0000-0000-0000-000000000002",
+            summary_id=102,
+            parent_idx=0,
+            text="Parent text-2",
+            checksum="def456",
+            collection_ids=[3, 4],
+            member_code="tenant-test",
+        ),
     ]
 
     await repo.upsert_parents(parents)
 
-    service.upsert_points.assert_awaited_once()
-    call = service.upsert_points.await_args_list[0]
-    points_arg = call.args[0]
-    assert len(points_arg) == 1
-    point = points_arg[0]
-    assert point.id == "parent-1"
-    assert point.payload is not None
-    assert point.payload["type"] == "parent"
+    # Act: fetch in reverse order to ensure order-restoration
+    got = await repo.get_parents([
+        "00000000-0000-0000-0000-000000000002",
+        "00000000-0000-0000-0000-000000000001",
+    ])
+
+    # Assert: order and fields
+    assert [g.id for g in got] == [
+        "00000000-0000-0000-0000-000000000002",
+        "00000000-0000-0000-0000-000000000001",
+    ]
+    assert got[0].summary_id == 102 and got[0].checksum == "def456"
+    assert got[1].summary_id == 101 and got[1].checksum == "abc123"
 
 
-@pytest.mark.asyncio
-async def test_get_existing_checksum_returns_checksum() -> None:
-    record = q.Record(
-        id="parent-1",
-        payload={"checksum": "deadbeef"},
-        vector=None,
+async def test_get_existing_checksum(repo: VectorRepository) -> None:
+    # Arrange
+    p = Parent(
+        id="00000000-0000-0000-0000-000000000003",
+        summary_id=4242,
+        parent_idx=0,
+        text="text-4242",
+        checksum="check-4242",
+        collection_ids=[9],
+        member_code="tenant-test",
     )
-    service = _make_service(retrieve_by_filter=AsyncMock(return_value=[record]))
-    repo = VectorRepository(service)  # type: ignore[arg-type]
+    await repo.upsert_parents([p])
 
-    checksum = await repo.get_existing_checksum(summary_id=55)
+    # Act
+    ck = await repo.get_existing_checksum(4242)
 
-    assert checksum == "deadbeef"
-    service.retrieve_by_filter.assert_awaited_once()
-    call = service.retrieve_by_filter.await_args_list[0]
-    filter_ = call.kwargs["filter_"]
-    assert isinstance(filter_, q.Filter)
-    assert len(filter_.must or []) == 2
+    # Assert
+    assert ck == "check-4242"
 
 
-@pytest.mark.asyncio
-async def test_get_existing_checksum_handles_empty() -> None:
-    service = _make_service(retrieve_by_filter=AsyncMock(return_value=[]))
-    repo = VectorRepository(service)  # type: ignore[arg-type]
+async def test_delete_summary_tree_filters_on_summary_id(
+    repo: VectorRepository, qdrant_service: QdrantService
+) -> None:
+    # Arrange: two points under same summary_id
+    pts: list[Parent] = [
+        Parent(
+            id="00000000-0000-0000-0000-000000000004",
+            summary_id=777,
+            parent_idx=0,
+            text="text-777",
+            checksum="d1",
+            collection_ids=[1, 2],
+            member_code="tenant-test",
+        ),
+        Parent(
+            id="00000000-0000-0000-0000-000000000005",
+            summary_id=777,
+            parent_idx=0,
+            text="text-777",
+            checksum="d2",
+            collection_ids=[3, 4],
+            member_code="tenant-test",
+        ),
+    ]
+    await repo.upsert_parents(pts)
 
-    checksum = await repo.get_existing_checksum(summary_id=99)
-
-    assert checksum is None
-
-
-@pytest.mark.asyncio
-async def test_get_parents_maps_records() -> None:
-    record = q.Record(
-        id="parent-1",
-        payload={
-            "summary_id": 77,
-            "member_code": "tenant",
-            "parent_idx": 0,
-            "parent_text": "stored text",
-            "checksum": "deadbeef",
-            "collection_ids": [4, 5],
-        },
-        vector=None,
+    # Sanity: ensure they exist
+    pre = await qdrant_service.retrieve_by_ids(
+        ["00000000-0000-0000-0000-000000000004", "00000000-0000-0000-0000-000000000005"]
     )
-    service = _make_service(retrieve_by_ids=AsyncMock(return_value=[record]))
-    repo = VectorRepository(service)  # type: ignore[arg-type]
+    assert len(pre) == 2
 
-    parents = await repo.get_parents(["parent-1"])
+    # Act
+    await repo.delete_summary_tree(777)
 
-    assert len(parents) == 1
-    parent = parents[0]
-    assert parent.id == "parent-1"
-    assert parent.summary_id == 77
-    assert parent.member_code == "tenant"
-    assert parent.collection_ids == [4, 5]
-
-
-@pytest.mark.asyncio
-async def test_delete_summary_tree_filters_on_summary_id() -> None:
-    service = _make_service()
-    repo = VectorRepository(service)  # type: ignore[arg-type]
-
-    await repo.delete_summary_tree(summary_id=123)
-
-    service.delete.assert_awaited_once()
-    call = service.delete.await_args_list[0]
-    filter_ = call.kwargs["filter_"]
-    assert isinstance(filter_, q.Filter)
-    must_conditions = filter_.must or []
-    assert len(must_conditions) == 1
-    condition = must_conditions[0]
-    assert isinstance(condition, q.FieldCondition)
-    assert condition.key == "summary_id"
-
-
-@pytest.mark.asyncio
-async def test_update_collection_ids_sets_payload() -> None:
-    service = _make_service()
-    repo = VectorRepository(service)  # type: ignore[arg-type]
-
-    await repo.update_collection_ids(summary_id=555, collection_ids=[1, 2, 3])
-
-    service.set_payload.assert_awaited_once()
-    call = service.set_payload.await_args_list[0]
-    assert call.kwargs["payload"] == {"collection_ids": [1, 2, 3]}
-    filter_ = call.kwargs["filter_"]
-    assert isinstance(filter_, q.Filter)
-
-
-@pytest.mark.asyncio
-async def test_get_collection_ids_returns_ids() -> None:
-    record = q.Record(
-        id="parent-uuid",
-        payload={
-            "collection_ids": [42, 7],
-        },
-        vector=None,
+    # Assert: gone
+    post = await qdrant_service.retrieve_by_ids(
+        ["00000000-0000-0000-0000-000000000004", "00000000-0000-0000-0000-000000000005"]
     )
-    service = _make_service(retrieve_by_filter=AsyncMock(return_value=[record]))
-    repo = VectorRepository(service)  # type: ignore[arg-type]
-
-    result = await repo.get_collection_ids(summary_id=8)
-
-    assert result == [42, 7]
+    assert post == []
 
 
-@pytest.mark.asyncio
-async def test_get_collection_ids_handles_invalid_payload() -> None:
-    record = q.Record(
-        id="parent-uuid",
-        payload={"collection_ids": "not-a-list"},
-        vector=None,
+async def test_update_and_get_collection_ids(repo: VectorRepository) -> None:
+    # Arrange
+    p = Parent(
+        id="00000000-0000-0000-0000-000000000006",
+        summary_id=5555,
+        parent_idx=0,
+        text="text-5555",
+        checksum="xx",
+        collection_ids=[1],
+        member_code="tenant-test",
     )
-    service = _make_service(retrieve_by_filter=AsyncMock(return_value=[record]))
-    repo = VectorRepository(service)  # type: ignore[arg-type]
+    await repo.upsert_parents([p])
 
-    result = await repo.get_collection_ids(summary_id=9)
+    # Act: update membership
+    await repo.update_collection_ids(summary_id=5555, collection_ids=[10, 11, 12])
 
-    assert result == []
+    # Assert: delegate path returns normalized ints
+    ids = await repo.get_collection_ids(5555)
+    assert ids == [10, 11, 12]

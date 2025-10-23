@@ -67,7 +67,7 @@ async def qdrant_service(test_settings: Settings):
     service = QdrantService(test_settings)
 
     # Ensure collections exist
-    await service.ensure_collection_exists()
+    await service.ensure_schema()
 
     yield service
 
