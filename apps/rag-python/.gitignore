@@ -48,3 +48,7 @@ Thumbs.db
 
 # Ruff
 .ruff_cache/
+
+# Environment files
+.env
+.env.local
