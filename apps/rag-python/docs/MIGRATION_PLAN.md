@@ -532,6 +532,17 @@ class MySQLClient:
     def __init__(self, settings: MigrationSettings):
         self.settings = settings
         self.pool: Pool | None = None
+        self._validate_table_name()
+
+    def _validate_table_name(self) -> None:
+        """Validate table name to prevent SQL injection."""
+        table_name = self.settings.mysql_table
+        # Allow only alphanumeric, underscore, and dot (for db.table notation)
+        if not all(c.isalnum() or c in ('_', '.') for c in table_name):
+            raise ValueError(
+                f"Invalid table name: {table_name}. "
+                "Only alphanumeric characters, underscores, and dots are allowed."
+            )
 
     async def connect(self) -> None:
         """Create connection pool."""
@@ -572,6 +583,8 @@ class MySQLClient:
         logger.info(f"Fetching all IDs from {self.settings.mysql_table}...")
         async with self.acquire() as conn:
             async with conn.cursor() as cursor:
+                # Note: Table name validated in __init__, safe to use in f-string
+                # SQL parameters (%s) cannot be used for table/column names
                 await cursor.execute(
                     f"SELECT id FROM {self.settings.mysql_table} ORDER BY id"
                 )
@@ -595,7 +608,8 @@ class MySQLClient:
         logger.debug(f"Fetching {len(ids)} records from MySQL")
         async with self.acquire() as conn:
             async with conn.cursor(aiomysql.DictCursor) as cursor:
-                # Use parameterized query to prevent SQL injection
+                # Use parameterized query for IDs to prevent SQL injection
+                # Note: Table name validated in __init__, safe to use in f-string
                 placeholders = ",".join(["%s"] * len(ids))
                 query = f"""
                     SELECT id, member_code, parse_content
