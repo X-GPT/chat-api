@@ -11,12 +11,13 @@
 - [x] Add migration environment variables to your `.env` file (see template for required vars)
 
 ### Phase 2: Database Schema (Supabase & Qdrant)
-- [ ] Create `migration/schemas/create_tables.sql` file
-- [ ] Run SQL script in Supabase SQL editor
-- [ ] Verify tables created: `ingestion_job`, `ingestion_batch`
-- [ ] Verify indexes created correctly
-- [ ] **Create Qdrant collection** (if not exists) - see "Qdrant Collection Setup" section below
-- [ ] Verify Qdrant collection schema matches requirements
+- [x] Create `migration/schemas/create_tables.sql` file
+- [x] Run SQL script in Supabase SQL editor
+- [x] Verify tables created: `ingestion_job`, `ingestion_batch`
+- [x] Verify indexes created correctly
+- [x] Create `migration/scripts/setup_qdrant.py` setup script
+- [x] **Run setup_qdrant.py script** to create Qdrant collection
+- [x] Verify Qdrant collection schema matches requirements
 
 ### Phase 3: Core Module Implementation
 - [ ] Create `migration/config.py` - MigrationSettings class
@@ -189,14 +190,31 @@ Uses existing collection schema (already defined in codebase):
 
 ## Qdrant Collection Setup
 
-### Automatic Creation (Recommended)
+### Setup Script (Recommended)
 
-The existing `QdrantService.ensure_schema()` method will automatically create the collection with the correct schema if it doesn't exist. **The migration controller calls this once during initialization, before spawning workers.**
+**Use the dedicated setup script to create the Qdrant collection BEFORE running the migration.**
 
-**How it works:**
-1. **Controller only** calls `await qdrant_service.ensure_schema()` during `initialize()`
-2. Method checks if collection exists
-3. If not, creates collection with:
+Run this command locally:
+```bash
+uv run python -m rag_python.migration.scripts.setup_qdrant
+```
+
+**What the script does:**
+1. Checks if the collection already exists
+2. If it exists, shows current stats and asks for confirmation to proceed
+3. If it doesn't exist, creates the collection using `ensure_schema()`
+4. Displays the collection configuration for verification
+5. Provides next steps for running the migration
+
+**Why use a separate script instead of the controller?**
+- ✅ **Explicit setup step** - Clear separation of concerns
+- ✅ **Verify before migration** - Ensure collection is ready before processing data
+- ✅ **Easier troubleshooting** - If collection creation fails, fix it before running migration
+- ✅ **Idempotent** - Safe to run multiple times
+
+### How the Collection is Created
+
+The setup script uses `QdrantService.ensure_schema()` which creates a collection with:
    - **Dense vector** (`child`): 1536 dimensions, cosine distance, HNSW index (m=16, ef_construct=100)
    - **Sparse vector** (`child-sparse`): BM25-based, with IDF modifier
    - **Payload indexes**: `member_code` (keyword, tenant isolation), `summary_id` (integer), `collection_ids` (integer), `type` (keyword), `checksum` (keyword)
@@ -268,11 +286,8 @@ print(f"Sparse vectors: {info.config.params.sparse_vectors}")
 
 ### Important Notes
 
-- **Collection creation is idempotent** - `ensure_schema()` won't fail if the collection already exists
-- **Why controller creates, not workers?**
-  - Calling `ensure_schema()` in 5 workers simultaneously would create 5 redundant API calls to Qdrant
-  - Controller creates it once, workers just use the existing collection
-  - More efficient and cleaner design
+- **Collection creation is idempotent** - The setup script is safe to run multiple times
+- **Run before migration** - Always run `setup_qdrant.py` before starting the controller
 - **Storage recommendation**: For 895K records with avg 2-3 chunks each (~2.5M vectors), expect:
   - Dense vectors: ~15GB (with binary quantization)
   - Sparse vectors: ~2GB
@@ -382,8 +397,11 @@ apps/rag-python/
 │       ├── supabase_client.py     # Supabase client wrapper
 │       ├── controller.py          # Main orchestrator script
 │       ├── worker.py              # Worker process logic
-│       └── schemas/
-│           └── create_tables.sql  # Supabase DDL
+│       ├── schemas/
+│       │   └── create_tables.sql  # Supabase DDL
+│       └── scripts/
+│           ├── __init__.py
+│           └── setup_qdrant.py    # Qdrant collection setup script
 ├── .env                           # Main environment file (add migration vars here)
 ├── .env.migration.example         # Migration variables template (for reference)
 └── docs/
@@ -982,23 +1000,14 @@ class MigrationController:
         self.shutdown_flag = False
 
     async def initialize(self) -> None:
-        """Initialize database connections and ensure Qdrant collection exists."""
+        """Initialize database connections."""
         logger.info("Initializing migration controller...")
 
         # Connect to MySQL
         await self.mysql_client.connect()
 
-        # Ensure Qdrant collection exists (do this ONCE before spawning workers)
-        from rag_python.config import get_settings
-        from rag_python.services.qdrant_service import QdrantService
-
-        app_settings = get_settings()
-        qdrant_service = QdrantService(app_settings)
-
-        logger.info("Ensuring Qdrant collection schema exists...")
-        await qdrant_service.ensure_schema()
-        await qdrant_service.aclose()
-        logger.info(f"Qdrant collection '{app_settings.qdrant_collection_name}' is ready")
+        # NOTE: Qdrant collection should already be created via setup_qdrant.py script
+        # before running the controller
 
         logger.info("Controller initialized")
 
@@ -1516,6 +1525,9 @@ uv sync
 
 # Create Supabase tables
 # (Copy SQL from migration/schemas/create_tables.sql and run in Supabase SQL editor)
+
+# Create Qdrant collection
+uv run python -m rag_python.migration.scripts.setup_qdrant
 ```
 
 ### 2. Run Migration
