@@ -87,7 +87,10 @@ class QdrantService:
                             always_ram=True,
                         ),
                     ),
-                    hnsw_config=q.HnswConfigDiff(m=16, ef_construct=256),
+                    # TODO: Enable HNSW for dense vectors (default: m=16, ef_construct=256)
+                    # hnsw_config=q.HnswConfigDiff(m=16, ef_construct=256),
+                    # Disable HNSW for dense vectors (m=0) for high-volume vector ingestion
+                    hnsw_config=q.HnswConfigDiff(m=0),
                 ),
             },
             sparse_vectors_config={
@@ -100,7 +103,8 @@ class QdrantService:
         )
 
         logger.info("Created collection '%s'", self.col)
-        await self._ensure_payload_indexes()
+        # TODO: Create payload indexes, but disabled for now for high-volume vector ingestion
+        # await self._ensure_payload_indexes()
 
     async def _ensure_payload_indexes(self) -> None:
         """Create payload indexes required for the new schema."""
