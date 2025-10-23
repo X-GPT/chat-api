@@ -24,11 +24,12 @@ class IngestionService:
         self,
         settings: Settings,
         qdrant_service: QdrantService,
+        embed_model: OpenAIEmbedding | None = None,
     ):
         self.settings = settings
         self.qdrant_service = qdrant_service
 
-        self.embed_model = OpenAIEmbedding(
+        self.embed_model = embed_model or OpenAIEmbedding(
             api_key=settings.openai_api_key,
             model=settings.openai_embedding_model,
         )

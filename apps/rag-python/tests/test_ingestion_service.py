@@ -8,6 +8,7 @@ import pytest
 from llama_index.core import Document
 from llama_index.core.node_parser import SentenceSplitter
 from llama_index.core.schema import TextNode
+from llama_index.embeddings.openai.base import BaseEmbedding  # type: ignore
 from llama_index.vector_stores.qdrant import QdrantVectorStore  # type: ignore
 from qdrant_client import AsyncQdrantClient, QdrantClient
 from qdrant_client import models as q
@@ -27,6 +28,23 @@ from rag_python.services.pipeline import IngestionPipeline
 from rag_python.services.qdrant_service import QdrantService
 from rag_python.text_processing.checksum import compute_checksum
 from rag_python.text_processing.normalize_text import normalize_text
+
+
+# ---------- Fake embedding so LlamaIndex never calls external APIs ----------
+class _FakeEmbedding(BaseEmbedding):
+    dim: int = 1536
+
+    def _get_text_embedding(self, text: str):
+        return [0.0] * self.dim
+
+    async def _aget_text_embedding(self, text: str):
+        return [0.0] * self.dim
+
+    def _get_query_embedding(self, query: str):
+        return [0.0] * self.dim
+
+    async def _aget_query_embedding(self, query: str):
+        return [0.0] * self.dim
 
 
 class StubParentParser:
@@ -99,7 +117,11 @@ async def test_ingest_document(
         qdrant_api_key=None,
         qdrant_prefer_grpc=False,
     )
-    service = IngestionService(settings=settings, qdrant_service=qdrant_service)
+    service = IngestionService(
+        settings=settings,
+        qdrant_service=qdrant_service,
+        embed_model=_FakeEmbedding(),  # pyright: ignore[reportAbstractUsage, reportArgumentType]
+    )
 
     result = await service.ingest_document(
         summary_id=101,
@@ -147,7 +169,11 @@ async def test_update_document(
         qdrant_api_key=None,
         qdrant_prefer_grpc=False,
     )
-    service = IngestionService(settings=settings, qdrant_service=qdrant_service)
+    service = IngestionService(
+        settings=settings,
+        qdrant_service=qdrant_service,
+        embed_model=_FakeEmbedding(),  # pyright: ignore[reportAbstractUsage, reportArgumentType]
+    )
 
     result = await service.update_document(
         summary_id=55,
