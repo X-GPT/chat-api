@@ -17,6 +17,8 @@ dependencies = [
     "llama-index-embeddings-openai>=0.5.1",
     "qdrant-client[fastembed]>=1.15.1",
     "openai>=1.109.1",
+    "supabase>=2.22.1",
+    "aiomysql>=0.3.2",
 ]
 
 [build-system]
