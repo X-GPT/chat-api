@@ -208,7 +208,7 @@ Worker 2: claimed 3 batches - [2, 5, 8]
 **Purpose:** End-to-end test with a small dataset to verify the full pipeline.
 
 ```bash
-uv run python -m rag_python.migration.scripts.test_dry_run
+uv run python -m rag_python.migration.scripts.test_migration_pilot
 ```
 
 **Expected output:**
@@ -261,9 +261,9 @@ Migration complete!
 
 ```bash
 # Run dry run twice on the same records
-uv run python -m rag_python.migration.scripts.test_dry_run
+uv run python -m rag_python.migration.scripts.test_migration_pilot
 # Wait for completion, then run again
-uv run python -m rag_python.migration.scripts.test_dry_run
+uv run python -m rag_python.migration.scripts.test_migration_pilot
 ```
 
 **Manual verification:**
@@ -315,12 +315,12 @@ print(f"Total points: {info.points_count}")
 
 ```bash
 # Start dry run
-uv run python -m rag_python.migration.scripts.test_dry_run
+uv run python -m rag_python.migration.scripts.test_migration_pilot
 
 # Press Ctrl+C after 2-3 batches complete
 
 # Run again - should prompt to resume
-uv run python -m rag_python.migration.scripts.test_dry_run
+uv run python -m rag_python.migration.scripts.test_migration_pilot
 # Answer 'Y' to resume
 ```
 
@@ -351,10 +351,10 @@ Progress: 3/10 batches completed, 2 processing, 5 pending, 0 failed | Records: 3
 **Purpose:** Test with a larger dataset to catch performance issues.
 
 ```bash
-# Modify test_dry_run.py to use 1,000 records instead of 100
+# Modify test_migration_pilot.py to use 1,000 records instead of 100
 # Or set environment variable
 export DRY_RUN_LIMIT=1000
-uv run python -m rag_python.migration.scripts.test_dry_run
+uv run python -m rag_python.migration.scripts.test_migration_pilot
 ```
 
 **Monitor:**

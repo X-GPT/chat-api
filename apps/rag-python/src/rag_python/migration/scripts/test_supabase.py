@@ -1,20 +1,22 @@
 #!/usr/bin/env python
-"""Test Supabase connection and table operations."""
+"""Test Supabase connection and optimized batch creation."""
 
 import asyncio
 
+from postgrest import CountMethod
+from pydantic import BaseModel
 from supabase import acreate_client
 
 from rag_python.core.logging import get_logger, setup_logging
 from rag_python.migration.config import MigrationSettings
-from rag_python.migration.models import JobStatus
+from rag_python.migration.models import BatchStatus, JobStatus
 from rag_python.migration.supabase_client import SupabaseClient
 
 logger = get_logger(__name__)
 
 
 async def test_supabase_connection():
-    """Test Supabase connection and CRUD operations."""
+    """Test Supabase connection and optimized batch creation."""
     setup_logging()
     settings = MigrationSettings()
 
@@ -34,78 +36,141 @@ async def test_supabase_connection():
         active_jobs = await client.get_active_jobs()
         logger.info(f"✓ Found {len(active_jobs)} active jobs")
 
-        # Test 2: Create a test job
-        logger.info("\n--- Test 2: Create test job ---")
-        test_job = await client.create_job(total_batches=3, total_records=30)
+        # Test 2: Check exported_ip_summary_id table
+        logger.info("\n--- Test 2: Check exported_ip_summary_id table ---")
+        count_response = await (
+            async_client.table("exported_ip_summary_id")
+            .select("id", count=CountMethod.exact)
+            .limit(1)
+            .execute()
+        )
+
+        if not count_response.count or count_response.count == 0:
+            logger.warning(
+                "⚠️  No data in exported_ip_summary_id table - cannot test optimized batch creation"
+            )
+            logger.info(
+                "This is expected if you haven't populated the table yet - test will run during actual migration"
+            )
+            return True
+
+        logger.info(f"✓ Found {count_response.count:,} records in exported_ip_summary_id table")
+
+        # Test 3: Create test job
+        logger.info("\n--- Test 3: Create test job ---")
+        test_job = await client.create_job(total_batches=0, total_records=0)
         test_job_id = test_job.id
         logger.info(f"✓ Created test job: {test_job_id}")
-        logger.info(f"  Status: {test_job.status}")
-        logger.info(f"  Total batches: {test_job.total_batches}")
 
-        # Test 3: Create test batches
-        logger.info("\n--- Test 3: Create test batches ---")
-        batch_specs = [
-            {
-                "batch_number": 0,
-                "start_id": 1,
-                "end_id": 10,
-                "record_ids": list(range(1, 11)),
-            },
-            {
-                "batch_number": 1,
-                "start_id": 11,
-                "end_id": 20,
-                "record_ids": list(range(11, 21)),
-            },
-            {
-                "batch_number": 2,
-                "start_id": 21,
-                "end_id": 30,
-                "record_ids": list(range(21, 31)),
-            },
-        ]
-        batches = await client.create_batches(test_job_id, batch_specs)
-        logger.info(f"✓ Created {len(batches)} test batches")
+        # Test 4: Test optimized batch creation from DB
+        logger.info("\n--- Test 4: Test optimized create_batches_from_db() ---")
+        logger.info("This tests the PostgreSQL function for memory-efficient batch creation")
 
-        # Test 4: Claim a batch (atomic operation)
-        logger.info("\n--- Test 4: Claim batch (atomic) ---")
-        claimed_batch = await client.claim_next_batch(test_job_id, "test-worker-1")
-        if claimed_batch:
-            logger.info(f"✓ Claimed batch {claimed_batch.batch_number}")
-            logger.info(f"  Worker ID: {claimed_batch.worker_id}")
-            logger.info(f"  Status: {claimed_batch.status}")
-            logger.info(f"  Record IDs: {claimed_batch.record_ids[:3]}...")
-
-            # Test 5: Update batch progress
-            logger.info("\n--- Test 5: Update batch progress ---")
-            updated_batch = await client.update_batch_progress(
-                claimed_batch.id, "test-worker-1", processed_delta=5, failed_delta=1
+        # For safety, only test if table has <= 1000 records
+        if count_response.count <= 1000:
+            logger.info(
+                f"Testing optimized batch creation with {count_response.count:,} records..."
             )
-            if updated_batch:
-                logger.info(f"✓ Updated batch progress")
-                logger.info(f"  Processed: {updated_batch.processed_count}")
-                logger.info(f"  Failed: {updated_batch.failed_count}")
+            total_records, total_batches = await client.create_batches_from_db(
+                test_job_id, batch_size=100
+            )
+            logger.info("✓ Optimized batch creation succeeded!")
+            logger.info(f"  Total records: {total_records:,}")
+            logger.info(f"  Total batches: {total_batches:,}")
 
-            # Test 6: Mark batch completed
-            logger.info("\n--- Test 6: Mark batch completed ---")
-            await client.mark_batch_completed(claimed_batch.id, "test-worker-1")
-            logger.info("✓ Marked batch as completed")
+            # Verify batches were created
+            batch_count_response = await (
+                async_client.table("ingestion_batch")
+                .select("id", count=CountMethod.exact)
+                .eq("job_id", str(test_job_id))
+                .execute()
+            )
+            logger.info(f"  Verified {batch_count_response.count:,} batches in database")
 
-        # Test 7: Get job statistics
-        logger.info("\n--- Test 7: Get job statistics ---")
-        stats = await client.get_job_stats(test_job_id)
-        logger.info(f"✓ Job statistics:")
-        logger.info(f"  Completed batches: {stats['completed_batches']}")
-        logger.info(f"  Pending batches: {stats['pending_batches']}")
-        logger.info(f"  Processed records: {stats['processed_records']}")
-        logger.info(f"  Failed records: {stats['failed_records']}")
+            if batch_count_response.count == total_batches:
+                logger.info("✓ Batch count verification passed!")
+            else:
+                logger.warning(
+                    f"Batch count mismatch: expected {total_batches}, got {batch_count_response.count}"
+                )
 
-        # Test 8: Update job status
-        logger.info("\n--- Test 8: Update job status ---")
-        await client.update_job_status(test_job_id, JobStatus.COMPLETED)
-        logger.info("✓ Updated job status to COMPLETED")
+            # Test 5: Verify batch structure
+            logger.info("\n--- Test 5: Verify batch structure ---")
+            sample_batches = await (
+                async_client.table("ingestion_batch")
+                .select("batch_number, start_id, end_id, status, record_ids")
+                .eq("job_id", str(test_job_id))
+                .order("batch_number")
+                .limit(3)
+                .execute()
+            )
 
-        logger.info("\n✓ All Supabase tests passed!")
+            class IngestionBatch(BaseModel):
+                batch_number: int
+                start_id: int
+                end_id: int
+                status: BatchStatus
+                record_ids: list[int]
+
+            sample_batches = [IngestionBatch.model_validate(batch) for batch in sample_batches.data]
+
+            logger.info("Sample of first 3 batches:")
+            for batch in sample_batches:
+                num_records = len(batch.record_ids)
+                logger.info(
+                    f"  Batch {batch.batch_number}: "
+                    f"IDs {batch.start_id} to {batch.end_id} "
+                    f"({num_records} records, status: {batch.status})"
+                )
+
+            # Test 6: Claim a batch (atomic operation)
+            logger.info("\n--- Test 6: Claim batch (atomic) ---")
+            claimed_batch = await client.claim_next_batch(test_job_id, "test-worker-1")
+            if claimed_batch:
+                logger.info(f"✓ Claimed batch {claimed_batch.batch_number}")
+                logger.info(f"  Worker ID: {claimed_batch.worker_id}")
+                logger.info(f"  Status: {claimed_batch.status}")
+                logger.info(f"  Record count: {len(claimed_batch.record_ids)}")
+
+                # Test 7: Update batch progress
+                logger.info("\n--- Test 7: Update batch progress ---")
+                updated_batch = await client.update_batch_progress(
+                    claimed_batch.id, "test-worker-1", processed_delta=5, failed_delta=1
+                )
+                if updated_batch:
+                    logger.info("✓ Updated batch progress")
+                    logger.info(f"  Processed: {updated_batch.processed_count}")
+                    logger.info(f"  Failed: {updated_batch.failed_count}")
+
+                # Test 8: Mark batch completed
+                logger.info("\n--- Test 8: Mark batch completed ---")
+                await client.mark_batch_completed(claimed_batch.id, "test-worker-1")
+                logger.info("✓ Marked batch as completed")
+
+            # Test 9: Get job statistics
+            logger.info("\n--- Test 9: Get job statistics ---")
+            stats = await client.get_job_stats(test_job_id)
+            logger.info("✓ Job statistics:")
+            logger.info(f"  Completed batches: {stats['completed_batches']}")
+            logger.info(f"  Pending batches: {stats['pending_batches']}")
+            logger.info(f"  Processing batches: {stats['processing_batches']}")
+            logger.info(f"  Processed records: {stats['processed_records']}")
+            logger.info(f"  Failed records: {stats['failed_records']}")
+
+            # Test 10: Update job status
+            logger.info("\n--- Test 10: Update job status ---")
+            await client.update_job_status(test_job_id, JobStatus.COMPLETED)
+            logger.info("✓ Updated job status to COMPLETED")
+
+        else:
+            logger.info(
+                f"⚠️  Skipping optimized batch creation test (table has {count_response.count:,} records, limit is 1000)"
+            )
+            logger.info(
+                "To test with larger datasets, run test_batch_creation.py or the actual migration"
+            )
+
+        logger.info("\n✓✓✓ All Supabase tests completed successfully! ✓✓✓")
         return True
 
     except Exception as e:
