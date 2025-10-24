@@ -19,7 +19,6 @@ from supabase import AsyncClient, acreate_client
 from rag_python.core.logging import get_logger, setup_logging
 from rag_python.migration.config import MigrationSettings
 from rag_python.migration.models import JobStatus
-from rag_python.migration.mysql_client import MySQLClient
 from rag_python.migration.supabase_client import SupabaseClient
 from rag_python.migration.worker import run_worker
 
@@ -32,7 +31,6 @@ class MigrationController:
     def __init__(self, settings: MigrationSettings):
         self.settings = settings
         # Defer creation of clients to explicit init methods
-        self.mysql_client: MySQLClient | None = None
         self.async_supabase: AsyncClient | None = None
         self.supabase_client: SupabaseClient | None = None
 
@@ -43,10 +41,8 @@ class MigrationController:
     # ---------------- Connection management ----------------
 
     async def open_for_planning(self) -> None:
-        """Open only what is needed to plan/create a job (MySQL + Supabase)."""
+        """Open only what is needed to plan/create a job (Supabase only)."""
         logger.info("Opening connections for planning...")
-        self.mysql_client = MySQLClient(self.settings)
-        await self.mysql_client.connect()
 
         if not self.settings.supabase_url or not self.settings.supabase_key:
             raise ValueError("Supabase URL and key must be set")
@@ -69,13 +65,6 @@ class MigrationController:
     async def close_all(self) -> None:
         """Close everything (used both between phases and on final cleanup)."""
         logger.info("Closing connections...")
-        if self.mysql_client:
-            try:
-                await self.mysql_client.close()
-            except Exception:
-                logger.exception("Error closing MySQL client")
-        self.mysql_client = None
-
         self.async_supabase = None
         self.supabase_client = None
         logger.info("All connections closed")
@@ -159,45 +148,36 @@ class MigrationController:
         Returns:
             New job ID
         """
-        if not (self.mysql_client and self.supabase_client):
-            raise RuntimeError("Clients not initialized for planning")
+        if not self.supabase_client:
+            raise RuntimeError("Supabase client not initialized for planning")
 
         logger.info("Planning new migration job...")
 
-        # Get all IDs from MySQL
-        all_ids = await self.mysql_client.get_all_ids()
-        total_records = len(all_ids)
+        # Create job record with placeholder values (will be updated after batch creation)
+        job = await self.supabase_client.create_job(0, 0)
 
-        if total_records == 0:
-            logger.error("No records found in MySQL table")
-            sys.exit(1)
-
-        # Split into batches
-        batch_size = self.settings.batch_size
-        batch_specs: list[dict[str, Any]] = []
-
-        for i in range(0, total_records, batch_size):
-            batch_ids = all_ids[i : i + batch_size]
-            batch_specs.append(
-                {
-                    "batch_number": len(batch_specs),
-                    "start_id": batch_ids[0],
-                    "end_id": batch_ids[-1],
-                    "record_ids": batch_ids,  # Keep full array for now (can optimize later)
-                }
-            )
-
-        total_batches = len(batch_specs)
-        logger.info(
-            f"Split {total_records:,} records into {total_batches:,} batches "
-            f"of ~{batch_size} records each"
+        # Create batches directly in database without loading all IDs into memory
+        # This is much more memory-efficient for large datasets
+        total_records, total_batches = await self.supabase_client.create_batches_from_db(
+            job.id, self.settings.batch_size
         )
 
-        # Create job record
-        job = await self.supabase_client.create_job(total_batches, total_records)
+        if total_records == 0:
+            logger.error("No summary IDs found in Supabase table")
+            sys.exit(1)
 
-        # Create batch records
-        await self.supabase_client.create_batches(job.id, batch_specs)
+        logger.info(
+            f"Split {total_records:,} records into {total_batches:,} batches "
+            f"of ~{self.settings.batch_size} records each"
+        )
+
+        # Update job with actual totals
+        await self.supabase_client.client.table("ingestion_job").update(
+            {
+                "total_batches": total_batches,
+                "total_records": total_records,
+            }
+        ).eq("id", str(job.id)).execute()
 
         # Update job status
         await self.supabase_client.update_job_status(job.id, JobStatus.RUNNING)

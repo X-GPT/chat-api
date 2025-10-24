@@ -27,24 +27,18 @@ async def test_mysql_connection():
         await client.connect()
         logger.info("✓ MySQL connection established")
 
-        # Test count query
-        all_ids = await client.get_all_ids()
-        logger.info(f"✓ Found {len(all_ids):,} records in {settings.mysql_table}")
+        # Test fetching sample records by IDs
+        # Use some sample IDs to test get_records_by_ids()
+        sample_ids = [1981614220625575936, 1981613025991327744, 1981612765621518336]
+        logger.info(f"Testing get_records_by_ids with sample IDs: {sample_ids}")
+        records = await client.get_records_by_ids(sample_ids)
+        logger.info(f"✓ Successfully fetched {len(records)} sample records")
 
-        if all_ids:
-            logger.info(f"  First ID: {all_ids[0]}")
-            logger.info(f"  Last ID: {all_ids[-1]}")
-
-            # Test fetching a sample record
-            sample_ids = all_ids[:3]
-            records = await client.get_records_by_ids(sample_ids)
-            logger.info(f"✓ Successfully fetched {len(records)} sample records")
-
-            for record in records:
-                logger.info(
-                    f"  Record {record.id}: member_code={record.member_code}, "
-                    f"content_length={len(record.parse_content)}"
-                )
+        for record in records:
+            logger.info(
+                f"  Record {record.id}: member_code={record.member_code}, "
+                f"content_length={len(record.parse_content)}"
+            )
 
         logger.info("\n✓ All MySQL tests passed!")
         return True
