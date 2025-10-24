@@ -126,8 +126,7 @@ BEGIN
 END;
 $$;
 
-COMMENT ON FUNCTION public.claim_next_batch IS 'Atomically claim the next pending batch for a worker using FOR UPDATE SKIP LOCKED';
-COMMENT ON FUNCTION public.claim_next_batch IS 'Uses CTE pattern with SECURITY DEFINER for proper isolation and security';
+COMMENT ON FUNCTION public.claim_next_batch IS 'Atomically claims the next pending batch for a worker using FOR UPDATE SKIP LOCKED. Uses CTE pattern with SECURITY DEFINER for proper isolation and security.';
 
 -- speeds selection of the next pending batch for a job in order
 CREATE INDEX IF NOT EXISTS ingestion_batch_job_status_order_idx
