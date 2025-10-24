@@ -18,10 +18,12 @@ async def worker_claim_batches(
     worker_id: str, job_id: UUID, settings: MigrationSettings, max_claims: int = 5
 ) -> list[int]:
     """Simulate a worker claiming batches."""
+    if not settings.supabase_url or not settings.supabase_key:
+        raise ValueError("Supabase URL and key must be set")
     async_client = await acreate_client(settings.supabase_url, settings.supabase_key)
     client = SupabaseClient(async_client, settings)
 
-    claimed_batch_numbers = []
+    claimed_batch_numbers: list[int] = []
 
     try:
         for _ in range(max_claims):
@@ -50,6 +52,8 @@ async def test_concurrent_claiming():
     logger.info("Testing concurrent batch claiming...")
 
     # Setup: Create test job with 10 batches
+    if not settings.supabase_url or not settings.supabase_key:
+        raise ValueError("Supabase URL and key must be set")
     async_client = await acreate_client(settings.supabase_url, settings.supabase_key)
     client = SupabaseClient(async_client, settings)
 
@@ -76,8 +80,7 @@ async def test_concurrent_claiming():
         # Spawn 3 workers concurrently
         logger.info("\n--- Spawning 3 concurrent workers ---")
         workers = [
-            worker_claim_batches(f"worker-{i}", job_id, settings, max_claims=5)
-            for i in range(3)
+            worker_claim_batches(f"worker-{i}", job_id, settings, max_claims=5) for i in range(3)
         ]
 
         results = await asyncio.gather(*workers)
@@ -86,7 +89,7 @@ async def test_concurrent_claiming():
         all_claimed = [batch_num for worker_batches in results for batch_num in worker_batches]
         unique_claimed = set(all_claimed)
 
-        logger.info(f"\n--- Results ---")
+        logger.info("\n--- Results ---")
         logger.info(f"Total batches claimed: {len(all_claimed)}")
         logger.info(f"Unique batches claimed: {len(unique_claimed)}")
 

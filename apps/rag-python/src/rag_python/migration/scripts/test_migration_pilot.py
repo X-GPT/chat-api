@@ -46,8 +46,8 @@ async def test_migration_pilot():
     original_batch_size = settings.batch_size
     original_max_workers = settings.max_workers
 
-    settings.batch_size = 10  # Small batches for pilot
-    settings.max_workers = 2  # Only 2 workers for pilot
+    settings.batch_size = 5  # Small batches for pilot
+    settings.max_workers = 1  # Only 1 worker for pilot
     settings.resume_existing = False  # Always create new job for pilot
 
     logger.info("=" * 70)
@@ -58,9 +58,7 @@ async def test_migration_pilot():
     logger.info(f"Production batch size: {original_batch_size}")
     logger.info(f"Production max workers: {original_max_workers}")
     logger.info("=" * 70)
-    logger.warning(
-        "\n⚠️  WARNING: This will process ALL records in exported_ip_summary_id table!"
-    )
+    logger.warning("\n⚠️  WARNING: This will process ALL records in exported_ip_summary_id table!")
     logger.warning(
         "To limit records, create a test table (see script docstring) or Ctrl+C to cancel.\n"
     )
@@ -83,9 +81,7 @@ async def test_migration_pilot():
         logger.info("✓ PILOT MIGRATION COMPLETED SUCCESSFULLY")
         logger.info("=" * 70)
         logger.info("\nNext steps:")
-        logger.info(
-            "1. Review the results in Supabase (ingestion_job and ingestion_batch tables)"
-        )
+        logger.info("1. Review the results in Supabase (ingestion_job and ingestion_batch tables)")
         logger.info("2. Check Qdrant for the ingested points")
         logger.info("3. Verify the batch creation was fast and memory-efficient")
         logger.info("4. If successful, run the full migration with production settings")
