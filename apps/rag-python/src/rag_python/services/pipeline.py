@@ -181,9 +181,8 @@ class IngestionPipeline:
             logger.info("Persisted %s parents for summary_id=%s", len(parents), summary_id)
 
             storage_context = StorageContext.from_defaults(vector_store=self._child_vector_store)
-            VectorStoreIndex.from_documents(
-                child_docs, storage_context=storage_context, show_progress=False, use_async=True
-            )
+            VectorStoreIndex.from_documents(child_docs, storage_context=storage_context)
+
             logger.info(
                 "Persisted %s child documents for summary_id=%s via LlamaIndex",
                 len(child_docs),
