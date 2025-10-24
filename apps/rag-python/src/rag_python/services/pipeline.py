@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 from collections.abc import Sequence
 from dataclasses import dataclass
 
@@ -182,10 +181,8 @@ class IngestionPipeline:
             logger.info("Persisted %s parents for summary_id=%s", len(parents), summary_id)
 
             storage_context = StorageContext.from_defaults(vector_store=self._child_vector_store)
-            await asyncio.to_thread(
-                lambda: VectorStoreIndex.from_documents(
-                    child_docs, storage_context=storage_context, show_progress=False, use_async=True
-                )
+            VectorStoreIndex.from_documents(
+                child_docs, storage_context=storage_context, show_progress=False, use_async=True
             )
             logger.info(
                 "Persisted %s child documents for summary_id=%s via LlamaIndex",
