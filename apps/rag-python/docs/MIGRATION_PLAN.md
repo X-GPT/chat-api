@@ -20,10 +20,14 @@
 - [x] Verify Qdrant collection schema matches requirements
 
 ### Phase 3: Core Module Implementation
-- [ ] Create `migration/config.py` - MigrationSettings class
-- [ ] Create `migration/models.py` - Pydantic models for Job/Batch/Record
-- [ ] Create `migration/mysql_client.py` - MySQL async client wrapper
-- [ ] Create `migration/supabase_client.py` - Supabase client wrapper
+- [x] Create `migration/config.py` - MigrationSettings class
+- [x] Create `migration/models.py` - Pydantic models for Job/Batch/Record
+- [x] Create `migration/mysql_client.py` - MySQL async client wrapper
+- [x] Create `migration/supabase_client.py` - Supabase client wrapper (with PostgreSQL RPC functions)
+  - [x] Implemented atomic `claim_next_batch()` using PostgreSQL function
+  - [x] Implemented atomic `bump_batch_progress()` with delta increments
+  - [x] Implemented `get_ingestion_job_stats()` for server-side aggregation
+  - [x] Implemented `reset_stuck_batches()` with exponential backoff and jitter
 
 ### Phase 4: Worker & Controller Implementation
 - [ ] Create `migration/worker.py` - Worker process logic
@@ -167,6 +171,7 @@ CREATE TABLE ingestion_batch (
     failed_count INTEGER NOT NULL DEFAULT 0,
     error_message TEXT,
     retry_count INTEGER NOT NULL DEFAULT 0,
+    next_retry_at TIMESTAMPTZ,     -- Scheduled retry time (exponential backoff)
     worker_id TEXT,
     claimed_at TIMESTAMPTZ,
     UNIQUE(job_id, batch_number)
@@ -176,10 +181,19 @@ CREATE INDEX idx_ingestion_batch_job_id ON ingestion_batch(job_id);
 CREATE INDEX idx_ingestion_batch_status ON ingestion_batch(status);
 CREATE INDEX idx_ingestion_batch_claim ON ingestion_batch(job_id, status)
     WHERE status = 'pending';
+CREATE INDEX idx_ingestion_batch_processing ON ingestion_batch(status, claimed_at);
+CREATE INDEX idx_ingestion_batch_next_retry ON ingestion_batch(status, next_retry_at);
 
 COMMENT ON TABLE ingestion_batch IS 'Individual batch of 100 records to process';
 COMMENT ON COLUMN ingestion_batch.record_ids IS 'Snowflake IDs are non-continuous, so we store exact IDs';
+COMMENT ON COLUMN ingestion_batch.next_retry_at IS 'Scheduled retry time with exponential backoff and jitter';
 ```
+
+**PostgreSQL Functions** (see [create_tables.sql](../src/rag_python/migration/schemas/create_tables.sql) for full implementation):
+- `claim_next_batch(p_job_id, p_worker_id)` - Atomic batch claiming with FOR UPDATE SKIP LOCKED
+- `get_ingestion_job_stats(p_job_id)` - Efficient server-side statistics aggregation
+- `reset_stuck_batches(...)` - Reset stuck batches with exponential backoff and jitter
+- `bump_batch_progress(...)` - Atomic progress counter increments with worker validation
 
 ### Destination: Qdrant
 
@@ -314,31 +328,52 @@ print(f"Sparse vectors: {info.config.params.sparse_vectors}")
 
 **Problem**: 5 workers running concurrently could claim the same batch (race condition).
 
-**Solution**: Use PostgreSQL's `FOR UPDATE SKIP LOCKED`:
+**Solution**: Use PostgreSQL function with `FOR UPDATE SKIP LOCKED` (called via Supabase RPC):
 
+The implementation uses a PostgreSQL function named `claim_next_batch` that is called via RPC:
+
+```python
+# Client-side call
+response = self.client.rpc(
+    "claim_next_batch",
+    {
+        "p_job_id": str(job_id),
+        "p_worker_id": worker_id,
+    },
+).execute()
+```
+
+**PostgreSQL function logic** (simplified):
 ```sql
-UPDATE ingestion_batch
-SET status = 'processing',
-    worker_id = :worker_id,
-    claimed_at = NOW(),
-    updated_at = NOW()
-WHERE id = (
-    SELECT id
-    FROM ingestion_batch
-    WHERE job_id = :job_id
-      AND status = 'pending'
-    ORDER BY batch_number
-    LIMIT 1
-    FOR UPDATE SKIP LOCKED  -- Critical: prevents race conditions
-)
-RETURNING *;
+-- Actual function in create_tables.sql
+CREATE OR REPLACE FUNCTION claim_next_batch(
+    p_job_id UUID,
+    p_worker_id TEXT
+) RETURNS SETOF ingestion_batch AS $$
+    UPDATE ingestion_batch
+    SET status = 'processing',
+        worker_id = p_worker_id,
+        claimed_at = NOW(),
+        updated_at = NOW()
+    WHERE id = (
+        SELECT id
+        FROM ingestion_batch
+        WHERE job_id = p_job_id
+          AND status = 'pending'
+        ORDER BY batch_number
+        LIMIT 1
+        FOR UPDATE SKIP LOCKED  -- Critical: prevents race conditions
+    )
+    RETURNING *;
+$$ LANGUAGE sql;
 ```
 
 **How it works**:
-- Each worker runs this query simultaneously
+- Each worker calls the RPC function simultaneously
 - `FOR UPDATE` locks the row
 - `SKIP LOCKED` causes other workers to skip already-locked rows
 - Only one worker gets each batch (atomic operation)
+- Server-side execution ensures true atomicity
 
 ### 3. Worker Process Isolation
 
@@ -513,6 +548,7 @@ class IngestionBatch(BaseModel):
     failed_count: int = 0
     error_message: str | None = None
     retry_count: int = 0
+    next_retry_at: datetime | None = None  # Scheduled retry with exponential backoff
     worker_id: str | None = None
     claimed_at: datetime | None = None
 
@@ -654,11 +690,24 @@ class MySQLClient:
 
 ### 4. Supabase Client (`migration/supabase_client.py`)
 
+**IMPORTANT**: The actual implementation uses PostgreSQL RPC functions for atomic operations. The code below shows the key method signatures. See [supabase_client.py](../src/rag_python/migration/supabase_client.py) for the full implementation.
+
+Key features of the actual implementation:
+- Uses `datetime.now(UTC)` instead of deprecated `datetime.utcnow()`
+- All batch operations validate worker ownership for safety
+- Uses PostgreSQL functions via RPC for atomic operations:
+  - `claim_next_batch()` - Uses `FOR UPDATE SKIP LOCKED` for true atomic claiming
+  - `bump_batch_progress()` - Atomically increments counters using delta values
+  - `get_ingestion_job_stats()` - Server-side aggregation for efficiency
+  - `reset_stuck_batches()` - Capped exponential backoff with jitter for retry scheduling
+- Progress updates use delta increments, not absolute counts
+- Batch completion/failure methods include worker_id validation to prevent race conditions
+
 ```python
 """Supabase client wrapper for job tracking."""
 
-import os
-from datetime import datetime, timedelta
+from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID
 
 from supabase import Client, create_client
@@ -687,286 +736,89 @@ class SupabaseClient:
 
     # ==================== Job Operations ====================
 
-    async def get_active_jobs(self) -> list[IngestionJob]:
+    def get_active_jobs(self) -> list[IngestionJob]:
         """Get all jobs with status 'pending' or 'running'."""
-        response = (
-            self.client.table("ingestion_job")
-            .select("*")
-            .in_("status", [JobStatus.PENDING.value, JobStatus.RUNNING.value])
-            .execute()
-        )
-        return [IngestionJob(**row) for row in response.data]
+        # Implementation uses synchronous calls, not async
 
-    async def create_job(self, total_batches: int, total_records: int) -> IngestionJob:
-        """Create a new ingestion job."""
-        data = {
-            "status": JobStatus.PENDING.value,
-            "total_batches": total_batches,
-            "total_records": total_records,
-            "metadata": {
-                "start_time": datetime.utcnow().isoformat(),
-            },
-        }
-        response = self.client.table("ingestion_job").insert(data).execute()
-        job = IngestionJob(**response.data[0])
-        logger.info(f"Created job {job.id} with {total_batches} batches")
-        return job
+    def create_job(self, total_batches: int, total_records: int) -> IngestionJob:
+        """Create a new ingestion job with start_time in metadata."""
+        # Uses datetime.now(UTC).isoformat()
 
-    async def update_job_status(self, job_id: UUID, status: JobStatus) -> None:
-        """Update job status."""
-        data = {
-            "status": status.value,
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-        if status == JobStatus.COMPLETED:
-            data["metadata"] = {"end_time": datetime.utcnow().isoformat()}
+    def update_job_status(self, job_id: UUID, status: JobStatus) -> None:
+        """Update job status. Merges end_time into metadata on COMPLETED."""
+        # Preserves existing metadata using _merge_metadata()
 
-        self.client.table("ingestion_job").update(data).eq("id", str(job_id)).execute()
-        logger.info(f"Updated job {job_id} status to {status.value}")
+    def get_job_stats(self, job_id: UUID) -> dict[str, Any]:
+        """Get aggregated statistics using PostgreSQL function.
 
-    async def get_job_stats(self, job_id: UUID) -> dict:
-        """Get aggregated statistics for a job."""
-        # Query batch statistics
-        response = (
-            self.client.table("ingestion_batch")
-            .select("status, processed_count, failed_count")
-            .eq("job_id", str(job_id))
-            .execute()
-        )
+        Calls 'get_ingestion_job_stats' RPC function for efficient server-side aggregation.
+        Returns dict with keys: completed_batches, failed_batches, pending_batches,
+        processing_batches, processed_records, failed_records
+        """
 
-        stats = {
-            "completed_batches": 0,
-            "failed_batches": 0,
-            "pending_batches": 0,
-            "processing_batches": 0,
-            "processed_records": 0,
-            "failed_records": 0,
-        }
-
-        for batch in response.data:
-            status = batch["status"]
-            if status == BatchStatus.COMPLETED.value:
-                stats["completed_batches"] += 1
-            elif status == BatchStatus.FAILED.value:
-                stats["failed_batches"] += 1
-            elif status == BatchStatus.PENDING.value:
-                stats["pending_batches"] += 1
-            elif status == BatchStatus.PROCESSING.value:
-                stats["processing_batches"] += 1
-
-            stats["processed_records"] += batch["processed_count"] or 0
-            stats["failed_records"] += batch["failed_count"] or 0
-
-        return stats
-
-    async def update_job_stats(self, job_id: UUID) -> None:
-        """Update job statistics based on batch data."""
-        stats = await self.get_job_stats(job_id)
-        data = {
-            "completed_batches": stats["completed_batches"],
-            "failed_batches": stats["failed_batches"],
-            "processed_records": stats["processed_records"],
-            "failed_records": stats["failed_records"],
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-        self.client.table("ingestion_job").update(data).eq("id", str(job_id)).execute()
+    def update_job_stats(self, job_id: UUID) -> None:
+        """Update job statistics based on aggregated batch data."""
 
     # ==================== Batch Operations ====================
 
-    async def create_batches(
-        self, job_id: UUID, batch_specs: list[dict]
+    def create_batches(
+        self, job_id: UUID, batch_specs: list[dict[str, Any]]
     ) -> list[IngestionBatch]:
-        """Create multiple batch records.
+        """Create multiple batch records in chunks of 100."""
 
-        Args:
-            job_id: Parent job ID
-            batch_specs: List of dicts with keys: batch_number, start_id, end_id, record_ids
+    def claim_next_batch(self, job_id: UUID, worker_id: str) -> IngestionBatch | None:
+        """Atomically claim the next pending batch using PostgreSQL function.
+
+        Uses 'claim_next_batch' RPC function with FOR UPDATE SKIP LOCKED
+        to prevent race conditions. Returns claimed batch or None.
         """
-        data = [
-            {
-                "job_id": str(job_id),
-                "status": BatchStatus.PENDING.value,
-                "batch_number": spec["batch_number"],
-                "start_id": spec["start_id"],
-                "end_id": spec["end_id"],
-                "record_ids": spec["record_ids"],
-            }
-            for spec in batch_specs
-        ]
 
-        # Insert in chunks of 100 to avoid payload limits
-        chunk_size = 100
-        all_batches = []
-        for i in range(0, len(data), chunk_size):
-            chunk = data[i : i + chunk_size]
-            response = self.client.table("ingestion_batch").insert(chunk).execute()
-            all_batches.extend([IngestionBatch(**row) for row in response.data])
-            logger.info(f"Created batches {i} - {i + len(chunk)}")
-
-        logger.info(f"Created {len(all_batches)} total batches for job {job_id}")
-        return all_batches
-
-    async def claim_next_batch(self, job_id: UUID, worker_id: str) -> IngestionBatch | None:
-        """Atomically claim the next pending batch.
-
-        Uses FOR UPDATE SKIP LOCKED to prevent race conditions.
-
-        Args:
-            job_id: Job to claim batch from
-            worker_id: Identifier for this worker
-
-        Returns:
-            Claimed batch or None if no batches available
-        """
-        # Use RPC call for atomic claim (requires PostgreSQL function)
-        # Alternative: use PostgREST's PATCH with filters
-
-        # For now, use a simpler two-step approach:
-        # 1. SELECT with filter
-        # 2. UPDATE and check affected rows
-
-        # Note: This is not perfectly atomic, but Supabase client doesn't expose
-        # FOR UPDATE SKIP LOCKED directly. For production, create a PostgreSQL function.
-
-        response = (
-            self.client.table("ingestion_batch")
-            .select("*")
-            .eq("job_id", str(job_id))
-            .eq("status", BatchStatus.PENDING.value)
-            .order("batch_number")
-            .limit(1)
-            .execute()
-        )
-
-        if not response.data:
-            return None
-
-        batch_id = response.data[0]["id"]
-
-        # Try to claim it
-        update_data = {
-            "status": BatchStatus.PROCESSING.value,
-            "worker_id": worker_id,
-            "claimed_at": datetime.utcnow().isoformat(),
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-
-        claim_response = (
-            self.client.table("ingestion_batch")
-            .update(update_data)
-            .eq("id", batch_id)
-            .eq("status", BatchStatus.PENDING.value)  # Ensure it's still pending
-            .execute()
-        )
-
-        if claim_response.data:
-            batch = IngestionBatch(**claim_response.data[0])
-            logger.info(f"Worker {worker_id} claimed batch {batch.batch_number}")
-            return batch
-        else:
-            # Another worker claimed it first
-            logger.debug(f"Batch {batch_id} was claimed by another worker")
-            return None
-
-    async def update_batch_progress(
+    def update_batch_progress(
         self,
         batch_id: UUID,
-        processed_count: int,
-        failed_count: int,
-    ) -> None:
-        """Update batch progress counters."""
-        data = {
-            "processed_count": processed_count,
-            "failed_count": failed_count,
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-        self.client.table("ingestion_batch").update(data).eq("id", str(batch_id)).execute()
+        worker_id: str,
+        processed_delta: int = 0,
+        failed_delta: int = 0,
+    ) -> IngestionBatch | None:
+        """Atomically increment batch progress counters using PostgreSQL function.
 
-    async def mark_batch_completed(self, batch_id: UUID) -> None:
-        """Mark batch as completed."""
-        data = {
-            "status": BatchStatus.COMPLETED.value,
-            "updated_at": datetime.utcnow().isoformat(),
-        }
-        self.client.table("ingestion_batch").update(data).eq("id", str(batch_id)).execute()
-        logger.info(f"Marked batch {batch_id} as completed")
+        Uses 'bump_batch_progress' RPC function with worker_id validation
+        and single-writer guard. Returns updated batch or None if not owned by worker.
+        """
 
-    async def mark_batch_failed(
+    def mark_batch_completed(self, batch_id: UUID, worker_id: str) -> None:
+        """Mark batch as completed with worker ownership validation."""
+        # Validates worker_id and status='processing' to prevent race conditions
+
+    def mark_batch_failed(
         self,
         batch_id: UUID,
+        worker_id: str,
         error_message: str,
         retry: bool = True,
     ) -> None:
-        """Mark batch as failed and optionally retry."""
-        # First get current retry count
-        response = (
-            self.client.table("ingestion_batch")
-            .select("retry_count")
-            .eq("id", str(batch_id))
-            .single()
-            .execute()
-        )
-        current_retry = response.data["retry_count"]
-        new_retry = current_retry + 1
+        """Mark batch as failed with optional retry and worker validation.
 
-        if retry and new_retry <= self.settings.max_retries:
-            # Reset to pending for retry
-            data = {
-                "status": BatchStatus.PENDING.value,
-                "retry_count": new_retry,
-                "error_message": error_message,
-                "worker_id": None,
-                "claimed_at": None,
-                "updated_at": datetime.utcnow().isoformat(),
-            }
-            logger.warning(
-                f"Batch {batch_id} failed, retry {new_retry}/{self.settings.max_retries}"
-            )
-        else:
-            # Permanently failed
-            data = {
-                "status": BatchStatus.FAILED.value,
-                "retry_count": new_retry,
-                "error_message": error_message,
-                "updated_at": datetime.utcnow().isoformat(),
-            }
-            logger.error(f"Batch {batch_id} permanently failed after {new_retry} attempts")
-
-        self.client.table("ingestion_batch").update(data).eq("id", str(batch_id)).execute()
-
-    async def reset_stuck_batches(self, job_id: UUID) -> int:
-        """Reset batches stuck in 'processing' state.
-
-        If a worker crashes, batches can be stuck. This resets them to pending.
-
-        Returns:
-            Number of batches reset
+        Implements exponential backoff by incrementing retry_count.
+        Resets to 'pending' if retry_count < max_retries, else 'failed'.
         """
-        timeout = datetime.utcnow() - timedelta(minutes=self.settings.batch_timeout_minutes)
 
-        response = (
-            self.client.table("ingestion_batch")
-            .select("id")
-            .eq("job_id", str(job_id))
-            .eq("status", BatchStatus.PROCESSING.value)
-            .lt("claimed_at", timeout.isoformat())
-            .execute()
-        )
+    def reset_stuck_batches(self, job_id: UUID) -> int:
+        """Reset batches stuck in 'processing' state using PostgreSQL function.
 
-        stuck_ids = [row["id"] for row in response.data]
+        Uses 'reset_stuck_batches' RPC function with capped exponential backoff and jitter.
+        Security-hardened with SECURITY DEFINER and non-blocking SKIP LOCKED.
+        Returns number of batches reset.
 
-        if stuck_ids:
-            data = {
-                "status": BatchStatus.PENDING.value,
-                "worker_id": None,
-                "claimed_at": None,
-                "updated_at": datetime.utcnow().isoformat(),
-            }
-            self.client.table("ingestion_batch").update(data).in_("id", stuck_ids).execute()
-            logger.warning(f"Reset {len(stuck_ids)} stuck batches")
-
-        return len(stuck_ids)
+        Parameters:
+        - p_timeout_minutes: From settings.batch_timeout_minutes
+        - p_max_retries: From settings.max_retries
+        - p_base_delay_seconds: 30 seconds
+        - p_backoff_cap_seconds: 1800 seconds (30 min max)
+        """
 ```
+
+**Note**: All methods are synchronous (not async) despite the async keyword in this example. The actual implementation does not use async/await.
 
 ### 5. Controller (`migration/controller.py`)
 
@@ -1652,7 +1504,7 @@ WHERE status = 'processing' AND claimed_at < NOW() - INTERVAL '10 minutes';
 4. **Incremental sync**: Only migrate new/updated records
 5. **Collection IDs job**: Separate migration for populating collection associations
 6. **Parallel job support**: Allow multiple jobs running concurrently with different filters
-7. **Better atomic claiming**: Create PostgreSQL function for true FOR UPDATE SKIP LOCKED
+7. ~~**Better atomic claiming**: Create PostgreSQL function for true FOR UPDATE SKIP LOCKED~~ ✅ **IMPLEMENTED** - Uses PostgreSQL RPC functions for atomic operations
 
 ## Conclusion
 
