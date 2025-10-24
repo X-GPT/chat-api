@@ -45,18 +45,22 @@ async def test_migration_pilot():
     # Use small settings for validation
     original_batch_size = settings.batch_size
     original_max_workers = settings.max_workers
+    original_mysql_pool_size = settings.mysql_pool_size
 
     settings.batch_size = 5  # Small batches for pilot
     settings.max_workers = 1  # Only 1 worker for pilot
     settings.resume_existing = False  # Always create new job for pilot
+    settings.mysql_pool_size = 2  # Only 2 connections for pilot
 
     logger.info("=" * 70)
     logger.info("PILOT MIGRATION TEST - Validating optimized batch creation")
     logger.info("=" * 70)
     logger.info(f"Batch size: {settings.batch_size}")
     logger.info(f"Max workers: {settings.max_workers}")
+    logger.info(f"MySQL pool size: {settings.mysql_pool_size}")
     logger.info(f"Production batch size: {original_batch_size}")
     logger.info(f"Production max workers: {original_max_workers}")
+    logger.info(f"Production MySQL pool size: {original_mysql_pool_size}")
     logger.info("=" * 70)
     logger.warning("\n⚠️  WARNING: This will process ALL records in exported_ip_summary_id table!")
     logger.warning(
