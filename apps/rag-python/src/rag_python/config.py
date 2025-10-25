@@ -53,7 +53,7 @@ class Settings(BaseSettings):
     # OpenAI Configuration
     openai_api_key: str | None = None
     openai_embedding_model: str = "text-embedding-3-small"
-
+    openai_max_retries: int = 20
     # Qdrant Configuration
     qdrant_url: str = "https://your-cluster.qdrant.io"
     qdrant_api_key: str | None = None

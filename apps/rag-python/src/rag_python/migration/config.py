@@ -28,7 +28,7 @@ class MigrationSettings(BaseSettings):
 
     # Migration Configuration
     batch_size: int = 50
-    max_workers: int = 20
+    max_workers: int = 15
     max_retries: int = 3
     worker_poll_interval: float = 1.0  # Seconds between batch claim attempts
     worker_heartbeat_interval: float = 30.0  # How often to log "still alive"

@@ -32,6 +32,7 @@ class IngestionService:
         self.embed_model = embed_model or OpenAIEmbedding(
             api_key=settings.openai_api_key,
             model=settings.openai_embedding_model,
+            max_retries=settings.openai_max_retries,
         )
         LlamaIndexSettings.embed_model = self.embed_model
 
