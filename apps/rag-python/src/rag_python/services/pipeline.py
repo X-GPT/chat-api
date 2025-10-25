@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 import asyncio
-from collections.abc import Sequence
+from collections.abc import Coroutine, Sequence
 from dataclasses import dataclass
+from typing import Any
 
 from llama_index.core import Document, StorageContext, VectorStoreIndex
 from llama_index.core.node_parser import SemanticSplitterNodeParser, SentenceSplitter
@@ -21,6 +22,13 @@ from rag_python.text_processing.normalize_text import normalize_text
 from rag_python.text_processing.token_estimator import estimate_tokens
 
 logger = get_logger(__name__)
+
+sem = asyncio.Semaphore(16)  # tune this (4–16 is a good start)
+
+
+async def bounded(coro: Coroutine[Any, Any, Any]) -> Any:
+    async with sem:
+        return await coro
 
 
 @dataclass(slots=True)
@@ -183,7 +191,7 @@ class IngestionPipeline:
 
             storage_context = StorageContext.from_defaults(vector_store=self._child_vector_store)
             index = VectorStoreIndex.from_documents([], storage_context=storage_context)
-            await asyncio.gather(*[index.ainsert(doc) for doc in child_docs])
+            await asyncio.gather(*(bounded(index.ainsert(doc)) for doc in child_docs))
 
             logger.info(
                 "Persisted %s child documents for summary_id=%s via LlamaIndex",
