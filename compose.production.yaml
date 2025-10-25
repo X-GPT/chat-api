@@ -50,8 +50,9 @@ services:
     restart: unless-stopped
     env_file:
       - /etc/mymemo/rag-python/env.prod
-    mem_limit: 2g
-    mem_reservation: 1536m
+    # TODO: Update memory limits to 2g and reservation to 1536m after migration is complete
+    mem_limit: 20g
+    mem_reservation: 19g
     logging:
       driver: awslogs
       options:

@@ -61,23 +61,6 @@ class MySQLClient:
         async with self.pool.acquire() as conn:  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
             yield conn
 
-    async def get_all_ids(self) -> list[int]:
-        """Fetch all summary IDs ordered by ID.
-
-        Returns:
-            Sorted list of all summary IDs from the table.
-        """
-        logger.info(f"Fetching all IDs from {self.settings.mysql_table}...")
-        async with self.acquire() as conn:
-            async with conn.cursor() as cursor:  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-                # Note: Table name validated in __init__, safe to use in f-string
-                # SQL parameters (%s) cannot be used for table/column names
-                await cursor.execute(f"SELECT id FROM {self.settings.mysql_table} ORDER BY id")  # pyright: ignore[reportUnknownMemberType]
-                rows = await cursor.fetchall()  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-                ids = [row[0] for row in rows]  # pyright: ignore[reportUnknownVariableType]
-                logger.info(f"Fetched {len(ids):,} IDs")  # pyright: ignore[reportUnknownArgumentType]
-                return ids  # pyright: ignore[reportUnknownVariableType]
-
     async def get_records_by_ids(self, ids: list[int]) -> list[SummaryRecord]:
         """Fetch specific records by their IDs.
 

@@ -4,6 +4,7 @@ from datetime import UTC, datetime
 from typing import Any
 from uuid import UUID
 
+from pydantic import BaseModel
 from supabase import AsyncClient
 
 from rag_python.core.logging import get_logger
@@ -115,10 +116,62 @@ class SupabaseClient:
 
     # ==================== Batch Operations ====================
 
+    async def create_batches_from_db(self, job_id: UUID, batch_size: int) -> tuple[int, int]:
+        """Create batches directly in database without loading all IDs into memory.
+
+        Uses PostgreSQL function with ROW_NUMBER() for efficient single-scan batching.
+        Idempotent: can be called multiple times safely (uses ON CONFLICT DO NOTHING).
+
+        Args:
+            job_id: Parent job ID
+            batch_size: Number of records per batch
+
+        Returns:
+            Tuple of (total_records, total_batches)
+        """
+        response = await self.client.rpc(
+            "create_batches_from_summary_ids",
+            {
+                "p_job_id": str(job_id),
+                "p_batch_size": batch_size,
+            },
+        ).execute()
+
+        if not response.data:
+            raise RuntimeError("Failed to create batches in database")
+
+        assert isinstance(response.data, list)
+        assert len(response.data) == 1
+        result = response.data[0]
+
+        class BatchResult(BaseModel):
+            total_records: int
+            total_batches: int
+            inserted_batches: int
+
+        result = BatchResult.model_validate(result)
+
+        total_records = result.total_records
+        total_batches = result.total_batches
+        inserted_batches = result.inserted_batches
+
+        if inserted_batches < total_batches:
+            logger.warning(
+                f"Created {inserted_batches:,} new batches, "
+                f"{total_batches - inserted_batches:,} already existed "
+                f"(total: {total_batches:,} batches for {total_records:,} records)"
+            )
+        else:
+            logger.info(
+                f"Created {total_batches:,} batches for {total_records:,} records "
+                f"directly in database"
+            )
+        return total_records, total_batches
+
     async def create_batches(
         self, job_id: UUID, batch_specs: list[dict[str, Any]]
     ) -> list[IngestionBatch]:
-        """Create multiple batch records.
+        """Create multiple batch records (legacy method for compatibility).
 
         Args:
             job_id: Parent job ID
@@ -329,3 +382,45 @@ class SupabaseClient:
                     )
 
         return reset_count
+
+    # ==================== Summary ID Operations ====================
+
+    async def get_all_summary_ids(self) -> list[int]:
+        """Get all summary IDs from exported_ip_summary_id table.
+
+        Returns:
+            List of summary IDs sorted in ascending order
+        """
+        logger.info("Fetching all summary IDs from Supabase...")
+
+        # Fetch all records ordered by id
+        all_ids = []
+        page_size = 1000
+        start = 0
+
+        while True:
+            response = await (
+                self.client.table("exported_ip_summary_id")
+                .select("summary_id")
+                .order("id")
+                .range(start, start + page_size - 1)
+                .execute()
+            )
+
+            if not response.data:
+                break
+
+            # Extract summary_id from each row
+            batch_ids = [row["summary_id"] for row in response.data]
+            all_ids.extend(batch_ids)
+
+            logger.info(f"Fetched {len(all_ids):,} summary IDs so far...")
+
+            # Check if we got fewer records than requested (last page)
+            if len(response.data) < page_size:
+                break
+
+            start += page_size
+
+        logger.info(f"Fetched total of {len(all_ids):,} summary IDs from Supabase")
+        return all_ids

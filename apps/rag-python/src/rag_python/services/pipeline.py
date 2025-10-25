@@ -92,29 +92,30 @@ class IngestionPipeline:
             checksum = compute_checksum(normalized_content)
             logger.info("Computed checksum for summary_id=%s: %s", summary_id, checksum)
 
-            existing_checksum = await self._vector_repository.get_existing_checksum(summary_id)
-            if existing_checksum == checksum:
-                logger.info(
-                    "Content unchanged for summary_id=%s (checksum=%s), skipping ingestion",
-                    summary_id,
-                    checksum[:8],
-                )
-                # ensure membership up to date
-                if collection_ids_list:
-                    current = await self._vector_repository.get_collection_ids(summary_id)
-                    if sorted(current) != sorted(collection_ids_list):
-                        await self._vector_repository.update_collection_ids(
-                            summary_id=summary_id,
-                            collection_ids=collection_ids_list,
-                        )
-                return IngestionStats(
-                    summary_id=summary_id,
-                    member_code=member_code,
-                    parent_chunks=0,
-                    child_chunks=0,
-                    total_nodes=0,
-                    operation="skipped",
-                )
+            # TODO: Uncomment this when migration is complete
+            # existing_checksum = await self._vector_repository.get_existing_checksum(summary_id)
+            # if existing_checksum == checksum:
+            #     logger.info(
+            #         "Content unchanged for summary_id=%s (checksum=%s), skipping ingestion",
+            #         summary_id,
+            #         checksum[:8],
+            #     )
+            #     # ensure membership up to date
+            #     if collection_ids_list:
+            #         current = await self._vector_repository.get_collection_ids(summary_id)
+            #         if sorted(current) != sorted(collection_ids_list):
+            #             await self._vector_repository.update_collection_ids(
+            #                 summary_id=summary_id,
+            #                 collection_ids=collection_ids_list,
+            #             )
+            #     return IngestionStats(
+            #         summary_id=summary_id,
+            #         member_code=member_code,
+            #         parent_chunks=0,
+            #         child_chunks=0,
+            #         total_nodes=0,
+            #         operation="skipped",
+            #     )
 
             estimated_tokens = estimate_tokens(normalized_content)
             logger.info("Estimated tokens for summary_id=%s: %s", summary_id, estimated_tokens)
@@ -181,11 +182,9 @@ class IngestionPipeline:
             logger.info("Persisted %s parents for summary_id=%s", len(parents), summary_id)
 
             storage_context = StorageContext.from_defaults(vector_store=self._child_vector_store)
-            await asyncio.to_thread(
-                lambda: VectorStoreIndex.from_documents(
-                    child_docs, storage_context=storage_context, show_progress=False, use_async=True
-                )
-            )
+            index = VectorStoreIndex.from_documents([], storage_context=storage_context)
+            await asyncio.gather(*[index.ainsert(doc) for doc in child_docs])
+
             logger.info(
                 "Persisted %s child documents for summary_id=%s via LlamaIndex",
                 len(child_docs),
