@@ -36,14 +36,14 @@
 - [x] Update `migration/__init__.py` with proper exports
 
 ### Phase 5: Testing & Validation
-- [ ] Test MySQL connection with sample query
-- [ ] Test Supabase connection and table access
-- [ ] Test batch claiming mechanism with 2 workers
-- [ ] Run dry-run with first 100 records
-- [ ] Run test with first 1,000 records
-- [ ] Verify idempotency (re-running same records)
-- [ ] Verify error handling (intentionally fail some records)
-- [ ] Test resumability (stop and restart controller)
+- [x] Test MySQL connection with sample query
+- [x] Test Supabase connection and table access
+- [x] Test batch claiming mechanism with 2 workers
+- [x] Run dry-run with first 100 records
+- [x] Run test with first 1,000 records
+- [x] Verify idempotency (re-running same records)
+- [x] Verify error handling (intentionally fail some records)
+- [x] Test resumability (stop and restart controller)
 
 ### Phase 6: Production Migration
 - [ ] Review and adjust worker count based on test results

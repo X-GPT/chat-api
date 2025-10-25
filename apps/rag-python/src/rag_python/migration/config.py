@@ -27,8 +27,8 @@ class MigrationSettings(BaseSettings):
     supabase_key: str | None = None  # Service role key (not anon key!)
 
     # Migration Configuration
-    batch_size: int = 100
-    max_workers: int = 5
+    batch_size: int = 50
+    max_workers: int = 10
     max_retries: int = 3
     worker_poll_interval: float = 1.0  # Seconds between batch claim attempts
     worker_heartbeat_interval: float = 30.0  # How often to log "still alive"
