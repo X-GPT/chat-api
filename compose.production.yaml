@@ -50,7 +50,25 @@ services:
     restart: unless-stopped
     env_file:
       - /etc/mymemo/rag-python/env.prod
-    # TODO: Update memory limits to 2g and reservation to 1536m after migration is complete
+    mem_limit: 2g
+    mem_reservation: 1536m
+    logging:
+      driver: awslogs
+      options:
+        awslogs-region: us-west-2
+        awslogs-group: /apps/rag-python
+        awslogs-stream: ec2-${REPO_NAME}-production-worker
+        awslogs-create-group: "true"
+    networks:
+      - mymemo-production-network
+
+  rag-migration-controller:
+    container_name: ${REPO_NAME}-production-rag-migration-controller
+    image: ${RAG_WORKER_IMAGE}
+    command: python -m rag_python.migration.controller
+    restart: no
+    env_file:
+      - /etc/mymemo/rag-python/env.prod
     mem_limit: 20g
     mem_reservation: 19g
     logging:
@@ -58,7 +76,7 @@ services:
       options:
         awslogs-region: us-west-2
         awslogs-group: /apps/rag-python
-        awslogs-stream: ec2-${REPO_NAME}-production-worker
+        awslogs-stream: ec2-${REPO_NAME}-production-migration-controller
         awslogs-create-group: "true"
     networks:
       - mymemo-production-network
