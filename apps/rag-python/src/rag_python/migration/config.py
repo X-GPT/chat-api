@@ -34,7 +34,7 @@ class MigrationSettings(BaseSettings):
     worker_heartbeat_interval: float = 30.0  # How often to log "still alive"
     batch_timeout_minutes: int = 10  # Consider batch stuck if processing > 10min
     monitor_interval_seconds: int = 5  # How often controller checks job progress
-    resume_existing: bool | None = None  # None = prompt, True = auto-resume, False = new job
+    resume_existing: bool | None = True  # None = prompt, True = auto-resume, False = new job
 
     # Reuse existing app settings for Qdrant/OpenAI
     # (loaded separately in worker via get_settings())

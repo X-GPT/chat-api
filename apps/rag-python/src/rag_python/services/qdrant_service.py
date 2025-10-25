@@ -58,6 +58,7 @@ class QdrantService:
             url=settings.qdrant_url,
             api_key=settings.qdrant_api_key,
             prefer_grpc=settings.qdrant_prefer_grpc,
+            timeout=settings.qdrant_timeout,
         )
 
         logger.info("QdrantService initialized for collection '%s'", self.col)

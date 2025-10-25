@@ -57,9 +57,11 @@ class Settings(BaseSettings):
     # Qdrant Configuration
     qdrant_url: str = "https://your-cluster.qdrant.io"
     qdrant_api_key: str | None = None
-    qdrant_collection_name: str = "memos"
-    qdrant_prefer_grpc: bool = False
+    qdrant_collection_name: str = "memos-2025-10-25"
+    # TODO: Update to False after migration is complete
+    qdrant_prefer_grpc: bool = True
     qdrant_local_mode: bool = False
+    qdrant_timeout: int = 30  # Timeout in seconds
 
     # RAG Configuration
     chunk_size: int = 512  # Child chunk size
