@@ -30,7 +30,7 @@ class MigrationSettings(BaseSettings):
     batch_size: int = 50
     max_workers: int = 15
     max_retries: int = 3
-    worker_poll_interval: float = 1.0  # Seconds between batch claim attempts
+    worker_poll_interval: float = 5.0  # Seconds between batch claim attempts
     worker_heartbeat_interval: float = 30.0  # How often to log "still alive"
     batch_timeout_minutes: int = 10  # Consider batch stuck if processing > 10min
     monitor_interval_seconds: int = 5  # How often controller checks job progress
