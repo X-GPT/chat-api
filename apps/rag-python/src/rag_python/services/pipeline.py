@@ -23,7 +23,7 @@ from rag_python.text_processing.token_estimator import estimate_tokens
 
 logger = get_logger(__name__)
 
-sem = asyncio.Semaphore(16)  # tune this (4–16 is a good start)
+sem = asyncio.Semaphore(8)  # tune this (4–16 is a good start)
 
 
 async def bounded(coro: Coroutine[Any, Any, Any]) -> Any:
