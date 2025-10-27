@@ -106,11 +106,10 @@ class SQSWorker:
                 logger.debug("No messages received")
                 return
 
-            # TODO: Start processing messages after the migration is complete
             # Process messages
-            # success_count, failed_count = await self.processor.process_messages_batch(messages)
+            success_count, failed_count = await self.processor.process_messages_batch(messages)
 
-            # logger.info(f"Batch complete: {success_count} succeeded, {failed_count} failed")
+            logger.info(f"Batch complete: {success_count} succeeded, {failed_count} failed")
 
         except Exception as e:
             logger.error(f"Error in poll cycle: {e}", exc_info=True)

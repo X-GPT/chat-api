@@ -88,10 +88,7 @@ class QdrantService:
                             always_ram=True,
                         ),
                     ),
-                    # TODO: Enable HNSW for dense vectors (default: m=16, ef_construct=256)
-                    # hnsw_config=q.HnswConfigDiff(m=16, ef_construct=256),
-                    # Disable HNSW for dense vectors (m=0) for high-volume vector ingestion
-                    hnsw_config=q.HnswConfigDiff(m=0),
+                    hnsw_config=q.HnswConfigDiff(m=16, ef_construct=256),
                 ),
             },
             sparse_vectors_config={
