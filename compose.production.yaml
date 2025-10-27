@@ -65,7 +65,7 @@ services:
   rag-migration-controller:
     container_name: ${REPO_NAME}-production-rag-migration-controller
     image: ${RAG_WORKER_IMAGE}
-    command: python -m rag_python.migration.controller
+    command: python -m rag_python.migration.scripts.update_qdrant_collection_ids --table summary_with_collection_ids
     restart: no
     env_file:
       - /etc/mymemo/rag-python/env.prod

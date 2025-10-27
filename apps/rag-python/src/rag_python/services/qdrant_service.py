@@ -104,8 +104,7 @@ class QdrantService:
         )
 
         logger.info("Created collection '%s'", self.col)
-        # TODO: Create payload indexes, but disabled for now for high-volume vector ingestion
-        # await self._ensure_payload_indexes()
+        await self._ensure_payload_indexes()
 
     async def _ensure_payload_indexes(self) -> None:
         """Create payload indexes required for the new schema."""

@@ -111,6 +111,8 @@ async def setup_qdrant_collection() -> bool:
             logger.info("\nPayload Indexes:")
             for field, schema in collection_info.payload_schema.items():
                 logger.info(f"  {field}: {schema}")
+        else:
+            logger.info("No payload schema found")
 
         logger.info("\n=== Setup Complete ===")
         logger.info("✓ Qdrant collection is ready for migration")
