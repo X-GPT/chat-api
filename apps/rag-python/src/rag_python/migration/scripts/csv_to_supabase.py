@@ -115,7 +115,7 @@ async def csv_to_supabase(
     batch: list[dict[str, Any]] = []
 
     try:
-        with open(csv_file, "r", encoding="utf-8") as f:
+        with open(csv_file, encoding="utf-8") as f:
             reader = csv.reader(f)
 
             # Handle header
@@ -206,7 +206,7 @@ Examples:
 
   # Preview without inserting
   python -m rag_python.migration.scripts.csv_to_supabase --csv data.csv --table users --dry-run
-        """,
+        """,  # noqa: E501
     )
     parser.add_argument(
         "--csv",

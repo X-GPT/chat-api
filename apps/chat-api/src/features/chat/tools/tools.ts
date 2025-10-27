@@ -32,8 +32,8 @@ export function getAllowedTools(
 						"list_collection_files" as const,
 						"list_all_files" as const,
 						"update_citations" as const,
-						// "search_knowledge" as const,
-						"search_documents" as const,
+						"search_knowledge" as const,
+						// "search_documents" as const,
 					]
 				: ["update_plan" as const];
 		case "collection":
@@ -43,8 +43,8 @@ export function getAllowedTools(
 						"read_file" as const,
 						"list_collection_files" as const,
 						"update_citations" as const,
-						// "search_knowledge" as const,
-						"search_documents" as const,
+						"search_knowledge" as const,
+						// "search_documents" as const,
 					]
 				: ["update_plan" as const];
 		case "document":
@@ -52,8 +52,8 @@ export function getAllowedTools(
 				? [
 						"update_plan" as const,
 						"read_file" as const,
-						// "search_knowledge" as const,
-						"search_documents" as const,
+						"search_knowledge" as const,
+						// "search_documents" as const,
 					]
 				: ["update_plan" as const];
 		default:
