@@ -4,7 +4,7 @@ import type { FetchOptions } from "../api/client";
 import { fetchProtectedFiles } from "../api/files";
 import type { EventMessage } from "../chat.events";
 import type { ChatLogger } from "../chat.logger";
-import { normalizeFiles } from "./utils";
+import { normalizeFiles, xml } from "./utils";
 
 // the `tool` helper function ensures correct type inference:
 export const listAllFilesTool = tool({
@@ -44,24 +44,33 @@ export async function handleListAllFiles({
 		return "No files found";
 	}
 
-	const fileList = normalizedFiles
-		.map((file) => {
-			return [
-				"<file>",
-				`\t${!file.fileName && file.fileLink ? `<link>${file.fileLink}</link>` : `<name>${file.fileName}</name>`}`,
-				`\t<id>${file.summaryId}</id>`,
-				`\t<type>${file.fileType}</type>`,
-				"\t<collections>",
-				`${file.collections
-					.map((collection) => {
-						return `\t\t<collection id="${collection.id}" name="${collection.name}" />`;
-					})
-					.join("\n")}`,
-				"\t</collections>",
-				"</file>",
-			].join("\n");
-		})
-		.join("\n");
+	const fileNodes = normalizedFiles.map((file) => {
+		const collectionsXml = xml(
+			"collections",
+			file.collections.map((collection) =>
+				xml(
+					"collection",
+					[
+						xml("id", collection.id, { indent: 3 }),
+						xml("name", collection.name, { indent: 3 }),
+					],
+					{ indent: 2 },
+				),
+			),
+			{ indent: 1 },
+		);
+
+		return xml("file", [
+			xml("title", file.title ?? file.linkTitle ?? file.summaryTitle, {
+				indent: 1,
+			}),
+			xml("name", file.fileName ?? "", { indent: 1 }),
+			xml("link", file.fileLink ?? "", { indent: 1 }),
+			xml("id", file.summaryId, { indent: 1 }),
+			xml("type", file.fileType, { indent: 1 }),
+			collectionsXml,
+		]);
+	});
 
 	const collections = new Map<string, string>();
 	normalizedFiles.forEach((file) => {
@@ -70,20 +79,21 @@ export async function handleListAllFiles({
 		});
 	});
 
-	const collectionList = Array.from(collections.entries())
-		.map(([id, name]) => {
-			return `
-		<collection>
-			<id>${id}</id>
-			<name>${name}</name>
-		</collection>`;
-		})
-		.join("\n");
+	const collectionNodes = Array.from(collections.entries()).map(([id, name]) =>
+		xml(
+			"collection",
+			[xml("id", id, { indent: 2 }), xml("name", name, { indent: 2 })],
+			{ indent: 1 },
+		),
+	);
 
 	onEvent({
 		type: "list_all_files.completed",
 		message: "All files listed",
 	});
 
-	return `\n<files>${fileList}\n</files>\n<collections>${collectionList}\n</collections>\n`;
+	const filesXml = xml("files", fileNodes);
+	const collectionsXml = xml("collections", collectionNodes);
+
+	return `\n${filesXml}\n${collectionsXml}\n`;
 }
