@@ -62,24 +62,24 @@ services:
     networks:
       - mymemo-production-network
 
-  rag-migration-controller:
-    container_name: ${REPO_NAME}-production-rag-migration-controller
-    image: ${RAG_WORKER_IMAGE}
-    command: python -m rag_python.migration.scripts.update_qdrant_collection_ids --table summary_with_collection_ids
-    restart: no
-    env_file:
-      - /etc/mymemo/rag-python/env.prod
-    mem_limit: 20g
-    mem_reservation: 19g
-    logging:
-      driver: awslogs
-      options:
-        awslogs-region: us-west-2
-        awslogs-group: /apps/rag-python
-        awslogs-stream: ec2-${REPO_NAME}-production-migration-controller
-        awslogs-create-group: "true"
-    networks:
-      - mymemo-production-network
+  # rag-migration-controller:
+  #   container_name: ${REPO_NAME}-production-rag-migration-controller
+  #   image: ${RAG_WORKER_IMAGE}
+  #   command: python -m rag_python.migration.scripts.update_qdrant_collection_ids --table summary_with_collection_ids
+  #   restart: no
+  #   env_file:
+  #     - /etc/mymemo/rag-python/env.prod
+  #   mem_limit: 20g
+  #   mem_reservation: 19g
+  #   logging:
+  #     driver: awslogs
+  #     options:
+  #       awslogs-region: us-west-2
+  #       awslogs-group: /apps/rag-python
+  #       awslogs-stream: ec2-${REPO_NAME}-production-migration-controller
+  #       awslogs-create-group: "true"
+  #   networks:
+  #     - mymemo-production-network
 
 networks:
   mymemo-production-network:
