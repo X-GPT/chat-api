@@ -65,7 +65,6 @@ export async function handleListAllFiles({
 				indent: 1,
 			}),
 			xml("name", file.fileName ?? "", { indent: 1 }),
-			xml("link", file.fileLink ?? "", { indent: 1 }),
 			xml("id", file.summaryId, { indent: 1 }),
 			xml("type", file.fileType, { indent: 1 }),
 			collectionsXml,

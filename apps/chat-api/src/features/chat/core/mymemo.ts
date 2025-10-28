@@ -1,4 +1,9 @@
-import { type LanguageModel, type ModelMessage, streamText } from "ai";
+import {
+	type FinishReason,
+	type LanguageModel,
+	type ModelMessage,
+	streamText,
+} from "ai";
 import type { ChatMessagesScope } from "@/config/env";
 import type { Citation, EventMessage } from "../chat.events";
 import {
@@ -107,6 +112,7 @@ type TurnRunResult = {
 		response: ModelMessage | null;
 		nextTurnInput: ModelMessage | null;
 	}[];
+	finishReason: FinishReason;
 };
 
 async function runTurn(
@@ -351,14 +357,19 @@ async function runTurn(
 
 			// Handle other tool calls
 		}
+	} else if (finishReason === "length") {
+		// Model hit the max context length; rely on caller to decide next steps.
+		turnContext.logger.info({
+			message: "Model reached the maximum length",
+		});
 	} else {
 		// Don't push anything to the output when the model doesn't request to use any more tools
 		// console.log("\\n\\nFinal message history:");
 		// console.dir(session.messages, { depth: null });
 	}
-
 	return {
 		processedItems: output,
+		finishReason,
 	};
 }
 
@@ -386,7 +397,7 @@ async function runTask({
 	const turnInput = session.messages;
 
 	while (true) {
-		const result = await runTurn(
+		const { processedItems, finishReason } = await runTurn(
 			session,
 			turnContext,
 			turnInput,
@@ -398,7 +409,7 @@ async function runTask({
 
 		const nextTurnInput: ModelMessage[] = [];
 
-		for (const item of result.processedItems) {
+		for (const item of processedItems) {
 			if (item.response) {
 				session.messages.push(item.response);
 			}
@@ -408,7 +419,17 @@ async function runTask({
 			}
 		}
 
-		if (nextTurnInput.length === 0) {
+		const shouldContinue =
+			nextTurnInput.length > 0 && finishReason !== "length";
+
+		if (!shouldContinue) {
+			if (finishReason === "length") {
+				turnContext.logger.info({
+					message: "Model reached the maximum length",
+					messages: session.messages,
+				});
+				// TODO: Compress the message history when the model reaches the maximum length
+			}
 			turnContext.logger.info({
 				message: "Final message history:",
 				messages: session.messages,
