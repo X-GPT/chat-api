@@ -21,6 +21,7 @@ import { handleSearchKnowledge } from "../tools/search-knowledge";
 import { getTools } from "../tools/tools";
 import { handleUpdateCitations } from "../tools/update-citations";
 import { handleUpdatePlan } from "../tools/update-plan";
+import { compressMessageHistory } from "./compress-message-history";
 import type { Config } from "./config";
 import type { ConversationHistory } from "./history";
 
@@ -112,7 +113,6 @@ type TurnRunResult = {
 		response: ModelMessage | null;
 		nextTurnInput: ModelMessage | null;
 	}[];
-	finishReason: FinishReason;
 };
 
 async function runTurn(
@@ -146,6 +146,15 @@ async function runTurn(
 		tools: prompt.tools,
 		messages: prompt.messages,
 		activeTools: prompt.allowedTools,
+		onFinish: ({ usage }) => {
+			const { inputTokens, outputTokens, totalTokens } = usage;
+			turnContext.logger.info({
+				message: "Usage",
+				inputTokens,
+				outputTokens,
+				totalTokens,
+			});
+		},
 	});
 
 	const output: TurnRunResult["processedItems"] = [];
@@ -369,7 +378,6 @@ async function runTurn(
 	}
 	return {
 		processedItems: output,
-		finishReason,
 	};
 }
 
@@ -397,7 +405,7 @@ async function runTask({
 	const turnInput = session.messages;
 
 	while (true) {
-		const { processedItems, finishReason } = await runTurn(
+		const { processedItems } = await runTurn(
 			session,
 			turnContext,
 			turnInput,
@@ -419,17 +427,7 @@ async function runTask({
 			}
 		}
 
-		const shouldContinue =
-			nextTurnInput.length > 0 && finishReason !== "length";
-
-		if (!shouldContinue) {
-			if (finishReason === "length") {
-				turnContext.logger.info({
-					message: "Model reached the maximum length",
-					messages: session.messages,
-				});
-				// TODO: Compress the message history when the model reaches the maximum length
-			}
+		if (nextTurnInput.length === 0) {
 			turnContext.logger.info({
 				message: "Final message history:",
 				messages: session.messages,
