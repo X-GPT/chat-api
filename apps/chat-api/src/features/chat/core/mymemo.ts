@@ -1,9 +1,4 @@
-import {
-	type FinishReason,
-	type LanguageModel,
-	type ModelMessage,
-	streamText,
-} from "ai";
+import { type LanguageModel, type ModelMessage, streamText } from "ai";
 import type { ChatMessagesScope } from "@/config/env";
 import type { Citation, EventMessage } from "../chat.events";
 import {
@@ -21,7 +16,6 @@ import { handleSearchKnowledge } from "../tools/search-knowledge";
 import { getTools } from "../tools/tools";
 import { handleUpdateCitations } from "../tools/update-citations";
 import { handleUpdatePlan } from "../tools/update-plan";
-import { compressMessageHistory } from "./compress-message-history";
 import type { Config } from "./config";
 import type { ConversationHistory } from "./history";
 
@@ -236,8 +230,8 @@ async function runTurn(
 			) {
 				const toolOutput = await handleListCollectionFiles({
 					args: toolCall.input,
-					partnerCode: turnContext.partnerCode,
-					protectedFetchOptions: {
+					memberCode: turnContext.memberCode,
+					options: {
 						memberAuthToken: turnContext.memberAuthToken,
 					},
 					logger: turnContext.logger,
@@ -259,8 +253,11 @@ async function runTurn(
 				});
 			} else if (toolCall.toolName === "list_all_files" && !toolCall.dynamic) {
 				const toolOutput = await handleListAllFiles({
-					partnerCode: turnContext.partnerCode,
-					protectedFetchOptions: {
+					memberCode: turnContext.memberCode,
+					collectionId: turnContext.collectionId,
+					pageIndex: toolCall.input.pageIndex ?? null,
+					pageSize: toolCall.input.pageSize ?? null,
+					options: {
 						memberAuthToken: turnContext.memberAuthToken,
 					},
 					logger: turnContext.logger,

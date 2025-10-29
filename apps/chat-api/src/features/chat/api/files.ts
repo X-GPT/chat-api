@@ -9,19 +9,21 @@ import {
 	type FetchProtectedFilesParams,
 	type ProtectedFileMetadata,
 	protectedFileDetailResponseSchema,
-	protectedFilesResponseSchema,
+	protectedPaginatedMemberFilesResponseSchema,
 	type RawProtectedFileData,
 } from "./types";
 
 export async function fetchProtectedFiles(
+	memberCode: string,
 	params: FetchProtectedFilesParams,
 	options: FetchOptions = {},
 	logger: ChatLogger,
 ): Promise<ProtectedFileMetadata[]> {
-	const { partnerCode, collectionId } = params;
-	const endpoint = getProtectedFilesEndpoint({
-		partnerCode,
+	const { collectionId, pageIndex, pageSize } = params;
+	const endpoint = getProtectedFilesEndpoint(memberCode, {
 		collectionId: collectionId ?? null,
+		pageIndex: pageIndex ?? null,
+		pageSize: pageSize ?? null,
 	});
 
 	try {
@@ -35,7 +37,8 @@ export async function fetchProtectedFiles(
 		}
 
 		const rawBody = await parseJsonSafely(response);
-		const parseResult = protectedFilesResponseSchema.safeParse(rawBody);
+		const parseResult =
+			protectedPaginatedMemberFilesResponseSchema.safeParse(rawBody);
 
 		if (!parseResult.success) {
 			logger.error({
@@ -43,32 +46,26 @@ export async function fetchProtectedFiles(
 				target: endpoint,
 				errors: parseResult.error,
 				rawBody,
-				partnerCode,
 				collectionId,
 			});
 			throw new Error("Invalid files response structure");
 		}
-
 		const body = parseResult.data;
-		if (body.code !== 200) {
+		if ("error" in body) {
 			logger.error({
 				message: "Protected service returned error when fetching files",
-				code: body.code,
-				msg: body.msg,
-				partnerCode,
+				error: body.error,
 				collectionId,
-				rawBody,
 			});
-			throw new Error(`Failed to fetch files: ${body.msg}`);
+			throw new Error(`Failed to fetch files: ${body.error.message}`);
 		}
 
-		return body.data ?? [];
+		return body.list;
 	} catch (error) {
 		if (error instanceof Error) {
 			logger.error({
 				message: "Error fetching files from protected service",
 				error: error.message,
-				partnerCode,
 				collectionId,
 			});
 			throw error;
@@ -77,7 +74,6 @@ export async function fetchProtectedFiles(
 		logger.error({
 			message: "Error fetching files from protected service",
 			error: String(error),
-			partnerCode,
 			collectionId,
 		});
 		throw new Error(String(error));

@@ -9,6 +9,8 @@ import { normalizeFiles } from "./utils";
 
 export const listCollectionFilesToolInputSchema = z.object({
 	collectionId: z.string().describe("The collection id"),
+	pageIndex: z.number().optional().describe("The page index"),
+	pageSize: z.number().optional().describe("The page size"),
 });
 
 export type ListCollectionFilesToolInput = z.infer<
@@ -23,14 +25,14 @@ export const listCollectionFilesTool = tool({
 
 export async function handleListCollectionFiles({
 	args,
-	partnerCode,
-	protectedFetchOptions,
+	memberCode,
+	options,
 	logger,
 	onEvent,
 }: {
 	args: ListCollectionFilesToolInput;
-	partnerCode: string;
-	protectedFetchOptions: FetchOptions;
+	memberCode: string;
+	options: FetchOptions;
 	logger: ChatLogger;
 	onEvent: (event: EventMessage) => void;
 }): Promise<string> {
@@ -40,11 +42,13 @@ export async function handleListCollectionFiles({
 	});
 
 	const files = await fetchProtectedFiles(
+		memberCode,
 		{
-			partnerCode,
 			collectionId: args.collectionId,
+			pageIndex: args.pageIndex ?? null,
+			pageSize: args.pageSize ?? null,
 		},
-		protectedFetchOptions,
+		options,
 		logger,
 	);
 	const normalizedFiles = normalizeFiles(files);
@@ -75,7 +79,7 @@ export async function handleListCollectionFiles({
 				return `
 				<file>
 					<link>${file.fileLink}</link>
-					<id>${file.summaryId}</id>
+					<id>${file.id}</id>
 					<type>${file.fileType}</type>
 				</file>`;
 			}
@@ -83,7 +87,7 @@ export async function handleListCollectionFiles({
 			return `
 			<file>
 				<name>${file.fileName}</name>
-				<id>${file.summaryId}</id>
+				<id>${file.id}</id>
 				<type>${file.fileType}</type>
 			</file>`;
 		})

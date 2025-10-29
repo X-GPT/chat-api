@@ -9,17 +9,26 @@ import { normalizeFiles, xml } from "./utils";
 // the `tool` helper function ensures correct type inference:
 export const listAllFilesTool = tool({
 	description: "List the files in all collections",
-	inputSchema: z.object({}),
+	inputSchema: z.object({
+		pageIndex: z.number().optional().describe("The page index"),
+		pageSize: z.number().optional().describe("The page size"),
+	}),
 });
 
 export async function handleListAllFiles({
-	partnerCode,
-	protectedFetchOptions,
+	memberCode,
+	collectionId,
+	pageIndex,
+	pageSize,
+	options,
 	logger,
 	onEvent,
 }: {
-	partnerCode: string;
-	protectedFetchOptions: FetchOptions;
+	memberCode: string;
+	collectionId: string | null;
+	pageIndex: number | null;
+	pageSize: number | null;
+	options: FetchOptions;
 	logger: ChatLogger;
 	onEvent: (event: EventMessage) => void;
 }): Promise<string> {
@@ -27,10 +36,13 @@ export async function handleListAllFiles({
 		type: "list_all_files.started",
 	});
 	const files = await fetchProtectedFiles(
+		memberCode,
 		{
-			partnerCode,
+			collectionId,
+			pageIndex,
+			pageSize,
 		},
-		protectedFetchOptions,
+		options,
 		logger,
 	);
 
@@ -65,7 +77,7 @@ export async function handleListAllFiles({
 				indent: 1,
 			}),
 			xml("name", file.fileName ?? "", { indent: 1 }),
-			xml("id", file.summaryId, { indent: 1 }),
+			xml("id", file.id, { indent: 1 }),
 			collectionsXml,
 		]);
 	});

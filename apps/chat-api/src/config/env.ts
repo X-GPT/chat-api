@@ -132,24 +132,39 @@ export const getProtectedChatMessagesEndpoint = (
 };
 
 interface FilesEndpointOptions {
-	partnerCode: string;
 	collectionId?: string | null;
+	pageIndex?: number | null;
+	pageSize?: number | null;
 }
 
-export const getProtectedFilesEndpoint = (options: FilesEndpointOptions) => {
+export const getProtectedFilesEndpoint = (
+	memberCode: string,
+	options: FilesEndpointOptions,
+) => {
 	const origin = getProtectedApiOrigin();
 	const prefix = getProtectedApiPrefix();
-	const basePath = `/protected/files`;
+	const encodedMemberCode = encodeURIComponent(memberCode);
+	const basePath = `/protected/members/${encodedMemberCode}/files`;
 	const path = prefix === "/" ? basePath : `${prefix}${basePath}`;
 	const url = new URL(path, origin);
-	const { partnerCode, collectionId } = options;
-	const normalizedPartnerCode = partnerCode.trim();
-	if (!normalizedPartnerCode) {
-		throw new Error(
-			"partnerCode is required to build protected files endpoint",
-		);
+	const { collectionId, pageIndex, pageSize } = options;
+
+	if (
+		typeof pageIndex === "number" &&
+		Number.isFinite(pageIndex) &&
+		pageIndex >= 1
+	) {
+		url.searchParams.set("pageIndex", String(pageIndex));
 	}
-	url.searchParams.set("partnerCode", normalizedPartnerCode);
+
+	if (
+		typeof pageSize === "number" &&
+		Number.isFinite(pageSize) &&
+		pageSize >= 1 &&
+		pageSize <= 100
+	) {
+		url.searchParams.set("pageSize", String(pageSize));
+	}
 
 	const normalizedCollectionId = collectionId?.trim();
 	if (normalizedCollectionId) {
