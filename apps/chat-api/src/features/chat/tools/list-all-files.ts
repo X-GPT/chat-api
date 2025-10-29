@@ -57,29 +57,7 @@ export async function handleListAllFiles({
 	}
 
 	const fileNodes = normalizedFiles.map((file) => {
-		const collectionsXml = xml(
-			"collections",
-			file.collections.map((collection) =>
-				xml(
-					"collection",
-					[
-						xml("id", collection.id, { indent: 3 }),
-						xml("name", collection.name, { indent: 3 }),
-					],
-					{ indent: 2 },
-				),
-			),
-			{ indent: 1 },
-		);
-
-		return xml("file", [
-			xml("title", file.title ?? file.linkTitle ?? file.summaryTitle, {
-				indent: 1,
-			}),
-			xml("name", file.fileName ?? "", { indent: 1 }),
-			xml("id", file.id, { indent: 1 }),
-			collectionsXml,
-		]);
+		return file.id;
 	});
 
 	const collections = new Map<string, string>();
@@ -89,12 +67,8 @@ export async function handleListAllFiles({
 		});
 	});
 
-	const collectionNodes = Array.from(collections.entries()).map(([id, name]) =>
-		xml(
-			"collection",
-			[xml("id", id, { indent: 2 }), xml("name", name, { indent: 2 })],
-			{ indent: 1 },
-		),
+	const collectionNodes = Array.from(collections.entries()).map(
+		([id, name]) => `${id}: ${name}`,
 	);
 
 	onEvent({
@@ -102,8 +76,8 @@ export async function handleListAllFiles({
 		message: "All files listed",
 	});
 
-	const filesXml = xml("files", fileNodes);
-	const collectionsXml = xml("collections", collectionNodes);
+	const filesXml = xml("files", fileNodes.join("\n"));
+	const collectionsXml = xml("collections", collectionNodes.join("\n"));
 
 	return `\n${filesXml}\n${collectionsXml}\n`;
 }
