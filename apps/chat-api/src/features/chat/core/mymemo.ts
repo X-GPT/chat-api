@@ -1,4 +1,9 @@
-import { type LanguageModel, type ModelMessage, streamText, tool } from "ai";
+import {
+	type LanguageModel,
+	type ModelMessage,
+	stepCountIs,
+	streamText,
+} from "ai";
 import type { ChatMessagesScope } from "@/config/env";
 import type { Citation, EventMessage } from "../chat.events";
 import {
@@ -140,6 +145,7 @@ async function runTurn(
 		tools: prompt.tools,
 		messages: prompt.messages,
 		activeTools: prompt.allowedTools,
+		stopWhen: stepCountIs(5),
 		onFinish: ({ usage }) => {
 			const { inputTokens, outputTokens, totalTokens } = usage;
 			turnContext.logger.info({
