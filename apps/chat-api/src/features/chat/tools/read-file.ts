@@ -15,11 +15,13 @@ export const readFileTool = tool({
 });
 
 export async function handleReadFile({
+	memberCode,
 	fileId,
 	protectedFetchOptions,
 	logger,
 	onEvent,
 }: {
+	memberCode: string;
 	fileId: string;
 	protectedFetchOptions: FetchOptions;
 	logger: ChatLogger;
@@ -31,6 +33,7 @@ export async function handleReadFile({
 		fileName: "",
 	});
 	const fileDetail = await fetchProtectedFileDetail(
+		memberCode,
 		0,
 		fileId,
 		protectedFetchOptions,

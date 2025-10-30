@@ -209,6 +209,7 @@ async function runTurn(
 				});
 			} else if (toolCall.toolName === "read_file" && !toolCall.dynamic) {
 				const toolOutput = await handleReadFile({
+					memberCode: turnContext.memberCode,
 					fileId: toolCall.input.fileId,
 					protectedFetchOptions: {
 						memberAuthToken: turnContext.memberAuthToken,
