@@ -1,4 +1,4 @@
-import { type LanguageModel, type ModelMessage, streamText } from "ai";
+import { type LanguageModel, type ModelMessage, streamText, tool } from "ai";
 import type { ChatMessagesScope } from "@/config/env";
 import type { Citation, EventMessage } from "../chat.events";
 import {
@@ -254,9 +254,8 @@ async function runTurn(
 			} else if (toolCall.toolName === "list_all_files" && !toolCall.dynamic) {
 				const toolOutput = await handleListAllFiles({
 					memberCode: turnContext.memberCode,
-					collectionId: turnContext.collectionId,
-					pageIndex: toolCall.input.pageIndex ?? null,
-					pageSize: toolCall.input.pageSize ?? null,
+					collectionId: toolCall.input.collectionId || null,
+					cursor: toolCall.input.cursor || null,
 					options: {
 						memberAuthToken: turnContext.memberAuthToken,
 					},

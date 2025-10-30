@@ -18,12 +18,17 @@ export async function fetchProtectedFiles(
 	params: FetchProtectedFilesParams,
 	options: FetchOptions = {},
 	logger: ChatLogger,
-): Promise<ProtectedFileMetadata[]> {
-	const { collectionId, pageIndex, pageSize } = params;
+): Promise<{
+	list: ProtectedFileMetadata[];
+	nextCursor: string | null;
+	hasMore: boolean;
+	limit: number;
+}> {
+	const { collectionId, cursor, limit } = params;
 	const endpoint = getProtectedFilesEndpoint(memberCode, {
 		collectionId: collectionId ?? null,
-		pageIndex: pageIndex ?? null,
-		pageSize: pageSize ?? null,
+		cursor: cursor ?? null,
+		limit: limit ?? null,
 	});
 
 	try {
@@ -60,7 +65,7 @@ export async function fetchProtectedFiles(
 			throw new Error(`Failed to fetch files: ${body.error.message}`);
 		}
 
-		return body.list;
+		return body;
 	} catch (error) {
 		if (error instanceof Error) {
 			logger.error({

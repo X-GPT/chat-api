@@ -8,26 +8,36 @@ import { normalizeFiles, xml } from "./utils";
 
 // the `tool` helper function ensures correct type inference:
 export const listAllFilesTool = tool({
-	description: "List the files in all collections",
+	description:
+		"List the file ids in all collections in the system. When given a cursor " +
+		"for pagination, it will continue listing from that cursor. " +
+		"When no cursor is provided, it will start listing from the beginning. ",
 	inputSchema: z.object({
-		pageIndex: z.number().optional().describe("The page index"),
-		pageSize: z.number().optional().describe("The page size"),
+		cursor: z
+			.string()
+			.optional()
+			.nullable()
+			.describe("Opaque pagination cursor for the next page"),
+
+		collectionId: z
+			.string()
+			.optional()
+			.nullable()
+			.describe("The collection id to list files from (optional)"),
 	}),
 });
 
 export async function handleListAllFiles({
 	memberCode,
 	collectionId,
-	pageIndex,
-	pageSize,
+	cursor,
 	options,
 	logger,
 	onEvent,
 }: {
 	memberCode: string;
 	collectionId: string | null;
-	pageIndex: number | null;
-	pageSize: number | null;
+	cursor: string | null;
 	options: FetchOptions;
 	logger: ChatLogger;
 	onEvent: (event: EventMessage) => void;
@@ -35,18 +45,18 @@ export async function handleListAllFiles({
 	onEvent({
 		type: "list_all_files.started",
 	});
-	const files = await fetchProtectedFiles(
+	const { list, nextCursor, hasMore } = await fetchProtectedFiles(
 		memberCode,
 		{
 			collectionId,
-			pageIndex,
-			pageSize,
+			cursor,
+			limit: 100,
 		},
 		options,
 		logger,
 	);
 
-	const normalizedFiles = normalizeFiles(files);
+	const normalizedFiles = normalizeFiles(list);
 
 	if (normalizedFiles.length === 0) {
 		onEvent({
@@ -60,24 +70,15 @@ export async function handleListAllFiles({
 		return file.id;
 	});
 
-	const collections = new Map<string, string>();
-	normalizedFiles.forEach((file) => {
-		file.collections.forEach((collection) => {
-			collections.set(collection.id, collection.name);
-		});
-	});
-
-	const collectionNodes = Array.from(collections.entries()).map(
-		([id, name]) => `${id}: ${name}`,
-	);
-
 	onEvent({
 		type: "list_all_files.completed",
 		message: "All files listed",
 	});
 
 	const filesXml = xml("files", fileNodes.join("\n"));
-	const collectionsXml = xml("collections", collectionNodes.join("\n"));
+	const nextCursorXml = xml("nextCursor", nextCursor ?? "", { indent: 0 });
+	const hasMoreXml = xml("hasMore", String(hasMore), { indent: 0 });
+	const limitXml = xml("limit", String(100), { indent: 0 });
 
-	return `\n${filesXml}\n${collectionsXml}\n`;
+	return `${filesXml}\n${nextCursorXml}\n${hasMoreXml}\n${limitXml}\n`;
 }

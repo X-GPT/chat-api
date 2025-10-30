@@ -133,8 +133,8 @@ export const getProtectedChatMessagesEndpoint = (
 
 interface FilesEndpointOptions {
 	collectionId?: string | null;
-	pageIndex?: number | null;
-	pageSize?: number | null;
+	cursor?: string | null;
+	limit?: number | null;
 }
 
 export const getProtectedFilesEndpoint = (
@@ -147,23 +147,19 @@ export const getProtectedFilesEndpoint = (
 	const basePath = `/protected/members/${encodedMemberCode}/files`;
 	const path = prefix === "/" ? basePath : `${prefix}${basePath}`;
 	const url = new URL(path, origin);
-	const { collectionId, pageIndex, pageSize } = options;
+	const { collectionId, cursor, limit } = options;
 
-	if (
-		typeof pageIndex === "number" &&
-		Number.isFinite(pageIndex) &&
-		pageIndex >= 1
-	) {
-		url.searchParams.set("pageIndex", String(pageIndex));
+	if (cursor) {
+		url.searchParams.set("cursor", cursor);
 	}
 
 	if (
-		typeof pageSize === "number" &&
-		Number.isFinite(pageSize) &&
-		pageSize >= 1 &&
-		pageSize <= 100
+		typeof limit === "number" &&
+		Number.isFinite(limit) &&
+		limit >= 1 &&
+		limit <= 100
 	) {
-		url.searchParams.set("pageSize", String(pageSize));
+		url.searchParams.set("limit", String(limit));
 	}
 
 	const normalizedCollectionId = collectionId?.trim();

@@ -73,9 +73,9 @@ const protectedFileMetadataSchema = z.object({
 export const protectedPaginatedMemberFilesResponseSchema = z.union([
 	z.object({
 		list: z.array(protectedFileMetadataSchema),
-		total: z.number(),
-		page: z.number(),
-		pageSize: z.number(),
+		nextCursor: z.string().nullable(),
+		hasMore: z.boolean(),
+		limit: z.number(),
 	}),
 	z.object({
 		error: z.object({
@@ -125,8 +125,8 @@ export type RawProtectedFileData = z.infer<typeof protectedFileDataSchema>;
 
 export interface FetchProtectedFilesParams {
 	collectionId?: string | null;
-	pageIndex?: number | null;
-	pageSize?: number | null;
+	cursor?: string | null;
+	limit?: number | null;
 }
 
 // Summary schemas

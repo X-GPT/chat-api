@@ -9,8 +9,12 @@ import { normalizeFiles } from "./utils";
 
 export const listCollectionFilesToolInputSchema = z.object({
 	collectionId: z.string().describe("The collection id"),
-	pageIndex: z.number().optional().describe("The page index"),
-	pageSize: z.number().optional().describe("The page size"),
+	cursor: z.string().optional().nullable().describe("The pagination cursor"),
+	limit: z
+		.number()
+		.optional()
+		.nullable()
+		.describe("The number of files to return per page"),
 });
 
 export type ListCollectionFilesToolInput = z.infer<
@@ -41,17 +45,17 @@ export async function handleListCollectionFiles({
 		collectionId: args.collectionId,
 	});
 
-	const files = await fetchProtectedFiles(
+	const { list, nextCursor, hasMore } = await fetchProtectedFiles(
 		memberCode,
 		{
 			collectionId: args.collectionId,
-			pageIndex: args.pageIndex ?? null,
-			pageSize: args.pageSize ?? null,
+			cursor: args.cursor ?? null,
+			limit: args.limit ?? null,
 		},
 		options,
 		logger,
 	);
-	const normalizedFiles = normalizeFiles(files);
+	const normalizedFiles = normalizeFiles(list);
 
 	if (normalizedFiles.length === 0) {
 		onEvent({
