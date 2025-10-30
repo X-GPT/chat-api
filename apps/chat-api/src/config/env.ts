@@ -132,24 +132,35 @@ export const getProtectedChatMessagesEndpoint = (
 };
 
 interface FilesEndpointOptions {
-	partnerCode: string;
 	collectionId?: string | null;
+	cursor?: string | null;
+	limit?: number | null;
 }
 
-export const getProtectedFilesEndpoint = (options: FilesEndpointOptions) => {
+export const getProtectedFilesEndpoint = (
+	memberCode: string,
+	options: FilesEndpointOptions,
+) => {
 	const origin = getProtectedApiOrigin();
 	const prefix = getProtectedApiPrefix();
-	const basePath = `/protected/files`;
+	const encodedMemberCode = encodeURIComponent(memberCode);
+	const basePath = `/protected/members/${encodedMemberCode}/files`;
 	const path = prefix === "/" ? basePath : `${prefix}${basePath}`;
 	const url = new URL(path, origin);
-	const { partnerCode, collectionId } = options;
-	const normalizedPartnerCode = partnerCode.trim();
-	if (!normalizedPartnerCode) {
-		throw new Error(
-			"partnerCode is required to build protected files endpoint",
-		);
+	const { collectionId, cursor, limit } = options;
+
+	if (cursor) {
+		url.searchParams.set("cursor", cursor);
 	}
-	url.searchParams.set("partnerCode", normalizedPartnerCode);
+
+	if (
+		typeof limit === "number" &&
+		Number.isFinite(limit) &&
+		limit >= 1 &&
+		limit <= 100
+	) {
+		url.searchParams.set("limit", String(limit));
+	}
 
 	const normalizedCollectionId = collectionId?.trim();
 	if (normalizedCollectionId) {
@@ -160,6 +171,7 @@ export const getProtectedFilesEndpoint = (options: FilesEndpointOptions) => {
 };
 
 export const getProtectedFileDetailEndpoint = (
+	memberCode: string,
 	type: string | number,
 	id: string | number,
 ) => {
@@ -167,7 +179,7 @@ export const getProtectedFileDetailEndpoint = (
 	const prefix = getProtectedApiPrefix();
 	const encodedType = encodeURIComponent(String(type));
 	const encodedId = encodeURIComponent(String(id));
-	const basePath = `/protected/files/${encodedType}/${encodedId}`;
+	const basePath = `/protected/members/${memberCode}/files/${encodedType}/${encodedId}`;
 	const path = prefix === "/" ? basePath : `${prefix}${basePath}`;
 	return new URL(path, origin).toString();
 };

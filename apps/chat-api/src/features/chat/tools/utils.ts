@@ -7,13 +7,13 @@ export function normalizeFiles(
 		if (file.type === 3) {
 			return {
 				...file,
-				fileName: `note-${file.summaryId}`,
+				fileName: `note-${file.id}`,
 				fileType: "text/html",
 			};
 		} else if (file.type === 6) {
 			return {
 				...file,
-				fileName: `memocast-${file.summaryId}`,
+				fileName: `memocast-${file.id}`,
 				fileType: "audio/wav",
 			};
 		}

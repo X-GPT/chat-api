@@ -59,22 +59,32 @@ const protectedFileCollectionSchema = z.object({
 });
 
 const protectedFileMetadataSchema = z.object({
+	id: z.string(),
 	fileLink: z.string().nullable(),
 	fileName: z.string().nullable(),
 	fileType: z.string().nullable(),
 	linkTitle: z.string().nullable(),
 	title: z.string().nullable(),
 	summaryTitle: z.string().nullable(),
-	summaryId: z.string(),
 	type: z.number(),
 	collections: z.array(protectedFileCollectionSchema),
 });
 
-export const protectedFilesResponseSchema = z.object({
-	code: z.number(),
-	msg: z.string(),
-	data: z.array(protectedFileMetadataSchema).optional(),
-});
+export const protectedPaginatedMemberFilesResponseSchema = z.union([
+	z.object({
+		list: z.array(protectedFileMetadataSchema),
+		nextCursor: z.string().nullable(),
+		hasMore: z.boolean(),
+		limit: z.number(),
+	}),
+	z.object({
+		error: z.object({
+			code: z.number(),
+			message: z.string(),
+			status: z.string(),
+		}),
+	}),
+]);
 
 export type ProtectedFileMetadata = z.infer<typeof protectedFileMetadataSchema>;
 
@@ -105,17 +115,23 @@ export const protectedFileDataSchema = z.discriminatedUnion("fileType", [
 	}),
 ]);
 
-export const protectedFileDetailResponseSchema = z.object({
-	code: z.number(),
-	msg: z.string(),
-	data: protectedFileDataSchema.optional().nullable(),
-});
+export const protectedFileDetailResponseSchema = z.union([
+	protectedFileDataSchema,
+	z.object({
+		error: z.object({
+			code: z.number(),
+			message: z.string(),
+			status: z.string(),
+		}),
+	}),
+]);
 
 export type RawProtectedFileData = z.infer<typeof protectedFileDataSchema>;
 
 export interface FetchProtectedFilesParams {
-	partnerCode: string;
 	collectionId?: string | null;
+	cursor?: string | null;
+	limit?: number | null;
 }
 
 // Summary schemas

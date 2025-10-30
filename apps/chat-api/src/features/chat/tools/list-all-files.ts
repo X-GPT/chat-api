@@ -8,33 +8,55 @@ import { normalizeFiles, xml } from "./utils";
 
 // the `tool` helper function ensures correct type inference:
 export const listAllFilesTool = tool({
-	description: "List the files in all collections",
-	inputSchema: z.object({}),
+	description:
+		"List file IDs in stable cursor order (newest first). When given a cursor " +
+		"for pagination, it will continue listing from that cursor. " +
+		"When no cursor is provided, it will start listing from the beginning. ",
+	inputSchema: z.object({
+		cursor: z
+			.string()
+			.optional()
+			.nullable()
+			.describe("Opaque pagination cursor for the next page"),
+
+		collectionId: z
+			.string()
+			.optional()
+			.nullable()
+			.describe("The collection id to list files from (optional)"),
+	}),
 });
 
 export async function handleListAllFiles({
-	partnerCode,
-	protectedFetchOptions,
+	memberCode,
+	collectionId,
+	cursor,
+	options,
 	logger,
 	onEvent,
 }: {
-	partnerCode: string;
-	protectedFetchOptions: FetchOptions;
+	memberCode: string;
+	collectionId: string | null;
+	cursor: string | null;
+	options: FetchOptions;
 	logger: ChatLogger;
 	onEvent: (event: EventMessage) => void;
 }): Promise<string> {
 	onEvent({
 		type: "list_all_files.started",
 	});
-	const files = await fetchProtectedFiles(
+	const { list, nextCursor, hasMore } = await fetchProtectedFiles(
+		memberCode,
 		{
-			partnerCode,
+			collectionId,
+			cursor,
+			limit: 100,
 		},
-		protectedFetchOptions,
+		options,
 		logger,
 	);
 
-	const normalizedFiles = normalizeFiles(files);
+	const normalizedFiles = normalizeFiles(list);
 
 	if (normalizedFiles.length === 0) {
 		onEvent({
@@ -45,53 +67,18 @@ export async function handleListAllFiles({
 	}
 
 	const fileNodes = normalizedFiles.map((file) => {
-		const collectionsXml = xml(
-			"collections",
-			file.collections.map((collection) =>
-				xml(
-					"collection",
-					[
-						xml("id", collection.id, { indent: 3 }),
-						xml("name", collection.name, { indent: 3 }),
-					],
-					{ indent: 2 },
-				),
-			),
-			{ indent: 1 },
-		);
-
-		return xml("file", [
-			xml("title", file.title ?? file.linkTitle ?? file.summaryTitle, {
-				indent: 1,
-			}),
-			xml("name", file.fileName ?? "", { indent: 1 }),
-			xml("id", file.summaryId, { indent: 1 }),
-			collectionsXml,
-		]);
+		return file.id;
 	});
-
-	const collections = new Map<string, string>();
-	normalizedFiles.forEach((file) => {
-		file.collections.forEach((collection) => {
-			collections.set(collection.id, collection.name);
-		});
-	});
-
-	const collectionNodes = Array.from(collections.entries()).map(([id, name]) =>
-		xml(
-			"collection",
-			[xml("id", id, { indent: 2 }), xml("name", name, { indent: 2 })],
-			{ indent: 1 },
-		),
-	);
 
 	onEvent({
 		type: "list_all_files.completed",
 		message: "All files listed",
 	});
 
-	const filesXml = xml("files", fileNodes);
-	const collectionsXml = xml("collections", collectionNodes);
+	const filesXml = xml("files", fileNodes.join("\n"));
+	const nextCursorXml = xml("nextCursor", nextCursor ?? "", { indent: 0 });
+	const hasMoreXml = xml("hasMore", String(hasMore), { indent: 0 });
+	const limitXml = xml("limit", String(100), { indent: 0 });
 
-	return `\n${filesXml}\n${collectionsXml}\n`;
+	return `${filesXml}\n${nextCursorXml}\n${hasMoreXml}\n${limitXml}\n`;
 }

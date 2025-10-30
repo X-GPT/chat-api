@@ -9,6 +9,12 @@ import { normalizeFiles } from "./utils";
 
 export const listCollectionFilesToolInputSchema = z.object({
 	collectionId: z.string().describe("The collection id"),
+	cursor: z.string().optional().nullable().describe("The pagination cursor"),
+	limit: z
+		.number()
+		.optional()
+		.nullable()
+		.describe("The number of files to return per page"),
 });
 
 export type ListCollectionFilesToolInput = z.infer<
@@ -23,14 +29,14 @@ export const listCollectionFilesTool = tool({
 
 export async function handleListCollectionFiles({
 	args,
-	partnerCode,
-	protectedFetchOptions,
+	memberCode,
+	options,
 	logger,
 	onEvent,
 }: {
 	args: ListCollectionFilesToolInput;
-	partnerCode: string;
-	protectedFetchOptions: FetchOptions;
+	memberCode: string;
+	options: FetchOptions;
 	logger: ChatLogger;
 	onEvent: (event: EventMessage) => void;
 }): Promise<string> {
@@ -39,15 +45,17 @@ export async function handleListCollectionFiles({
 		collectionId: args.collectionId,
 	});
 
-	const files = await fetchProtectedFiles(
+	const { list, nextCursor, hasMore } = await fetchProtectedFiles(
+		memberCode,
 		{
-			partnerCode,
 			collectionId: args.collectionId,
+			cursor: args.cursor ?? null,
+			limit: args.limit ?? null,
 		},
-		protectedFetchOptions,
+		options,
 		logger,
 	);
-	const normalizedFiles = normalizeFiles(files);
+	const normalizedFiles = normalizeFiles(list);
 
 	if (normalizedFiles.length === 0) {
 		onEvent({
@@ -75,7 +83,7 @@ export async function handleListCollectionFiles({
 				return `
 				<file>
 					<link>${file.fileLink}</link>
-					<id>${file.summaryId}</id>
+					<id>${file.id}</id>
 					<type>${file.fileType}</type>
 				</file>`;
 			}
@@ -83,7 +91,7 @@ export async function handleListCollectionFiles({
 			return `
 			<file>
 				<name>${file.fileName}</name>
-				<id>${file.summaryId}</id>
+				<id>${file.id}</id>
 				<type>${file.fileType}</type>
 			</file>`;
 		})

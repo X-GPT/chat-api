@@ -1,9 +1,4 @@
-import {
-	type FinishReason,
-	type LanguageModel,
-	type ModelMessage,
-	streamText,
-} from "ai";
+import { type LanguageModel, type ModelMessage, streamText, tool } from "ai";
 import type { ChatMessagesScope } from "@/config/env";
 import type { Citation, EventMessage } from "../chat.events";
 import {
@@ -21,7 +16,6 @@ import { handleSearchKnowledge } from "../tools/search-knowledge";
 import { getTools } from "../tools/tools";
 import { handleUpdateCitations } from "../tools/update-citations";
 import { handleUpdatePlan } from "../tools/update-plan";
-import { compressMessageHistory } from "./compress-message-history";
 import type { Config } from "./config";
 import type { ConversationHistory } from "./history";
 
@@ -188,6 +182,12 @@ async function runTurn(
 
 		// Handle all tool call execution here
 		for (const toolCall of toolCalls) {
+			turnContext.logger.info({
+				message: `Handling tool call: ${toolCall.toolName}`,
+				toolCallId: toolCall.toolCallId,
+				toolInput: toolCall.input,
+			});
+
 			if (toolCall.toolName === "update_plan" && !toolCall.dynamic) {
 				const toolOutput = await handleUpdatePlan({
 					args: toolCall.input,
@@ -209,6 +209,7 @@ async function runTurn(
 				});
 			} else if (toolCall.toolName === "read_file" && !toolCall.dynamic) {
 				const toolOutput = await handleReadFile({
+					memberCode: turnContext.memberCode,
 					fileId: toolCall.input.fileId,
 					protectedFetchOptions: {
 						memberAuthToken: turnContext.memberAuthToken,
@@ -236,8 +237,8 @@ async function runTurn(
 			) {
 				const toolOutput = await handleListCollectionFiles({
 					args: toolCall.input,
-					partnerCode: turnContext.partnerCode,
-					protectedFetchOptions: {
+					memberCode: turnContext.memberCode,
+					options: {
 						memberAuthToken: turnContext.memberAuthToken,
 					},
 					logger: turnContext.logger,
@@ -259,8 +260,10 @@ async function runTurn(
 				});
 			} else if (toolCall.toolName === "list_all_files" && !toolCall.dynamic) {
 				const toolOutput = await handleListAllFiles({
-					partnerCode: turnContext.partnerCode,
-					protectedFetchOptions: {
+					memberCode: turnContext.memberCode,
+					collectionId: toolCall.input.collectionId || null,
+					cursor: toolCall.input.cursor || null,
+					options: {
 						memberAuthToken: turnContext.memberAuthToken,
 					},
 					logger: turnContext.logger,
