@@ -182,6 +182,12 @@ async function runTurn(
 
 		// Handle all tool call execution here
 		for (const toolCall of toolCalls) {
+			turnContext.logger.info({
+				message: `Handling tool call: ${toolCall.toolName}`,
+				toolCallId: toolCall.toolCallId,
+				toolInput: toolCall.input,
+			});
+
 			if (toolCall.toolName === "update_plan" && !toolCall.dynamic) {
 				const toolOutput = await handleUpdatePlan({
 					args: toolCall.input,
