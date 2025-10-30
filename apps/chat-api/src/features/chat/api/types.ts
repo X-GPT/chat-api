@@ -115,11 +115,16 @@ export const protectedFileDataSchema = z.discriminatedUnion("fileType", [
 	}),
 ]);
 
-export const protectedFileDetailResponseSchema = z.object({
-	code: z.number(),
-	msg: z.string(),
-	data: protectedFileDataSchema.optional().nullable(),
-});
+export const protectedFileDetailResponseSchema = z.union([
+	protectedFileDataSchema,
+	z.object({
+		error: z.object({
+			code: z.number(),
+			message: z.string(),
+			status: z.string(),
+		}),
+	}),
+]);
 
 export type RawProtectedFileData = z.infer<typeof protectedFileDataSchema>;
 

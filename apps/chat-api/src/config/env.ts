@@ -171,6 +171,7 @@ export const getProtectedFilesEndpoint = (
 };
 
 export const getProtectedFileDetailEndpoint = (
+	memberCode: string,
 	type: string | number,
 	id: string | number,
 ) => {
@@ -178,7 +179,7 @@ export const getProtectedFileDetailEndpoint = (
 	const prefix = getProtectedApiPrefix();
 	const encodedType = encodeURIComponent(String(type));
 	const encodedId = encodeURIComponent(String(id));
-	const basePath = `/protected/files/${encodedType}/${encodedId}`;
+	const basePath = `/protected/members/${memberCode}/files/${encodedType}/${encodedId}`;
 	const path = prefix === "/" ? basePath : `${prefix}${basePath}`;
 	return new URL(path, origin).toString();
 };

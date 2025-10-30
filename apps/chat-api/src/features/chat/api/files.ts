@@ -86,12 +86,13 @@ export async function fetchProtectedFiles(
 }
 
 export async function fetchProtectedFileDetail(
+	memberCode: string,
 	type: number | string,
 	id: number | string,
 	options: FetchOptions = {},
 	logger: ChatLogger,
 ): Promise<RawProtectedFileData | null> {
-	const endpoint = getProtectedFileDetailEndpoint(type, id);
+	const endpoint = getProtectedFileDetailEndpoint(memberCode, type, id);
 
 	try {
 		const response = await fetch(endpoint, {
@@ -119,24 +120,19 @@ export async function fetchProtectedFileDetail(
 			throw new Error("Invalid file detail response structure");
 		}
 
-		const body = parseResult.data;
-		if (body.code !== 200) {
+		if ("error" in parseResult.data) {
 			logger.error({
 				message: "Protected service returned error when fetching file detail",
-				code: body.code,
-				msg: body.msg,
+				error: parseResult.data.error,
 				type,
 				id,
 			});
-			throw new Error(`Failed to fetch file detail: ${body.msg}`);
+			throw new Error(
+				`Failed to fetch file detail: ${parseResult.data.error.message}`,
+			);
 		}
 
-		const data = body.data;
-		if (!data) {
-			return null;
-		}
-
-		return data;
+		return parseResult.data;
 	} catch (error) {
 		if (error instanceof Error) {
 			logger.error({
