@@ -9,7 +9,7 @@ import { normalizeFiles, xml } from "./utils";
 // the `tool` helper function ensures correct type inference:
 export const listAllFilesTool = tool({
 	description:
-		"List the file ids in all collections in the system. When given a cursor " +
+		"List file IDs in stable cursor order (newest first). When given a cursor " +
 		"for pagination, it will continue listing from that cursor. " +
 		"When no cursor is provided, it will start listing from the beginning. ",
 	inputSchema: z.object({
