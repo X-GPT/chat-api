@@ -11,7 +11,9 @@ export const listAllFilesTool = tool({
 	description:
 		"List file IDs in stable cursor order (newest first). When given a cursor " +
 		"for pagination, it will continue listing from that cursor. " +
-		"When no cursor is provided, it will start listing from the beginning. ",
+		"When no cursor is provided, it will start listing from the beginning. " +
+		"If the result shows there are more files, use the returned nextCursor to " +
+		"fetch the next page of files.",
 	inputSchema: z.object({
 		cursor: z
 			.string()
