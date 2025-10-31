@@ -468,7 +468,7 @@ async function runTask({
 						message: "Task completed",
 						messages: session.messages,
 					});
-					break;
+					return;
 				}
 
 				session.messages.push(item.nextTurnInput);
