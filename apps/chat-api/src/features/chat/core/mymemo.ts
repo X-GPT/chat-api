@@ -464,7 +464,11 @@ async function runTask({
 					item.nextTurnInput.content[0]?.output?.type === "text" &&
 					item.nextTurnInput.content[0]?.output?.value === "true"
 				) {
-					continue;
+					turnContext.logger.info({
+						message: "Task completed",
+						messages: session.messages,
+					});
+					break;
 				}
 
 				session.messages.push(item.nextTurnInput);
@@ -473,11 +477,15 @@ async function runTask({
 		}
 
 		if (nextTurnInput.length === 0) {
-			turnContext.logger.info({
-				message: "Final message history:",
-				messages: session.messages,
+			session.messages.push({
+				role: "user" as const,
+				content: [
+					{
+						type: "text" as const,
+						text: "You haven't called any tools. If the task is completed, call the task_complete tool with taskCompleted: true.",
+					},
+				],
 			});
-			break;
 		}
 	}
 }
