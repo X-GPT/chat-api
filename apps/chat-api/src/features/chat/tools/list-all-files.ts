@@ -17,7 +17,7 @@ function truncateToWordTokens(text: string, maxTokens: number): string {
 
 	const words = text.trim().split(/\s+/);
 	if (words.length <= maxTokens) {
-		return text;
+		return text.trim();
 	}
 
 	return `${words.slice(0, maxTokens).join(" ")}...`;
