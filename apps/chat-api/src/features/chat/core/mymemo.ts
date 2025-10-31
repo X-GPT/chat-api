@@ -18,6 +18,7 @@ import { handleListCollectionFiles } from "../tools/list-collection-files";
 import { handleReadFile } from "../tools/read-file";
 import { handleSearchDocuments } from "../tools/search-documents";
 import { handleSearchKnowledge } from "../tools/search-knowledge";
+import { handleTaskStatus } from "../tools/task_status";
 import { getTools } from "../tools/tools";
 import { handleUpdateCitations } from "../tools/update-citations";
 import { handleUpdatePlan } from "../tools/update-plan";
@@ -376,6 +377,26 @@ async function runTurn(
 						],
 					},
 				});
+			} else if (toolCall.toolName === "task_status" && !toolCall.dynamic) {
+				const toolOutput = handleTaskStatus({
+					taskStatus: toolCall.input.taskStatus,
+					onEvent,
+					logger: turnContext.logger,
+				});
+				output.push({
+					response: null,
+					nextTurnInput: {
+						role: "tool" as const,
+						content: [
+							{
+								toolName: toolCall.toolName,
+								toolCallId: toolCall.toolCallId,
+								type: "tool-result" as const,
+								output: { type: "text" as const, value: toolOutput.toString() },
+							},
+						],
+					},
+				});
 			}
 
 			// Handle other tool calls
@@ -436,17 +457,36 @@ async function runTask({
 				session.messages.push(item.response);
 			}
 			if (item.nextTurnInput) {
-				session.messages.push(item.nextTurnInput);
-				nextTurnInput.push(item.nextTurnInput);
+				if (
+					item.nextTurnInput.role === "tool" &&
+					item.nextTurnInput.content[0]?.type === "tool-result" &&
+					item.nextTurnInput.content[0]?.toolName === "task_status" &&
+					item.nextTurnInput.content[0]?.output?.type === "text" &&
+					(item.nextTurnInput.content[0]?.output?.value === "complete" ||
+						item.nextTurnInput.content[0]?.output?.value === "ask_user")
+				) {
+					turnContext.logger.info({
+						message: `Task ${item.nextTurnInput.content[0]?.output?.value}`,
+						messages: session.messages,
+					});
+					return;
+				} else {
+					session.messages.push(item.nextTurnInput);
+					nextTurnInput.push(item.nextTurnInput);
+				}
 			}
 		}
 
 		if (nextTurnInput.length === 0) {
-			turnContext.logger.info({
-				message: "Final message history:",
-				messages: session.messages,
+			session.messages.push({
+				role: "user" as const,
+				content: [
+					{
+						type: "text" as const,
+						text: "You haven't called any tools. If the task is completed, call the task_status tool with taskStatus: complete. If the task is not completed, call the task_status tool with taskStatus: continue. If the task is waiting for user input, call the task_status tool with taskStatus: ask_user.",
+					},
+				],
 			});
-			break;
 		}
 	}
 }

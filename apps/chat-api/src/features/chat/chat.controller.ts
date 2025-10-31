@@ -1,13 +1,13 @@
 import type { ChatMessagesScope } from "@/config/env";
-import { adaptProtectedMessagesToModelMessages } from "./chat.adapter";
-import type { ChatConfig } from "./chat.config";
-import type { ChatEntity, Citation } from "./chat.events";
 import {
 	fetchProtectedChatContext,
 	fetchProtectedChatId,
 	fetchProtectedChatMessages,
 	sendChatEntityToProtectedService,
 } from "./api/chat";
+import { adaptProtectedMessagesToModelMessages } from "./chat.adapter";
+import type { ChatConfig } from "./chat.config";
+import type { ChatEntity, Citation } from "./chat.events";
 import type { ChatLogger } from "./chat.logger";
 import type { ChatRequest } from "./chat.schema";
 import type { MymemoEventSender } from "./chat.streaming";

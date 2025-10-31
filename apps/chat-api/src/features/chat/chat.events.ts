@@ -25,7 +25,8 @@ export type EventMessage =
 	| SearchKnowledgeStartedEvent
 	| SearchKnowledgeCompletedEvent
 	| SearchDocumentsStartedEvent
-	| SearchDocumentsCompletedEvent;
+	| SearchDocumentsCompletedEvent
+	| TaskStatusEvent;
 
 export interface TaskStartEvent {
 	type: "task.started";
@@ -138,4 +139,9 @@ export type SearchDocumentsCompletedEvent = {
 	query: string;
 	totalDocuments: number;
 	error?: string;
+};
+
+export type TaskStatusEvent = {
+	type: "task_status";
+	taskStatus: "ask_user" | "complete";
 };

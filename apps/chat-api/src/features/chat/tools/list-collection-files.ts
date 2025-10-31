@@ -1,5 +1,4 @@
 import { tool } from "ai";
-import invariant from "tiny-invariant";
 import { z } from "zod";
 import type { FetchOptions } from "../api/client";
 import { fetchProtectedFiles } from "../api/files";
