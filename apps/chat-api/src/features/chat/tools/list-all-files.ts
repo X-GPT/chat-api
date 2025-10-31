@@ -127,5 +127,9 @@ export async function handleListAllFiles({
 	const hasMoreXml = xml("hasMore", String(hasMore), { indent: 0 });
 	const limitXml = xml("limit", String(100), { indent: 0 });
 
-	return `Fetched ${normalizedFiles.length} files from collection ${collectionId}: ${filesXml}\n${nextCursorXml}\n${hasMoreXml}\n${limitXml}\n`;
+	if (collectionId) {
+		return `Fetched ${normalizedFiles.length} files from collection ${collectionId}: ${filesXml}\n${nextCursorXml}\n${hasMoreXml}\n${limitXml}\n`;
+	} else {
+		return `Fetched ${normalizedFiles.length} files from all collections: ${filesXml}\n${nextCursorXml}\n${hasMoreXml}\n${limitXml}\n`;
+	}
 }
