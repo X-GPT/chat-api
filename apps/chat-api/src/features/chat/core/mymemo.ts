@@ -216,6 +216,7 @@ async function runTurn(
 			} else if (toolCall.toolName === "read_file" && !toolCall.dynamic) {
 				const toolOutput = await handleReadFile({
 					memberCode: turnContext.memberCode,
+					type: toolCall.input.type,
 					fileId: toolCall.input.fileId,
 					protectedFetchOptions: {
 						memberAuthToken: turnContext.memberAuthToken,
