@@ -7,6 +7,22 @@ import type { ChatLogger } from "../chat.logger";
 import { normalizeFiles, xml } from "./utils";
 
 /**
+ * Sanitizes text for use in markdown table cells by escaping special characters
+ * that could break table formatting (pipes, newlines, etc.).
+ */
+function sanitizeMarkdownTableCell(text: string): string {
+	if (!text) {
+		return "";
+	}
+
+	return text
+		.replace(/\|/g, "\\|") // Escape pipe characters
+		.replace(/\n/g, " ") // Replace newlines with spaces
+		.replace(/\r/g, "") // Remove carriage returns
+		.trim();
+}
+
+/**
  * Truncates text to a specified number of word tokens (split by whitespace).
  * Appends ellipsis if the original text was longer.
  */
@@ -89,11 +105,13 @@ export async function handleListAllFiles({
 	const tableHeader = "| id | title | type |";
 	const tableSeparator = "|---|---|---|";
 	const tableRows = normalizedFiles.map((file) => {
-		const id = file.id;
+		const id = sanitizeMarkdownTableCell(file.id);
 		// Use fallback: title -> summaryTitle -> linkTitle -> empty string
 		const titleText = file.title ?? file.summaryTitle ?? file.linkTitle ?? "";
-		const title = truncateToWordTokens(titleText, 12);
-		const type = String(file.type);
+		const title = sanitizeMarkdownTableCell(
+			truncateToWordTokens(titleText, 12),
+		);
+		const type = sanitizeMarkdownTableCell(String(file.type));
 		return `| ${id} | ${title} | ${type} |`;
 	});
 
