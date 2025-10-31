@@ -18,6 +18,7 @@ import { handleListCollectionFiles } from "../tools/list-collection-files";
 import { handleReadFile } from "../tools/read-file";
 import { handleSearchDocuments } from "../tools/search-documents";
 import { handleSearchKnowledge } from "../tools/search-knowledge";
+import { handleTaskComplete } from "../tools/task_complete";
 import { getTools } from "../tools/tools";
 import { handleUpdateCitations } from "../tools/update-citations";
 import { handleUpdatePlan } from "../tools/update-plan";
@@ -376,6 +377,26 @@ async function runTurn(
 						],
 					},
 				});
+			} else if (toolCall.toolName === "task_complete" && !toolCall.dynamic) {
+				const toolOutput = handleTaskComplete({
+					taskCompleted: toolCall.input.taskCompleted,
+					onEvent,
+					logger: turnContext.logger,
+				});
+				output.push({
+					response: null,
+					nextTurnInput: {
+						role: "tool" as const,
+						content: [
+							{
+								toolName: toolCall.toolName,
+								toolCallId: toolCall.toolCallId,
+								type: "tool-result" as const,
+								output: { type: "text" as const, value: toolOutput.toString() },
+							},
+						],
+					},
+				});
 			}
 
 			// Handle other tool calls
@@ -436,6 +457,16 @@ async function runTask({
 				session.messages.push(item.response);
 			}
 			if (item.nextTurnInput) {
+				if (
+					item.nextTurnInput.role === "tool" &&
+					item.nextTurnInput.content[0]?.type === "tool-result" &&
+					item.nextTurnInput.content[0]?.toolName === "task_complete" &&
+					item.nextTurnInput.content[0]?.output?.type === "text" &&
+					item.nextTurnInput.content[0]?.output?.value === "true"
+				) {
+					continue;
+				}
+
 				session.messages.push(item.nextTurnInput);
 				nextTurnInput.push(item.nextTurnInput);
 			}

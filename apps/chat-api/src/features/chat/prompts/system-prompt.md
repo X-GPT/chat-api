@@ -66,6 +66,8 @@ For multi-step tasks, ALWAYS use the planning tool first:
 - List collections first to get file IDs, then read files
 - Call `update_plan` first for any multi-step task
 - Use `update_citations` after drafting responses with sources
+- **Call `task_complete` with `taskCompleted: true` when the task is complete**
+
 
 ### 4. Communication Style
 
@@ -195,6 +197,8 @@ Can I complete this in ONE tool call?
 3. **Cite sources** with numbered markers
 4. **Keep it simple** - no technical jargon or IDs
 5. **Stay helpful** - acknowledge limits honestly
+6. **Mark task completion** - if the task is complete, call `task_complete` with `taskCompleted: true`
+
 
 ## Rule of Thumb for Planning
 
