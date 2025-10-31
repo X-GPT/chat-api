@@ -143,5 +143,5 @@ export type SearchDocumentsCompletedEvent = {
 
 export type TaskStatusEvent = {
 	type: "task_status";
-	taskStatus: "ask_user" | "complete" | "continue";
+	taskStatus: "ask_user" | "complete";
 };
