@@ -24,7 +24,9 @@ export function handleTaskComplete({
 		taskCompleted,
 	});
 	logger.info({
-		message: "Task completed",
+		message: taskCompleted
+			? "Task completed"
+			: "Task not completed, continuing",
 		taskCompleted,
 	});
 	return taskCompleted;
