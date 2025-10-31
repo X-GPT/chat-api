@@ -10,6 +10,7 @@ import { xml } from "./utils";
 export const readFileTool = tool({
 	description: "Read a file by file id",
 	inputSchema: z.object({
+		type: z.number().int().min(0).max(12).describe("The file type"),
 		fileId: z.string().describe("The file ID to read"),
 	}),
 });

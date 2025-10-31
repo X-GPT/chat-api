@@ -6,6 +6,23 @@ import type { EventMessage } from "../chat.events";
 import type { ChatLogger } from "../chat.logger";
 import { normalizeFiles, xml } from "./utils";
 
+/**
+ * Truncates text to a specified number of word tokens (split by whitespace).
+ * Appends ellipsis if the original text was longer.
+ */
+function truncateToWordTokens(text: string, maxTokens: number): string {
+	if (!text || text.trim() === "") {
+		return "";
+	}
+
+	const words = text.trim().split(/\s+/);
+	if (words.length <= maxTokens) {
+		return text;
+	}
+
+	return `${words.slice(0, maxTokens).join(" ")}...`;
+}
+
 // the `tool` helper function ensures correct type inference:
 export const listAllFilesTool = tool({
 	description:
@@ -68,16 +85,26 @@ export async function handleListAllFiles({
 		return "No files found";
 	}
 
-	const fileNodes = normalizedFiles.map((file) => {
-		return file.id;
+	// Build markdown table with id, title, and type columns
+	const tableHeader = "| id | title | type |";
+	const tableSeparator = "|---|---|---|";
+	const tableRows = normalizedFiles.map((file) => {
+		const id = file.id;
+		// Use fallback: title -> summaryTitle -> linkTitle -> empty string
+		const titleText = file.title ?? file.summaryTitle ?? file.linkTitle ?? "";
+		const title = truncateToWordTokens(titleText, 12);
+		const type = String(file.type);
+		return `| ${id} | ${title} | ${type} |`;
 	});
+
+	const markdownTable = [tableHeader, tableSeparator, ...tableRows].join("\n");
 
 	onEvent({
 		type: "list_all_files.completed",
 		message: "All files listed",
 	});
 
-	const filesXml = xml("files", fileNodes.join("\n"));
+	const filesXml = xml("files", markdownTable, { raw: true });
 	const nextCursorXml = xml("nextCursor", nextCursor ?? "", { indent: 0 });
 	const hasMoreXml = xml("hasMore", String(hasMore), { indent: 0 });
 	const limitXml = xml("limit", String(100), { indent: 0 });
