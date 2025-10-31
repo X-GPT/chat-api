@@ -65,13 +65,10 @@ export type ReadFileCompletedEvent = {
 
 export type ListCollectionFilesStartedEvent = {
 	type: "list_collection_files.started";
-	collectionId: string | null;
 };
 
 export type ListCollectionFilesCompletedEvent = {
 	type: "list_collection_files.completed";
-	collectionId: string | null;
-	collectionName: string | null;
 	message: string;
 };
 

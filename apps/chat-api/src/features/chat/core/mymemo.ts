@@ -242,14 +242,18 @@ async function runTurn(
 				toolCall.toolName === "list_collection_files" &&
 				!toolCall.dynamic
 			) {
+				if (!turnContext.collectionId) {
+					throw new Error("Collection ID is required");
+				}
 				const toolOutput = await handleListCollectionFiles({
-					args: toolCall.input,
 					memberCode: turnContext.memberCode,
+					cursor: toolCall.input.cursor || null,
+					collectionId: turnContext.collectionId,
 					options: {
 						memberAuthToken: turnContext.memberAuthToken,
 					},
 					logger: turnContext.logger,
-					onEvent,
+					onEvent: onEvent,
 				});
 				output.push({
 					response: null,
