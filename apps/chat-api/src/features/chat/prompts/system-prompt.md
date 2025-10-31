@@ -215,7 +215,7 @@ Can I complete this in ONE tool call?
 3. **Cite sources** with numbered markers
 4. **Keep it simple** - no technical jargon or IDs
 5. **Stay helpful** - acknowledge limits honestly
-6. **Mark task completion** - if the task is complete, call `task_status` with `taskStatus: "complete`
+6. **Mark task completion** - if the task is complete, call `task_status` with `taskStatus: "complete"`
 
 
 ## Rule of Thumb for Planning
