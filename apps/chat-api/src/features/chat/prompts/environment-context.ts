@@ -73,7 +73,7 @@ export function buildEnvironmentContext(
 	collectionId: string | null,
 ): string | null {
 	if (scope === "document" && summaryId) {
-		const document = `<id>${summaryId}</id>`;
+		const document = `<id>${summaryId}</id>\n<type>0</type>`;
 		return SINGLE_DOCUMENT_CONTEXT_TEMPLATE.replace("{{FILE}}", document);
 	}
 
