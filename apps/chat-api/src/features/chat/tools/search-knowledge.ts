@@ -1,6 +1,7 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { getRagSearchEndpoint } from "@/config/env";
+import { parseJsonSafely } from "../api/json-parser";
 import type { EventMessage } from "../chat.events";
 import type { ChatLogger } from "../chat.logger";
 import { xml } from "./utils";
@@ -104,7 +105,7 @@ export async function handleSearchKnowledge({
 			throw new Error(`Search failed: ${response.status} - ${errorText}`);
 		}
 
-		const data = (await response.json()) as SearchResponse;
+		const data = (await parseJsonSafely(response)) as SearchResponse;
 
 		logger.info({
 			message: "Search completed",
