@@ -66,6 +66,7 @@ For multi-step tasks, ALWAYS use the planning tool first:
 - List collections first to get file IDs, then read files
 - Call `update_plan` first for any multi-step task
 - Use `update_citations` after drafting responses with sources
+- Citations are incremental: call update_citations as soon as you emit a new [cN], then refine later; finish with a final: true call.
 
 ### Task Status Management
 
@@ -109,17 +110,17 @@ Always call `task_status` to indicate the current state of the task:
 
 ### Citations
 
-**Format:**
-- Use [1], [2], [3] inline markers immediately after claims
-- Multiple sources: [1,2]
-- Number sequentially by first appearance
-- Update citations with source list after drafting
+- While streaming, insert stable inline markers like [c1], [c2] immediately after claims. Never renumber once emitted.
 
-**Rules:**
-- Start fresh numbering [1] for each response
-- Never reference previous response citations
-- Always cite when using file content
-- Don't append citation lists to answers
+- As soon as a new marker [cN] appears, immediately call update_citations with an upsert for cN (it can be partial—doc id only at first).
+
+- When a better locator (page/section/quote/URL anchor) is known, call update_citations again to enrich the same cN.
+
+- At the end of the answer, send a final update_citations with final: true that includes the ordered list of all markers seen in the message.
+
+- Start fresh markers for every new assistant message (c1..).
+
+- If a claim cannot be sourced, emit [uncited] (do not include it in the final citations set).
 
 ### Error Handling
 

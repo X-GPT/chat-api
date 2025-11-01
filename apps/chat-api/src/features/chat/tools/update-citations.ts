@@ -7,21 +7,22 @@ import type { Citation, EventMessage } from "../chat.events";
 import type { ChatLogger } from "../chat.logger";
 
 export const citationSchema = z.object({
-	id: z
+	marker: z
 		.string()
-		.min(1, "Citation id cannot be empty")
-		.describe("Identifier for the cited source (e.g. fileId)"),
-	number: z
-		.number()
-		.int("Citation number must be an integer")
-		.min(1, "Citation number must be positive")
-		.describe("Numeric marker matching the [n] reference in the answer"),
+		.regex(/^c\d+$/)
+		.describe("Inline marker like c1, c2"),
+	fileId: z.string().describe("The file id of the cited source"),
 });
 
 export const updateCitationsToolInputSchema = z.object({
-	citations: z
+	upserts: z
 		.array(citationSchema)
-		.describe("Ordered list of citations referenced in the assistant response"),
+		.default([])
+		.describe("The list of citations to upsert"),
+	final: z
+		.boolean()
+		.default(false)
+		.describe("Whether this is the final update of the citations"),
 });
 
 export type UpdateCitationsToolInput = z.infer<
@@ -35,11 +36,11 @@ export const updateCitationsTool = tool({
 });
 
 export function normalizeCitation(
-	citation: UpdateCitationsToolInput["citations"][number],
+	citation: UpdateCitationsToolInput["upserts"][number],
 ) {
 	return {
-		id: citation.id,
-		number: citation.number,
+		marker: citation.marker,
+		fileId: citation.fileId,
 	};
 }
 
@@ -56,38 +57,37 @@ export async function handleUpdateCitations({
 	onEvent: (event: EventMessage) => void;
 	onCitationsUpdate: (citations: Citation[]) => void;
 }) {
-	const citations = args.citations.map(normalizeCitation);
-	const summaryIds = Array.from(
+	const citations = args.upserts.map(normalizeCitation);
+	const fileIds = Array.from(
 		new Set(
 			citations
-				.map((citation) => String(citation.id).trim())
+				.map((citation) => String(citation.fileId).trim())
 				.filter((id) => id.length > 0),
 		),
 	);
 
 	let summaries: ProtectedSummary[] = [];
-	if (summaryIds.length > 0) {
+	if (fileIds.length > 0) {
 		summaries = await fetchProtectedSummaries(
-			summaryIds,
+			fileIds,
 			protectedFetchOptions,
 			logger,
 		);
 	}
 
 	onCitationsUpdate(
-		summaries.map((summary) => ({
+		summaries.map((summary, index) => ({
 			...summary,
-			number:
-				citations.find((citation) => citation.id === summary.id)?.number ?? 0,
+			marker: `c${index + 1}`,
 		})),
 	);
 
 	onEvent({
 		type: "citations.updated",
-		citations: summaries.map((summary) => ({
-			...summary,
-			number:
-				citations.find((citation) => citation.id === summary.id)?.number ?? 0,
+		citations: summaries.map((summary, index) => ({
+			id: summary.id,
+			marker: `c${index + 1}`,
+			fileId: summary.id,
 		})),
 	});
 
