@@ -159,50 +159,46 @@ function formatSearchResults(data: SearchResponse): string {
 		]);
 	}
 
-	const summaries = Object.entries(data.results).map(
-		([_summaryKey, summary]) => {
-			const chunks = summary.chunks.map((chunk) => {
-				const children = chunk.matching_children.map((child) =>
-					xml(
-						"matchingChild",
-						[
-							xml("chunkIndex", child.chunk_index, { indent: 4 }),
-							xml("score", child.score.toFixed(4), { indent: 4 }),
-							xml("text", child.text, { indent: 4 }),
-						],
-						{ indent: 3 },
-					),
-				);
-
-				return xml(
-					"chunk",
+	const files = Object.entries(data.results).map(([_summaryKey, file]) => {
+		const chunks = file.chunks.map((chunk) => {
+			const children = chunk.matching_children.map((child) =>
+				xml(
+					"matchingChild",
 					[
-						xml("chunkIndex", chunk.chunk_index, { indent: 3 }),
-						xml("maxScore", chunk.max_score.toFixed(4), { indent: 3 }),
-						xml("text", chunk.text, { indent: 3 }),
-						xml("matchingChildren", children, { indent: 3 }),
+						xml("chunkIndex", child.chunk_index, { indent: 4 }),
+						xml("score", child.score.toFixed(4), { indent: 4 }),
 					],
-					{ indent: 2 },
-				);
-			});
+					{ indent: 3 },
+				),
+			);
 
 			return xml(
-				"summary",
+				"chunk",
 				[
-					xml("summaryId", summary.summary_id, { indent: 2 }),
-					xml("memberCode", summary.member_code, { indent: 2 }),
-					xml("maxScore", summary.max_score.toFixed(4), { indent: 2 }),
-					xml("totalChunks", summary.total_chunks, { indent: 2 }),
-					xml("chunks", chunks, { indent: 2 }),
+					xml("chunkIndex", chunk.chunk_index, { indent: 3 }),
+					xml("maxScore", chunk.max_score.toFixed(4), { indent: 3 }),
+					xml("text", chunk.text, { indent: 3 }),
+					xml("matchingChildren", children, { indent: 3 }),
 				],
-				{ indent: 1 },
+				{ indent: 2 },
 			);
-		},
-	);
+		});
+
+		return xml(
+			"file",
+			[
+				xml("fileId", file.summary_id, { indent: 2 }),
+				xml("maxScore", file.max_score.toFixed(4), { indent: 2 }),
+				xml("totalChunks", file.total_chunks, { indent: 2 }),
+				xml("chunks", chunks, { indent: 2 }),
+			],
+			{ indent: 1 },
+		);
+	});
 
 	return xml("searchResults", [
 		xml("query", data.query, { indent: 1 }),
 		xml("totalResults", data.total_results, { indent: 1 }),
-		xml("summaries", summaries, { indent: 1 }),
+		xml("files", files, { indent: 1 }),
 	]);
 }

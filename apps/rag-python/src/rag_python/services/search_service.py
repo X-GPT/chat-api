@@ -181,7 +181,6 @@ class SearchService:
                     matching_children.append(
                         MatchingChild(
                             id=str(child.node_id),
-                            text=child.get_content(),
                             score=score,
                             chunk_index=chunk_index,
                         )
@@ -202,7 +201,6 @@ class SearchService:
                     text=parent_payload.get(K_PARENT_TEXT, ""),
                     max_score=max(child.score for child in matching_children),
                     chunk_index=parent_payload.get(K_PARENT_IDX, 0),
-                    matching_children=matching_children,
                 )
 
                 parent_results.append((parent_item, result_summary_id))
@@ -217,14 +215,8 @@ class SearchService:
             for sum_id, items in aggregated.items():
                 items.sort(key=lambda x: x.max_score, reverse=True)
 
-                member_code_value = "unknown"
-                if items:
-                    first_parent_payload = parent_lookup.get(items[0].id, {})
-                    member_code_value = first_parent_payload.get(K_MEMBER_CODE, "unknown")
-
                 summary_result = SummaryResults(
                     summary_id=sum_id,
-                    member_code=member_code_value,
                     chunks=items,
                     total_chunks=len(items),
                     max_score=max(item.max_score for item in items) if items else 0.0,
