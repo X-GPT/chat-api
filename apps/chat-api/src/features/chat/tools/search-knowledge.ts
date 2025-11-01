@@ -171,9 +171,9 @@ function formatSearchResults(data: SearchResponse): string {
 		);
 	});
 
-	return xml("searchResults", [
+	return `${xml("searchResults", [
 		xml("query", data.query, { indent: 1 }),
 		xml("totalResults", data.total_results, { indent: 1 }),
 		xml("files", files, { indent: 1 }),
-	]);
+	])}\n\n "You must use the files mentioned in the search results to answer the question. If the information is not in the files, explicitly state: 'I cannot find this information in the available files.'"`;
 }
