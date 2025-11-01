@@ -111,7 +111,7 @@ export type TurnContext = {
 type TurnRunResult = {
 	processedItems: {
 		response: ModelMessage | null;
-		nextTurnInput: ModelMessage | null;
+		toolResult: ModelMessage | null;
 	}[];
 };
 
@@ -179,7 +179,7 @@ async function runTurn(
 
 	const responseMessages = (await result.response).messages;
 	responseMessages.forEach((message) => {
-		output.push({ response: message, nextTurnInput: null });
+		output.push({ response: message, toolResult: null });
 	});
 
 	const finishReason = await result.finishReason;
@@ -202,7 +202,7 @@ async function runTurn(
 				});
 				output.push({
 					response: null,
-					nextTurnInput: {
+					toolResult: {
 						role: "tool" as const,
 						content: [
 							{
@@ -227,7 +227,7 @@ async function runTurn(
 				});
 				output.push({
 					response: null,
-					nextTurnInput: {
+					toolResult: {
 						role: "tool" as const,
 						content: [
 							{
@@ -258,7 +258,7 @@ async function runTurn(
 				});
 				output.push({
 					response: null,
-					nextTurnInput: {
+					toolResult: {
 						role: "tool" as const,
 						content: [
 							{
@@ -283,7 +283,7 @@ async function runTurn(
 				});
 				output.push({
 					response: null,
-					nextTurnInput: {
+					toolResult: {
 						role: "tool" as const,
 						content: [
 							{
@@ -310,7 +310,7 @@ async function runTurn(
 				});
 				output.push({
 					response: null,
-					nextTurnInput: {
+					toolResult: {
 						role: "tool" as const,
 						content: [
 							{
@@ -336,7 +336,7 @@ async function runTurn(
 				});
 				output.push({
 					response: null,
-					nextTurnInput: {
+					toolResult: {
 						role: "tool" as const,
 						content: [
 							{
@@ -365,7 +365,7 @@ async function runTurn(
 				});
 				output.push({
 					response: null,
-					nextTurnInput: {
+					toolResult: {
 						role: "tool" as const,
 						content: [
 							{
@@ -385,7 +385,7 @@ async function runTurn(
 				});
 				output.push({
 					response: null,
-					nextTurnInput: {
+					toolResult: {
 						role: "tool" as const,
 						content: [
 							{
@@ -450,34 +450,19 @@ async function runTask({
 			onCitationsUpdate,
 		);
 
-		const nextTurnInput: ModelMessage[] = [];
+		const toolResults: ModelMessage[] = [];
 
 		for (const item of processedItems) {
 			if (item.response) {
 				session.messages.push(item.response);
 			}
-			if (item.nextTurnInput) {
-				if (
-					item.nextTurnInput.role === "tool" &&
-					item.nextTurnInput.content[0]?.type === "tool-result" &&
-					item.nextTurnInput.content[0]?.toolName === "task_status" &&
-					item.nextTurnInput.content[0]?.output?.type === "text" &&
-					(item.nextTurnInput.content[0]?.output?.value === "complete" ||
-						item.nextTurnInput.content[0]?.output?.value === "ask_user")
-				) {
-					turnContext.logger.info({
-						message: `Task ${item.nextTurnInput.content[0]?.output?.value}`,
-						messages: session.messages,
-					});
-					return;
-				} else {
-					session.messages.push(item.nextTurnInput);
-					nextTurnInput.push(item.nextTurnInput);
-				}
+			if (item.toolResult) {
+				toolResults.push(item.toolResult);
 			}
 		}
 
-		if (nextTurnInput.length === 0) {
+		// 1. If no tool results, ask the user to call the task_status tool
+		if (toolResults.length === 0) {
 			session.messages.push({
 				role: "user" as const,
 				content: [
@@ -487,7 +472,30 @@ async function runTask({
 					},
 				],
 			});
+			return;
 		}
+
+		// 2. If no non-task-status tool results, the task is completed
+		const nonTaskStatusToolResults = toolResults.filter((toolResult) => {
+			if (
+				toolResult.role === "tool" &&
+				toolResult.content[0]?.type === "tool-result" &&
+				toolResult.content[0]?.toolName === "task_status"
+			) {
+				return false;
+			}
+			return true;
+		});
+		if (nonTaskStatusToolResults.length === 0) {
+			turnContext.logger.info({
+				message: "Task is completed",
+				messages: session.messages,
+			});
+			return;
+		}
+
+		// 3. Add the non-task-status tool results to the session messages
+		session.messages.push(...nonTaskStatusToolResults);
 	}
 }
 
