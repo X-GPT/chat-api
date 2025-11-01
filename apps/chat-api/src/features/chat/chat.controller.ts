@@ -166,7 +166,7 @@ export async function complete(
 		logger,
 	});
 
-	if (accumulatedContent.length > 0) {
+	if (accumulatedCitations.length > 0) {
 		const chatEntity: ChatEntity = {
 			id: chatId,
 			chatKey,
