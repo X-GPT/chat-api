@@ -78,7 +78,7 @@ export async function handleUpdateCitations({
 	onCitationsUpdate(
 		summaries.map((summary, index) => ({
 			...summary,
-			marker: `c${index + 1}`,
+			number: index + 1,
 		})),
 	);
 
@@ -86,7 +86,7 @@ export async function handleUpdateCitations({
 		type: "citations.updated",
 		citations: summaries.map((summary, index) => ({
 			id: summary.id,
-			marker: `c${index + 1}`,
+			number: index + 1,
 			fileId: summary.id,
 		})),
 	});

@@ -43,7 +43,7 @@ export type PlanUpdatedEvent = UpdatePlanToolInput & {
 };
 
 export type Citation = ProtectedSummary & {
-	marker: string;
+	number: number;
 };
 
 export type CitationsUpdatedEvent = {
