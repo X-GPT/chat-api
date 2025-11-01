@@ -472,7 +472,7 @@ async function runTask({
 					},
 				],
 			});
-			return;
+			continue;
 		}
 
 		// 2. If no non-task-status tool results, the task is completed
