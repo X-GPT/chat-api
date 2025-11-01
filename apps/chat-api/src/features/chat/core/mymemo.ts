@@ -468,7 +468,7 @@ async function runTask({
 				content: [
 					{
 						type: "text" as const,
-						text: "You haven't called any tools. If the task is completed, call the task_status tool with taskStatus: complete. If the task is not completed, call the task_status tool with taskStatus: continue. If the task is waiting for user input, call the task_status tool with taskStatus: ask_user.",
+						text: "You haven't called any tools. If the task is completed, call the task_status tool with taskStatus: complete.If the task is waiting for user input, call the task_status tool with taskStatus: ask_user.",
 					},
 				],
 			});
