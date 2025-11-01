@@ -33,7 +33,6 @@ interface SearchResultItem {
 interface SummaryResults {
 	summary_id: number;
 	chunks: SearchResultItem[];
-	total_chunks: number;
 	max_score: number;
 }
 
@@ -154,7 +153,6 @@ function formatSearchResults(data: SearchResponse): string {
 			return xml(
 				"chunk",
 				[
-					xml("chunkIndex", chunk.chunk_index, { indent: 3 }),
 					xml("maxScore", chunk.max_score.toFixed(4), { indent: 3 }),
 					xml("text", chunk.text, { indent: 3 }),
 				],
@@ -167,7 +165,6 @@ function formatSearchResults(data: SearchResponse): string {
 			[
 				xml("fileId", file.summary_id, { indent: 2 }),
 				xml("maxScore", file.max_score.toFixed(4), { indent: 2 }),
-				xml("totalChunks", file.total_chunks, { indent: 2 }),
 				xml("chunks", chunks, { indent: 2 }),
 			],
 			{ indent: 1 },
