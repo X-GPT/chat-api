@@ -23,24 +23,15 @@ interface SearchRequest {
 	collection_id?: string | null;
 }
 
-interface MatchingChild {
-	id: string;
-	text: string;
-	score: number;
-	chunk_index: number;
-}
-
 interface SearchResultItem {
 	id: string;
 	text: string;
 	max_score: number;
 	chunk_index: number;
-	matching_children: MatchingChild[];
 }
 
 interface SummaryResults {
 	summary_id: number;
-	member_code: string;
 	chunks: SearchResultItem[];
 	total_chunks: number;
 	max_score: number;
@@ -87,7 +78,6 @@ export async function handleSearchKnowledge({
 		logger.info({
 			message: "Searching knowledge base",
 			query,
-			memberCode,
 			summaryId,
 			endpoint,
 			collectionId,
@@ -161,24 +151,12 @@ function formatSearchResults(data: SearchResponse): string {
 
 	const files = Object.entries(data.results).map(([_summaryKey, file]) => {
 		const chunks = file.chunks.map((chunk) => {
-			const children = chunk.matching_children.map((child) =>
-				xml(
-					"matchingChild",
-					[
-						xml("chunkIndex", child.chunk_index, { indent: 4 }),
-						xml("score", child.score.toFixed(4), { indent: 4 }),
-					],
-					{ indent: 3 },
-				),
-			);
-
 			return xml(
 				"chunk",
 				[
 					xml("chunkIndex", chunk.chunk_index, { indent: 3 }),
 					xml("maxScore", chunk.max_score.toFixed(4), { indent: 3 }),
 					xml("text", chunk.text, { indent: 3 }),
-					xml("matchingChildren", children, { indent: 3 }),
 				],
 				{ indent: 2 },
 			);
