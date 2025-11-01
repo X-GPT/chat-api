@@ -125,9 +125,6 @@ async def test_search_by_member_code_returns_results(
     sr = res.results["1001"]
     assert sr.summary_id == 1001
     assert sr.total_chunks >= 1
-    # Children are present and sorted
-    assert sr.chunks[0].matching_children
-    assert sr.chunks[0].matching_children[0].score >= sr.chunks[0].matching_children[-1].score
 
 
 async def test_search_filter_by_summary_id(

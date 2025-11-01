@@ -7,7 +7,6 @@ from fastapi.testclient import TestClient
 
 from rag_python.main import app
 from rag_python.schemas.search import (
-    MatchingChild,
     SearchResponse,
     SearchResultItem,
     SummaryResults,
@@ -34,21 +33,12 @@ def test_search_endpoint_success(mock_search_service: AsyncMock):
         results={
             "1": SummaryResults(
                 summary_id=1,
-                member_code="user123",
                 chunks=[
                     SearchResultItem(
                         id="1_parent_0",
                         text="Full parent text content",
                         max_score=0.9,
                         chunk_index=0,
-                        matching_children=[
-                            MatchingChild(
-                                id="1_child_0_0",
-                                text="Test chunk content",
-                                score=0.9,
-                                chunk_index=0,
-                            )
-                        ],
                     )
                 ],
                 total_chunks=1,
@@ -91,21 +81,12 @@ def test_search_endpoint_with_filters(mock_search_service: AsyncMock):
         results={
             "1": SummaryResults(
                 summary_id=1,
-                member_code="user123",
                 chunks=[
                     SearchResultItem(
                         id="1_parent_0",
                         text="Filtered parent text",
                         max_score=0.85,
                         chunk_index=0,
-                        matching_children=[
-                            MatchingChild(
-                                id="1_child_0_0",
-                                text="Filtered chunk",
-                                score=0.85,
-                                chunk_index=0,
-                            )
-                        ],
                     )
                 ],
                 total_chunks=1,
@@ -124,7 +105,6 @@ def test_search_endpoint_with_filters(mock_search_service: AsyncMock):
             "/api/v1/search",
             json={
                 "query": "test",
-                "member_code": "user123",
                 "summary_id": 1,
                 "limit": 5,
                 "sparse_top_k": 5,
@@ -221,21 +201,12 @@ def test_search_endpoint_default_values(mock_search_service: AsyncMock):
         results={
             "1": SummaryResults(
                 summary_id=1,
-                member_code="user123",
                 chunks=[
                     SearchResultItem(
                         id="1_parent_0",
                         text="Default values test",
                         max_score=0.8,
                         chunk_index=0,
-                        matching_children=[
-                            MatchingChild(
-                                id="1_child_0_0",
-                                text="Default chunk",
-                                score=0.8,
-                                chunk_index=0,
-                            )
-                        ],
                     )
                 ],
                 total_chunks=1,
@@ -275,27 +246,12 @@ def test_search_endpoint_response_schema(mock_search_service: AsyncMock):
         results={
             "1": SummaryResults(
                 summary_id=1,
-                member_code="user123",
                 chunks=[
                     SearchResultItem(
                         id="1_parent_0",
                         text="Full parent text with multiple matching children",
                         max_score=0.95,
                         chunk_index=0,
-                        matching_children=[
-                            MatchingChild(
-                                id="1_child_0_0",
-                                text="Chunk 1",
-                                score=0.95,
-                                chunk_index=0,
-                            ),
-                            MatchingChild(
-                                id="1_child_0_1",
-                                text="Chunk 2",
-                                score=0.85,
-                                chunk_index=1,
-                            ),
-                        ],
                     ),
                 ],
                 total_chunks=1,
@@ -303,21 +259,12 @@ def test_search_endpoint_response_schema(mock_search_service: AsyncMock):
             ),
             "2": SummaryResults(
                 summary_id=2,
-                member_code="user123",
                 chunks=[
                     SearchResultItem(
                         id="2_parent_0",
                         text="Parent text from summary 2",
                         max_score=0.8,
                         chunk_index=0,
-                        matching_children=[
-                            MatchingChild(
-                                id="2_child_0_0",
-                                text="Chunk from summary 2",
-                                score=0.8,
-                                chunk_index=0,
-                            ),
-                        ],
                     ),
                 ],
                 total_chunks=1,
@@ -353,7 +300,6 @@ def test_search_endpoint_response_schema(mock_search_service: AsyncMock):
         # Check summary result structure
         summary1 = data["results"]["1"]
         assert "summary_id" in summary1
-        assert "member_code" in summary1
         assert "chunks" in summary1
         assert "total_chunks" in summary1
         assert "max_score" in summary1
@@ -364,16 +310,6 @@ def test_search_endpoint_response_schema(mock_search_service: AsyncMock):
         assert "text" in parent_chunk
         assert "max_score" in parent_chunk
         assert "chunk_index" in parent_chunk
-        assert "matching_children" in parent_chunk
-
-        # Check matching children structure
-        assert isinstance(parent_chunk["matching_children"], list)
-        assert len(parent_chunk["matching_children"]) > 0
-        matching_child = parent_chunk["matching_children"][0]
-        assert "id" in matching_child
-        assert "text" in matching_child
-        assert "score" in matching_child
-        assert "chunk_index" in matching_child
     finally:
         # Clean up override
         app.dependency_overrides.clear()
