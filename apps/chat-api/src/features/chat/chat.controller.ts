@@ -148,6 +148,10 @@ export async function complete(
 
 			lastChatEntity.readFlag = "0";
 			lastChatEntity.refsContent = JSON.stringify(accumulatedCitations);
+			logger.info({
+				message: "Sending chat entity to protected service",
+				chatEntity: lastChatEntity,
+			});
 			await sendChatEntityToProtectedService(
 				lastChatEntity,
 				protectedFetchOptions,
