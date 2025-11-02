@@ -172,7 +172,7 @@ export async function complete(
 
 	if (accumulatedCitations.length > 0) {
 		const chatEntity: ChatEntity = {
-			id: chatId,
+			id: refsId,
 			chatKey,
 			readFlag: "0",
 			delFlag: "0",
