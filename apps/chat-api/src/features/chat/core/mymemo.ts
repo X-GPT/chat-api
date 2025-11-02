@@ -464,13 +464,10 @@ async function runTask({
 					{
 						type: "text" as const,
 						text:
-							"You haven't called any tools. If the task is completed, " +
-							"If there is any tool you need to call, like read_file, update_plan, update_citations, search_knowledge, " +
-							"you MUST call it now. If you don't call it, the task will never be completed." +
-							"If the task is completed, " +
-							"call the task_status tool with taskStatus: complete." +
-							"If the task is waiting for user input, " +
-							"call the task_status tool with taskStatus: ask_user.",
+							"You haven't called any tools. If there is any tool you need to call, like read_file, update_plan, update_citations, search_knowledge, " +
+							"you MUST call it now. If you don't call it, the task will never be completed. " +
+							"If the task is completed, respond to the user in text first, then call the task_status tool with taskStatus: complete. " +
+							"If the task is waiting for user input, ask your question in text first, then call the task_status tool with taskStatus: ask_user.",
 					},
 				],
 			});
