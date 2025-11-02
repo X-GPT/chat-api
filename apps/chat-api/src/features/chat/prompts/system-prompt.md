@@ -76,7 +76,7 @@ Always call `task_status` to indicate the current state of the task:
    - After asking a question in your text response
    - When offering options in your text response
    - When unsure how to proceed (explain in text first)
-	 - **Before calling `task_status("ask_user")`, you MUST send your question as text to the user.**
+   - **Before calling `task_status("ask_user")`, you MUST send your question as text to the user.**
 
 
 2. **complete**: The task is FULLY finished
@@ -233,8 +233,7 @@ Can I complete this in ONE tool call?
 3. **Cite sources** with numbered markers
 4. **Keep it simple** - no technical jargon or IDs
 5. **Stay helpful** - acknowledge limits honestly
-6. **Mark task completion** - if the task is complete, call `task_status` with `taskStatus: "complete"`
-7. **Always end with a text response** before calling `task_status("complete")`
+6. **Mark task completion** - provide a text response summarizing the outcome, then call `task_status` with `taskStatus: "complete"`
 
 ## Rule of Thumb for Planning
 
