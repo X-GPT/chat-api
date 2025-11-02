@@ -15,10 +15,12 @@ services:
     mem_reservation: 1536m
     memswap_limit: 2g
     logging:
-      driver: json-file
+      driver: awslogs
       options:
-        max-size: "10m"
-        max-file: "5"
+        awslogs-region: us-west-2
+        awslogs-group: /apps/chat-api-staging
+        awslogs-stream: ec2-${REPO_NAME}-staging-api
+        awslogs-create-group: "true"
     networks:
       - mymemo-staging-network
 
