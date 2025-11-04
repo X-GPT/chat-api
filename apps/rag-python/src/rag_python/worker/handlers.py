@@ -90,7 +90,7 @@ class SummaryLifecycleHandler:
             return False
 
         logger.info(
-            "Content lengths - summary=%s, original=%s",
+            "Content lengths - original=%s",
             len(original_content),
         )
 
@@ -126,7 +126,7 @@ class SummaryLifecycleHandler:
             return False
 
         logger.info(
-            "Updated content lengths - summary=%s, original=%s",
+            "Updated content lengths - original=%s",
             len(original_content),
         )
 
@@ -169,7 +169,7 @@ class SummaryLifecycleHandler:
 
     @staticmethod
     def _validate_event_content(event: SummaryEvent) -> str | None:
-        """Ensure the event contains both summary and original content."""
+        """Ensure the event contains original content."""
         original_content = event.parse_content
 
         if not original_content:
