@@ -85,13 +85,12 @@ class SummaryLifecycleHandler:
             f"Team: {event.team_code}"
         )
 
-        summary_text, original_content = self._validate_event_content(event)
-        if summary_text is None or original_content is None:
+        original_content = self._validate_event_content(event)
+        if original_content is None:
             return False
 
         logger.info(
-            "Content lengths - summary=%s, original=%s",
-            len(summary_text),
+            "Content lengths - original=%s",
             len(original_content),
         )
 
@@ -122,13 +121,12 @@ class SummaryLifecycleHandler:
             f"Team: {event.team_code}"
         )
 
-        summary_text, original_content = self._validate_event_content(event)
-        if summary_text is None or original_content is None:
+        original_content = self._validate_event_content(event)
+        if original_content is None:
             return False
 
         logger.info(
-            "Updated content lengths - summary=%s, original=%s",
-            len(summary_text),
+            "Updated content lengths - original=%s",
             len(original_content),
         )
 
@@ -170,23 +168,18 @@ class SummaryLifecycleHandler:
         return True
 
     @staticmethod
-    def _validate_event_content(event: SummaryEvent) -> tuple[str | None, str | None]:
-        """Ensure the event contains both summary and original content."""
-        summary_text = event.content or ""
+    def _validate_event_content(event: SummaryEvent) -> str | None:
+        """Ensure the event contains original content."""
         original_content = event.parse_content
-
-        if not summary_text:
-            logger.error("Missing content (summary text) for summary_id=%s", event.id)
-            return None, None
 
         if not original_content:
             logger.error(
                 "Missing parse_content (original document) for summary_id=%s",
                 event.id,
             )
-            return None, None
+            return None
 
-        return summary_text, original_content
+        return original_content
 
 
 class CollectionRelationshipHandler:
