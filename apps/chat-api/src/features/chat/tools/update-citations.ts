@@ -68,6 +68,12 @@ export async function handleUpdateCitations({
 				.filter((id) => id.length > 0),
 		),
 	);
+	const fileIdToMarker = citations.reduce((map, citation) => {
+		if (!map.has(citation.fileId)) {
+			map.set(citation.fileId, citation.marker);
+		}
+		return map;
+	}, new Map<string, string>());
 
 	let summaries: ProtectedSummary[] = [];
 	if (fileIds.length > 0) {
@@ -78,6 +84,18 @@ export async function handleUpdateCitations({
 			summaryCache,
 		);
 	}
+
+	// Sort summaries by marker order
+	summaries.sort((a, b) => {
+		const aMarker = fileIdToMarker.get(a.id);
+		const bMarker = fileIdToMarker.get(b.id);
+		if (!aMarker || !bMarker) {
+			return 0;
+		}
+		const aNum = parseInt(aMarker.slice(1), 10);
+		const bNum = parseInt(bMarker.slice(1), 10);
+		return aNum - bNum;
+	});
 
 	onCitationsUpdate(
 		summaries.map((summary, index) => ({
