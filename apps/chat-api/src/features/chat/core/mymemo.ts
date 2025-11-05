@@ -466,25 +466,25 @@ async function runTask({
 		}
 
 		// 1. If no tool results, ask the user to call the task_status tool
-		if (toolResults.length === 0) {
-			session.messages.push({
-				role: "user" as const,
-				content: [
-					{
-						type: "text" as const,
-						text:
-							"You haven't called any tools. " +
-							"If there is any tool you need to call, like read_file, update_plan, update_citations, search_knowledge, " +
-							"you MUST call it now. If you don't call it, the task will never be completed." +
-							"If the task is completed, " +
-							"call the task_status tool with taskStatus: complete." +
-							"If the task is waiting for user input, " +
-							"call the task_status tool with taskStatus: ask_user.",
-					},
-				],
-			});
-			continue;
-		}
+		// if (toolResults.length === 0) {
+		// 	session.messages.push({
+		// 		role: "user" as const,
+		// 		content: [
+		// 			{
+		// 				type: "text" as const,
+		// 				text:
+		// 					"You haven't called any tools. " +
+		// 					"If there is any tool you need to call, like read_file, update_plan, update_citations, search_knowledge, " +
+		// 					"you MUST call it now. If you don't call it, the task will never be completed." +
+		// 					"If the task is completed, " +
+		// 					"call the task_status tool with taskStatus: complete." +
+		// 					"If the task is waiting for user input, " +
+		// 					"call the task_status tool with taskStatus: ask_user.",
+		// 			},
+		// 		],
+		// 	});
+		// 	continue;
+		// }
 
 		// 2. If no non-task-status tool results, the task is completed
 		const nonTaskStatusToolResults = toolResults.filter((toolResult) => {
