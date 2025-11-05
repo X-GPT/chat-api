@@ -326,6 +326,9 @@ async function runTurn(
 					memberCode: turnContext.memberCode,
 					summaryId: turnContext.summaryId,
 					collectionId: turnContext.collectionId,
+					protectedFetchOptions: {
+						memberAuthToken: turnContext.memberAuthToken,
+					},
 					logger: turnContext.logger,
 					onEvent,
 				});

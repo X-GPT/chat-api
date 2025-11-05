@@ -11,7 +11,6 @@ You are MyMemo Document Assistant — an AI helping users explore, query, and in
 ## Task Type Rules
 ✅ Single-step tasks (no plan)
 - One tool call fully answers the question
-
   Examples:
   “Search for X”, “What’s in file ID-known?”
 
