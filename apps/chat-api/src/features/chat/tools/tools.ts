@@ -4,7 +4,6 @@ import { listCollectionFilesTool } from "./list-collection-files";
 import { readFileTool } from "./read-file";
 import { searchDocumentsTool } from "./search-documents";
 import { searchKnowledgeTool } from "./search-knowledge";
-import { taskStatusTool } from "./task_status";
 import { updateCitationsTool } from "./update-citations";
 import { updatePlanTool } from "./update-plan";
 
@@ -17,7 +16,6 @@ export function getTools() {
 		update_citations: updateCitationsTool,
 		search_knowledge: searchKnowledgeTool,
 		search_documents: searchDocumentsTool,
-		task_status: taskStatusTool,
 	};
 }
 
@@ -35,10 +33,9 @@ export function getAllowedTools(
 						"list_all_files" as const,
 						"update_citations" as const,
 						"search_knowledge" as const,
-						"task_status" as const,
 						// "search_documents" as const,
 					]
-				: ["update_plan" as const, "task_status" as const];
+				: ["update_plan" as const];
 		case "collection":
 			return enableKnowledge
 				? [
@@ -48,9 +45,8 @@ export function getAllowedTools(
 						"update_citations" as const,
 						"search_knowledge" as const,
 						// "search_documents" as const,
-						"task_status" as const,
 					]
-				: ["update_plan" as const, "task_status" as const];
+				: ["update_plan" as const];
 		case "document":
 			return enableKnowledge
 				? [
@@ -58,10 +54,9 @@ export function getAllowedTools(
 						"read_file" as const,
 						"search_knowledge" as const,
 						// "search_documents" as const,
-						"task_status" as const,
 					]
-				: ["update_plan" as const, "task_status" as const];
+				: ["update_plan" as const];
 		default:
-			return ["update_plan" as const, "task_status" as const];
+			return ["update_plan" as const];
 	}
 }

@@ -14,7 +14,6 @@ import { handleListCollectionFiles } from "../tools/list-collection-files";
 import { handleReadFile } from "../tools/read-file";
 import { handleSearchDocuments } from "../tools/search-documents";
 import { handleSearchKnowledge } from "../tools/search-knowledge";
-import { handleTaskStatus } from "../tools/task_status";
 import { getTools } from "../tools/tools";
 import { handleUpdateCitations } from "../tools/update-citations";
 import { handleUpdatePlan } from "../tools/update-plan";
@@ -381,28 +380,7 @@ async function runTurn(
 						],
 					},
 				});
-			} else if (toolCall.toolName === "task_status" && !toolCall.dynamic) {
-				const toolOutput = handleTaskStatus({
-					taskStatus: toolCall.input.taskStatus,
-					onEvent,
-					logger: turnContext.logger,
-				});
-				output.push({
-					response: null,
-					toolResult: {
-						role: "tool" as const,
-						content: [
-							{
-								toolName: toolCall.toolName,
-								toolCallId: toolCall.toolCallId,
-								type: "tool-result" as const,
-								output: { type: "text" as const, value: toolOutput.toString() },
-							},
-						],
-					},
-				});
 			}
-
 			// Handle other tool calls
 		}
 	} else if (finishReason === "length") {
@@ -465,39 +443,7 @@ async function runTask({
 			}
 		}
 
-		// 1. If no tool results, ask the user to call the task_status tool
-		// if (toolResults.length === 0) {
-		// 	session.messages.push({
-		// 		role: "user" as const,
-		// 		content: [
-		// 			{
-		// 				type: "text" as const,
-		// 				text:
-		// 					"You haven't called any tools. " +
-		// 					"If there is any tool you need to call, like read_file, update_plan, update_citations, search_knowledge, " +
-		// 					"you MUST call it now. If you don't call it, the task will never be completed." +
-		// 					"If the task is completed, " +
-		// 					"call the task_status tool with taskStatus: complete." +
-		// 					"If the task is waiting for user input, " +
-		// 					"call the task_status tool with taskStatus: ask_user.",
-		// 			},
-		// 		],
-		// 	});
-		// 	continue;
-		// }
-
-		// 2. If no non-task-status tool results, the task is completed
-		const nonTaskStatusToolResults = toolResults.filter((toolResult) => {
-			if (
-				toolResult.role === "tool" &&
-				toolResult.content[0]?.type === "tool-result" &&
-				toolResult.content[0]?.toolName === "task_status"
-			) {
-				return false;
-			}
-			return true;
-		});
-		if (nonTaskStatusToolResults.length === 0) {
+		if (toolResults.length === 0) {
 			turnContext.logger.info({
 				message: "Task is completed",
 				messages: session.messages,
@@ -505,8 +451,7 @@ async function runTask({
 			return;
 		}
 
-		// 3. Add the non-task-status tool results to the session messages
-		session.messages.push(...nonTaskStatusToolResults);
+		session.messages.push(...toolResults);
 	}
 }
 
