@@ -189,7 +189,7 @@ export async function complete(
 				...summaries
 					.map((summary) => {
 						const number = fileIdToIndex.get(summary.id);
-						return number ? { ...summary, number } : null;
+						return number !== undefined ? { ...summary, number } : null;
 					})
 					.filter(
 						(citation): citation is NonNullable<typeof citation> =>
