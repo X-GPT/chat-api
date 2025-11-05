@@ -18,7 +18,7 @@ import { handleTaskStatus } from "../tools/task_status";
 import { getTools } from "../tools/tools";
 import { handleUpdateCitations } from "../tools/update-citations";
 import { handleUpdatePlan } from "../tools/update-plan";
-import { RequestCache } from "./cache";
+import type { RequestCache } from "./cache";
 import type { Config } from "./config";
 import type { ConversationHistory } from "./history";
 
@@ -69,7 +69,7 @@ function buildSession({
 		partnerCode: config.partnerCode,
 		enableKnowledge: config.enableKnowledge,
 		logger,
-		summaryCache: new RequestCache<ProtectedSummary[]>(),
+		summaryCache: config.summaryCache,
 	};
 
 	const session = {
