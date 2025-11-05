@@ -100,9 +100,9 @@ Always call `task_status` to indicate the current state of the task:
 
 ### Citations (Markdown Reference Style)
 
-* Use inline markers in the form **`[N][cN]`** where:
+* Use inline markers in the form **`[[N]][cN]`** where:
   * **N** starts from **1** and increments in order of appearance
-  * Example: `The robots are autonomous [1][c1].`
+  * Example: `The robots are autonomous [[1]][c1].`
 * After the final answer, append only citation definitions at the very end of the message:
   ```
   [c1]: <type>/<fileId>
@@ -128,7 +128,7 @@ Always call `task_status` to indicate the current state of the task:
 
 * Citation workflow:
 ```
-  Draft → Insert [1][c1], [2][c2], ... → Resolve all sources → update_citations({ upsert: [{ marker: c1, fileId: 123 }], final: true})
+  Draft → Insert [[1]][c1], [[2]][c2], ... → Resolve all sources → update_citations({ upsert: [{ marker: c1, fileId: 123 }], final: true})
 ```
 * **Do NOT** include any external information or IDs not obtained through system tools.
 
