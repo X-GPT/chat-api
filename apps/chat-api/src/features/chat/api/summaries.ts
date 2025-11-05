@@ -3,6 +3,7 @@ import {
 	getProtectedSummariesEndpoint,
 } from "@/config/env";
 import type { ChatLogger } from "../chat.logger";
+import type { RequestCache } from "../core/cache";
 import { buildHeaders, type FetchOptions } from "./client";
 import { parseJsonSafely } from "./json-parser";
 import {
@@ -17,7 +18,26 @@ export async function fetchProtectedSummaries(
 	ids: Array<string | number>,
 	options: FetchOptions = {},
 	logger: ChatLogger,
+	cache?: RequestCache<ProtectedSummary[]>,
 ): Promise<ProtectedSummary[]> {
+	// Check cache first if provided
+	if (cache) {
+		const cacheKey = ids
+			.map((id) => String(id))
+			.sort()
+			.join(",");
+		const cachedSummaries = cache.get(cacheKey);
+
+		if (cachedSummaries) {
+			logger.info({
+				message: "Using cached summaries",
+				ids,
+				cacheSize: cache.size,
+			});
+			return cachedSummaries;
+		}
+	}
+
 	const endpoint = getProtectedSummariesEndpoint(ids);
 
 	try {
@@ -56,7 +76,23 @@ export async function fetchProtectedSummaries(
 			throw new Error(`Failed to fetch summaries: ${body.msg}`);
 		}
 
-		return body.data ?? [];
+		const summaries = body.data ?? [];
+
+		// Cache the results if cache is provided
+		if (cache) {
+			const cacheKey = ids
+				.map((id) => String(id))
+				.sort()
+				.join(",");
+			cache.set(cacheKey, summaries);
+			logger.info({
+				message: "Cached summaries for future use",
+				ids,
+				cacheSize: cache.size,
+			});
+		}
+
+		return summaries;
 	} catch (error) {
 		if (error instanceof Error) {
 			logger.error({

@@ -5,6 +5,7 @@ import { fetchProtectedSummaries } from "../api/summaries";
 import type { ProtectedSummary } from "../api/types";
 import type { Citation, EventMessage } from "../chat.events";
 import type { ChatLogger } from "../chat.logger";
+import type { RequestCache } from "../core/cache";
 
 export const citationSchema = z.object({
 	marker: z
@@ -47,12 +48,14 @@ export function normalizeCitation(
 export async function handleUpdateCitations({
 	args,
 	protectedFetchOptions,
+	summaryCache,
 	logger,
 	onEvent,
 	onCitationsUpdate,
 }: {
 	args: UpdateCitationsToolInput;
 	protectedFetchOptions: FetchOptions;
+	summaryCache: RequestCache<ProtectedSummary[]>;
 	logger: ChatLogger;
 	onEvent: (event: EventMessage) => void;
 	onCitationsUpdate: (citations: Citation[]) => void;
@@ -72,6 +75,7 @@ export async function handleUpdateCitations({
 			fileIds,
 			protectedFetchOptions,
 			logger,
+			summaryCache,
 		);
 	}
 

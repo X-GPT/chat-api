@@ -1,9 +1,13 @@
 import { tool } from "ai";
 import { z } from "zod";
 import { getRagSearchEndpoint } from "@/config/env";
+import type { FetchOptions } from "../api/client";
 import { parseJsonSafely } from "../api/json-parser";
+import { fetchProtectedSummaries } from "../api/summaries";
+import type { ProtectedSummary } from "../api/types";
 import type { EventMessage } from "../chat.events";
 import type { ChatLogger } from "../chat.logger";
+import type { RequestCache } from "../core/cache";
 import { xml } from "./utils";
 
 // Tool definition for the LLM
@@ -32,7 +36,7 @@ interface SearchResultItem {
 }
 
 interface SummaryResults {
-	summary_id: number;
+	summary_id: string;
 	chunks: SearchResultItem[];
 	max_score: number;
 }
@@ -43,11 +47,16 @@ interface SearchResponse {
 	total_results: number;
 }
 
+interface EnrichedSearchResponse extends SearchResponse {
+	results: Record<string, SummaryResults & { type: number }>;
+}
 export async function handleSearchKnowledge({
 	query,
 	memberCode,
 	summaryId,
 	collectionId,
+	protectedFetchOptions,
+	summaryCache,
 	logger,
 	onEvent,
 }: {
@@ -55,6 +64,8 @@ export async function handleSearchKnowledge({
 	memberCode: string;
 	summaryId: string | null;
 	collectionId: string | null;
+	protectedFetchOptions: FetchOptions;
+	summaryCache: RequestCache<ProtectedSummary[]>;
 	logger: ChatLogger;
 	onEvent: (event: EventMessage) => void;
 }): Promise<string> {
@@ -107,6 +118,33 @@ export async function handleSearchKnowledge({
 
 		const data = (await parseJsonSafely(response)) as SearchResponse;
 
+		const fileIds = new Set(
+			Object.values(data.results).map((summary) => summary.summary_id),
+		);
+
+		// Fetch summaries with caching handled by fetchProtectedSummaries
+		const summaries = await fetchProtectedSummaries(
+			Array.from(fileIds),
+			protectedFetchOptions,
+			logger,
+			summaryCache,
+		);
+
+		const enrichedResults: Record<string, SummaryResults & { type: number }> =
+			Object.fromEntries(
+				Object.entries(data.results).map(([summaryId, result]) => {
+					const summary = summaries.find(
+						(summary) => summary.id === String(summaryId),
+					);
+					return [summaryId, { ...result, type: summary?.type ?? 0 }];
+				}),
+			);
+
+		const enrichedData: EnrichedSearchResponse = {
+			...data,
+			results: enrichedResults,
+		};
+
 		logger.info({
 			message: "Search completed",
 			totalResults: data.total_results,
@@ -120,7 +158,7 @@ export async function handleSearchKnowledge({
 		});
 
 		// Format results as XML
-		return formatSearchResults(data);
+		return formatSearchResults(enrichedData);
 	} catch (error) {
 		const errorMessage = error instanceof Error ? error.message : String(error);
 		logger.error({
@@ -140,7 +178,7 @@ export async function handleSearchKnowledge({
 	}
 }
 
-function formatSearchResults(data: SearchResponse): string {
+function formatSearchResults(data: EnrichedSearchResponse): string {
 	if (data.total_results === 0) {
 		return xml("searchResults", [
 			xml("query", data.query, { indent: 1 }),
@@ -165,6 +203,7 @@ function formatSearchResults(data: SearchResponse): string {
 			"file",
 			[
 				xml("fileId", file.summary_id, { indent: 2 }),
+				xml("type", file.type.toString(), { indent: 2 }),
 				xml("maxScore", file.max_score.toFixed(4), { indent: 2 }),
 				xml("chunks", chunks, { indent: 2 }),
 			],
