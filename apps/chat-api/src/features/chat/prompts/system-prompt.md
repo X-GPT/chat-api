@@ -112,7 +112,7 @@ Always call `task_status` to indicate the current state of the task:
   ```
   * `<type>` = numeric type identifier from the tool result
   * `<fileId>` = ID returned by the tooling
-  Do not include a section heading like “References”
+  * Do not include a section heading like “References”
   * Example:
     ```
     [c1]: 0/12345
