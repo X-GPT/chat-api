@@ -181,18 +181,20 @@ export async function complete(
 				);
 			}
 			summaries.sort((a, b) => {
-				const aIndex = fileIdToIndex.get(a.id);
-				const bIndex = fileIdToIndex.get(b.id);
-				if (!aIndex || !bIndex) {
-					return 0;
-				}
+				const aIndex = fileIdToIndex.get(a.id) ?? Infinity;
+				const bIndex = fileIdToIndex.get(b.id) ?? Infinity;
 				return aIndex - bIndex;
 			});
 			accumulatedCitations.push(
-				...summaries.map((summary, index) => ({
-					...summary,
-					number: index + 1,
-				})),
+				...summaries
+					.map((summary) => {
+						const number = fileIdToIndex.get(summary.id);
+						return number ? { ...summary, number } : null;
+					})
+					.filter(
+						(citation): citation is NonNullable<typeof citation> =>
+							citation !== null,
+					),
 			);
 		},
 		onCitationsUpdate: (citations) => {
