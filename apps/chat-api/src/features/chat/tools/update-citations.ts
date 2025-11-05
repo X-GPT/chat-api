@@ -68,13 +68,12 @@ export async function handleUpdateCitations({
 				.filter((id) => id.length > 0),
 		),
 	);
-	const fileIdToMarker = new Map<string, string>();
-	for (const citation of citations) {
-		if (fileIdToMarker.has(citation.fileId)) {
-			continue;
+	const fileIdToMarker = citations.reduce((map, citation) => {
+		if (!map.has(citation.fileId)) {
+			map.set(citation.fileId, citation.marker);
 		}
-		fileIdToMarker.set(citation.fileId, citation.marker);
-	}
+		return map;
+	}, new Map<string, string>());
 
 	let summaries: ProtectedSummary[] = [];
 	if (fileIds.length > 0) {
