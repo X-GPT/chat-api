@@ -79,7 +79,7 @@ export async function fetchProtectedSummaries(
 		const summaries = body.data ?? [];
 
 		// Cache the results if cache is provided
-		if (cache && summaries.length > 0) {
+		if (cache) {
 			const cacheKey = ids
 				.map((id) => String(id))
 				.sort()

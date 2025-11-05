@@ -118,10 +118,9 @@ export async function handleSearchKnowledge({
 
 		const data = (await parseJsonSafely(response)) as SearchResponse;
 
-		const fileIds = new Set<string>();
-		for (const summary of Object.values(data.results)) {
-			fileIds.add(summary.summary_id);
-		}
+		const fileIds = new Set(
+			Object.values(data.results).map((summary) => summary.summary_id),
+		);
 
 		// Fetch summaries with caching handled by fetchProtectedSummaries
 		const summaries = await fetchProtectedSummaries(
