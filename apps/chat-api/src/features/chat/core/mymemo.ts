@@ -1,5 +1,6 @@
 import { type LanguageModel, type ModelMessage, streamText } from "ai";
 import type { ChatMessagesScope } from "@/config/env";
+import type { ProtectedSummary } from "../api/types";
 import type { Citation, EventMessage } from "../chat.events";
 import {
 	type LanguageModelProvider,
@@ -17,6 +18,7 @@ import { handleTaskStatus } from "../tools/task_status";
 import { getTools } from "../tools/tools";
 import { handleUpdateCitations } from "../tools/update-citations";
 import { handleUpdatePlan } from "../tools/update-plan";
+import { RequestCache } from "./cache";
 import type { Config } from "./config";
 import type { ConversationHistory } from "./history";
 
@@ -67,6 +69,7 @@ function buildSession({
 		partnerCode: config.partnerCode,
 		enableKnowledge: config.enableKnowledge,
 		logger,
+		summaryCache: new RequestCache<ProtectedSummary[]>(),
 	};
 
 	const session = {
@@ -101,6 +104,7 @@ export type TurnContext = {
 	partnerCode: string;
 	enableKnowledge: boolean;
 	logger: ChatLogger;
+	summaryCache: RequestCache<ProtectedSummary[]>;
 };
 
 type TurnRunResult = {
@@ -299,6 +303,7 @@ async function runTurn(
 					protectedFetchOptions: {
 						memberAuthToken: turnContext.memberAuthToken,
 					},
+					summaryCache: turnContext.summaryCache,
 					logger: turnContext.logger,
 					onEvent,
 					onCitationsUpdate,
@@ -329,6 +334,7 @@ async function runTurn(
 					protectedFetchOptions: {
 						memberAuthToken: turnContext.memberAuthToken,
 					},
+					summaryCache: turnContext.summaryCache,
 					logger: turnContext.logger,
 					onEvent,
 				});

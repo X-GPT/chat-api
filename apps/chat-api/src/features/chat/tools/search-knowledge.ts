@@ -4,8 +4,10 @@ import { getRagSearchEndpoint } from "@/config/env";
 import type { FetchOptions } from "../api/client";
 import { parseJsonSafely } from "../api/json-parser";
 import { fetchProtectedSummaries } from "../api/summaries";
+import type { ProtectedSummary } from "../api/types";
 import type { EventMessage } from "../chat.events";
 import type { ChatLogger } from "../chat.logger";
+import type { RequestCache } from "../core/cache";
 import { xml } from "./utils";
 
 // Tool definition for the LLM
@@ -54,6 +56,7 @@ export async function handleSearchKnowledge({
 	summaryId,
 	collectionId,
 	protectedFetchOptions,
+	summaryCache,
 	logger,
 	onEvent,
 }: {
@@ -62,6 +65,7 @@ export async function handleSearchKnowledge({
 	summaryId: string | null;
 	collectionId: string | null;
 	protectedFetchOptions: FetchOptions;
+	summaryCache: RequestCache<ProtectedSummary[]>;
 	logger: ChatLogger;
 	onEvent: (event: EventMessage) => void;
 }): Promise<string> {
@@ -119,10 +123,12 @@ export async function handleSearchKnowledge({
 			fileIds.add(summary.summary_id);
 		}
 
+		// Fetch summaries with caching handled by fetchProtectedSummaries
 		const summaries = await fetchProtectedSummaries(
 			Array.from(fileIds),
 			protectedFetchOptions,
 			logger,
+			summaryCache,
 		);
 
 		const enrichedResults: Record<string, SummaryResults & { type: number }> =
