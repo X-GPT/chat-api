@@ -5,15 +5,19 @@ import {
 	fetchProtectedChatMessages,
 	sendChatEntityToProtectedService,
 } from "./api/chat";
+import { fetchProtectedSummaries } from "./api/summaries";
+import type { ProtectedSummary } from "./api/types";
 import { adaptProtectedMessagesToModelMessages } from "./chat.adapter";
 import type { ChatConfig } from "./chat.config";
 import type { ChatEntity, Citation } from "./chat.events";
 import type { ChatLogger } from "./chat.logger";
 import type { ChatRequest } from "./chat.schema";
 import type { MymemoEventSender } from "./chat.streaming";
+import { RequestCache } from "./core/cache";
 import type { Config } from "./core/config";
 import type { ConversationHistory } from "./core/history";
 import { runMyMemo } from "./core/mymemo";
+import { extractReferencesFromText } from "./lib/extract-citations-from-markdown";
 
 export async function complete(
 	{ chatContent, chatKey, chatType, collectionId, summaryId }: ChatRequest,
@@ -81,6 +85,7 @@ export async function complete(
 		memberCode: resolvedMemberCode,
 		partnerCode: resolvedPartnerCode ?? "",
 		enableKnowledge: resolvedEnableKnowledge === 1,
+		summaryCache: new RequestCache<ProtectedSummary[]>(),
 	};
 
 	let conversationHistory: ConversationHistory = {
@@ -157,9 +162,42 @@ export async function complete(
 				protectedFetchOptions,
 				logger,
 			);
+
+			const citations = extractReferencesFromText(lastChatEntity.chatContent);
+			const fileIdToIndex = citations.reduce((map, citation) => {
+				if (!map.has(citation.id)) {
+					map.set(citation.id, citation.index);
+				}
+				return map;
+			}, new Map<string, number>());
+
+			let summaries: ProtectedSummary[] = [];
+			if (citations.length > 0) {
+				summaries = await fetchProtectedSummaries(
+					citations.map((citation) => citation.id),
+					protectedFetchOptions,
+					logger,
+					mymemoConfig.summaryCache,
+				);
+			}
+			summaries.sort((a, b) => {
+				const aIndex = fileIdToIndex.get(a.id);
+				const bIndex = fileIdToIndex.get(b.id);
+				if (!aIndex || !bIndex) {
+					return 0;
+				}
+				return aIndex - bIndex;
+			});
+			accumulatedCitations.push(
+				...summaries.map((summary, index) => ({
+					...summary,
+					number: index + 1,
+				})),
+			);
 		},
 		onCitationsUpdate: (citations) => {
-			accumulatedCitations.push(...citations);
+			// TODO: remove the duplicates
+			// accumulatedCitations.push(...citations);
 		},
 		onEvent: (event) => {
 			mymemoEventSender.send({
