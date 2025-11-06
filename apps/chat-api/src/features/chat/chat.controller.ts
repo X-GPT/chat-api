@@ -197,10 +197,6 @@ export async function complete(
 					),
 			);
 		},
-		onCitationsUpdate: (citations) => {
-			// TODO: remove the duplicates
-			// accumulatedCitations.push(...citations);
-		},
 		onEvent: (event) => {
 			mymemoEventSender.send({
 				id: crypto.randomUUID(),

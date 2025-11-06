@@ -1,7 +1,7 @@
 import { type LanguageModel, type ModelMessage, streamText } from "ai";
 import type { ChatMessagesScope } from "@/config/env";
 import type { ProtectedSummary } from "../api/types";
-import type { Citation, EventMessage } from "../chat.events";
+import type { EventMessage } from "../chat.events";
 import {
 	type LanguageModelProvider,
 	resolveLanguageModel,
@@ -15,7 +15,6 @@ import { handleReadFile } from "../tools/read-file";
 import { handleSearchDocuments } from "../tools/search-documents";
 import { handleSearchKnowledge } from "../tools/search-knowledge";
 import { getTools } from "../tools/tools";
-import { handleUpdateCitations } from "../tools/update-citations";
 import { handleUpdatePlan } from "../tools/update-plan";
 import type { RequestCache } from "./cache";
 import type { Config } from "./config";
@@ -120,7 +119,6 @@ async function runTurn(
 	onTextDelta: (text: string) => void,
 	onTextEnd: () => Promise<void>,
 	onEvent: (event: EventMessage) => void,
-	onCitationsUpdate: (citations: Citation[]) => void,
 ): Promise<TurnRunResult> {
 	const tools = getTools();
 	const prompt = buildPrompt({
@@ -294,34 +292,6 @@ async function runTurn(
 					},
 				});
 			} else if (
-				toolCall.toolName === "update_citations" &&
-				!toolCall.dynamic
-			) {
-				const toolOutput = await handleUpdateCitations({
-					args: toolCall.input,
-					protectedFetchOptions: {
-						memberAuthToken: turnContext.memberAuthToken,
-					},
-					summaryCache: turnContext.summaryCache,
-					logger: turnContext.logger,
-					onEvent,
-					onCitationsUpdate,
-				});
-				output.push({
-					response: null,
-					toolResult: {
-						role: "tool" as const,
-						content: [
-							{
-								toolName: toolCall.toolName,
-								toolCallId: toolCall.toolCallId,
-								type: "tool-result" as const,
-								output: { type: "text" as const, value: toolOutput.message },
-							},
-						],
-					},
-				});
-			} else if (
 				toolCall.toolName === "search_knowledge" &&
 				!toolCall.dynamic
 			) {
@@ -405,7 +375,6 @@ async function runTask({
 	onTextDelta,
 	onTextEnd,
 	onEvent,
-	onCitationsUpdate,
 }: {
 	session: Session;
 	turnContext: TurnContext;
@@ -413,7 +382,6 @@ async function runTask({
 	onTextDelta: (text: string) => void;
 	onTextEnd: () => Promise<void>;
 	onEvent: (event: EventMessage) => void;
-	onCitationsUpdate: (citations: Citation[]) => void;
 }) {
 	session.messages.push({
 		role: "user" as const,
@@ -429,7 +397,6 @@ async function runTask({
 			onTextDelta,
 			onTextEnd,
 			onEvent,
-			onCitationsUpdate,
 		);
 
 		const toolResults: ModelMessage[] = [];
@@ -462,7 +429,6 @@ export type RunMyMemoOptions = {
 	onTextDelta: (text: string) => void;
 	onTextEnd: () => Promise<void>;
 	onEvent: (event: EventMessage) => void;
-	onCitationsUpdate: (citations: Citation[]) => void;
 	logger: ChatLogger;
 };
 
@@ -473,7 +439,6 @@ export async function runMyMemo({
 	onTextDelta,
 	onTextEnd,
 	onEvent,
-	onCitationsUpdate,
 	logger,
 }: RunMyMemoOptions) {
 	const { session, turnContext } = buildSession({
@@ -489,6 +454,5 @@ export async function runMyMemo({
 		onTextDelta,
 		onTextEnd,
 		onEvent,
-		onCitationsUpdate,
 	});
 }
