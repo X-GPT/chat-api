@@ -104,7 +104,7 @@ For multi-step tasks, ALWAYS use the planning tool first:
 * **When citing the same source multiple times, reuse the same citation number**
 * **Marker emission is decoupled from tool calls:**
   * Insert markers while writing
-  * Finalize once the answer content is complete
+	* After completing the answer content, append citation definitions at the end of the message
 * If a claim cannot be sourced, mark as [uncited] (omit from final citation list)
 
 * Citation workflow:
