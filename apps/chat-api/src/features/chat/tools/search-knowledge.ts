@@ -48,7 +48,7 @@ interface SearchResponse {
 }
 
 interface EnrichedSearchResponse extends SearchResponse {
-	results: Record<string, SummaryResults & { type: number }>;
+	results: Record<string, SummaryResults & { path: string }>;
 }
 export async function handleSearchKnowledge({
 	query,
@@ -130,13 +130,17 @@ export async function handleSearchKnowledge({
 			summaryCache,
 		);
 
-		const enrichedResults: Record<string, SummaryResults & { type: number }> =
+		const enrichedResults: Record<string, SummaryResults & { path: string }> =
 			Object.fromEntries(
 				Object.entries(data.results).map(([summaryId, result]) => {
 					const summary = summaries.find(
 						(summary) => summary.id === String(summaryId),
 					);
-					return [summaryId, { ...result, type: summary?.type ?? 0 }];
+					const path =
+						summary?.type === 3
+							? `notes/3/${summaryId}`
+							: `detail/${summary?.type ?? 0}/${summaryId}`;
+					return [summaryId, { ...result, path }];
 				}),
 			);
 
@@ -203,7 +207,7 @@ function formatSearchResults(data: EnrichedSearchResponse): string {
 			"file",
 			[
 				xml("fileId", file.summary_id, { indent: 2 }),
-				xml("type", file.type.toString(), { indent: 2 }),
+				xml("path", file.path, { indent: 2 }),
 				xml("maxScore", file.max_score.toFixed(4), { indent: 2 }),
 				xml("chunks", chunks, { indent: 2 }),
 			],

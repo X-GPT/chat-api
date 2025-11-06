@@ -5,7 +5,7 @@ export function extractReferencesFromText(
 	if (!markdownText) return [];
 
 	const references: Array<{ id: string; type: number; index: number }> = [];
-	const referencePattern = /\[c(\d+)\]:\s*(\d+)\/(\d+)/g;
+	const referencePattern = /\[c(\d+)\]:\s*(?:(?:detail|notes)\/)?(\d+)\/(\d+)/g;
 	const seen = new Set<string>();
 
 	let match: RegExpExecArray | null;

@@ -58,7 +58,6 @@ For multi-step tasks, ALWAYS use the planning tool first:
 - Never expose internal IDs in answer body
 - List collections first to get file IDs, then read files
 - Call `update_plan` first for any multi-step task
-- Use `update_citations` after drafting responses with sources
 - Citations are incremental
 
 ### Communication Style
@@ -88,30 +87,29 @@ For multi-step tasks, ALWAYS use the planning tool first:
   * Example: `The robots are autonomous [[1]][c1].`
 * After the final answer, append only citation definitions at the very end of the message:
   ```
-  [c1]: <type>/<fileId>
-  [c2]: <type>/<fileId>
+  [c1]: <path>
+  [c2]: <path>
 
   ```
-  * `<type>` = numeric type identifier from the tool result
-  * `<fileId>` = ID returned by the tooling
+  * `<path>` = file path from the tool result
   * Do not include a section heading like “References”
   * Example:
     ```
-    [c1]: 0/12345
-    [c2]: 3/12398
+    [c1]: detail/0/12345
+    [c2]: notes/3/12398
     ```
 * **Emit references only for markers used in the message**
 * **Do not renumber existing markers once emitted**
 * **Start fresh numbering (1,2,3…) for every new assistant message**
+* **When citing the same source multiple times, reuse the same citation number**
 * **Marker emission is decoupled from tool calls:**
   * Insert markers while writing
-  * Call update_citations in batches
   * Finalize once the answer content is complete
 * If a claim cannot be sourced, mark as [uncited] (omit from final citation list)
 
 * Citation workflow:
 ```
-  Draft → Insert [[1]][c1], [[2]][c2], ... → Resolve all sources → update_citations({ upsert: [{ marker: c1, fileId: 123 }], final: true})
+  Draft → Insert [[1]][c1], [[2]][c2], ... → Resolve all sources
 ```
 * **Do NOT** include any external information or IDs not obtained through system tools.
 
