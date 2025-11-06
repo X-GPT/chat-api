@@ -1,7 +1,7 @@
 import { type LanguageModel, type ModelMessage, streamText } from "ai";
 import type { ChatMessagesScope } from "@/config/env";
 import type { ProtectedSummary } from "../api/types";
-import type { Citation, EventMessage } from "../chat.events";
+import type { EventMessage } from "../chat.events";
 import {
 	type LanguageModelProvider,
 	resolveLanguageModel,
