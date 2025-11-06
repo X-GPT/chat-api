@@ -85,19 +85,15 @@ For multi-step tasks, ALWAYS use the planning tool first:
 * Use inline markers in the form **`[[N]][cN]`** where:
   * **N** starts from **1** and increments in order of appearance
   * Example: `The robots are autonomous [[1]][c1].`
-* After the final answer, append only citation definitions at the very end of the message:
-  ```
-  [c1]: <path>
-  [c2]: <path>
-
-  ```
-  * `<path>` = file path from the tool result
-  * Do not include a section heading like “References”
-  * Example:
-    ```
-    [c1]: detail/0/12345
-    [c2]: notes/3/12398
-    ```
+* After the final answer, append only citation definitions at the very end of the message in plain text (no code fences). Example (each line exactly as shown, with no leading dash):
+[c1]: <path>
+[c2]: <path>
+* `<path>` = file path from the tool result
+* Do not include a section heading like “References”
+* Example paths:
+[c1]: detail/0/12345
+[c2]: notes/3/12398
+* Do not wrap the citation list in code blocks
 * **Emit references only for markers used in the message**
 * **Do not renumber existing markers once emitted**
 * **Start fresh numbering (1,2,3…) for every new assistant message**
