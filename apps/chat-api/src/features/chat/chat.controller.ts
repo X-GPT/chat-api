@@ -152,16 +152,6 @@ export async function complete(
 			}
 
 			lastChatEntity.readFlag = "0";
-			lastChatEntity.refsContent = JSON.stringify(accumulatedCitations);
-			logger.info({
-				message: "Sending chat entity to protected service",
-				chatEntity: lastChatEntity,
-			});
-			await sendChatEntityToProtectedService(
-				lastChatEntity,
-				protectedFetchOptions,
-				logger,
-			);
 
 			const citations = extractReferencesFromText(lastChatEntity.chatContent);
 			const fileIdToIndex = citations.reduce((map, citation) => {
@@ -195,6 +185,16 @@ export async function complete(
 						(citation): citation is NonNullable<typeof citation> =>
 							citation !== null,
 					),
+			);
+			lastChatEntity.refsContent = JSON.stringify(accumulatedCitations);
+			logger.info({
+				message: "Sending chat entity to protected service",
+				chatEntity: lastChatEntity,
+			});
+			await sendChatEntityToProtectedService(
+				lastChatEntity,
+				protectedFetchOptions,
+				logger,
 			);
 		},
 		onEvent: (event) => {
