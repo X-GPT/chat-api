@@ -196,6 +196,13 @@ export async function complete(
 				protectedFetchOptions,
 				logger,
 			);
+			mymemoEventSender.send({
+				id: crypto.randomUUID(),
+				message: {
+					type: "chat_entity",
+					...lastChatEntity,
+				},
+			});
 		},
 		onEvent: (event) => {
 			mymemoEventSender.send({
