@@ -55,6 +55,7 @@ export async function handleReadFile({
 				xml("content", fileDetail.parseContent, { indent: 1 }),
 				xml("name", fileDetail.fileName ?? "", { indent: 1 }),
 				xml("type", fileDetail.fileType ?? "", { indent: 1 }),
+				xml("path", `detail/${type}/${fileDetail.id}`, { indent: 1 }),
 			]);
 
 		case "link/normal":
@@ -68,6 +69,7 @@ export async function handleReadFile({
 				xml("content", fileDetail.parseContent, { indent: 1 }),
 				xml("link", fileDetail.fileLink ?? "", { indent: 1 }),
 				xml("type", fileDetail.fileType ?? "", { indent: 1 }),
+				xml("path", `detail/${type}/${fileDetail.id}`, { indent: 1 }),
 			]);
 
 		case "link/video":
@@ -81,6 +83,7 @@ export async function handleReadFile({
 				xml("content", fileDetail.parseContent, { indent: 1 }),
 				xml("link", fileDetail.fileLink ?? "", { indent: 1 }),
 				xml("type", fileDetail.fileType ?? "", { indent: 1 }),
+				xml("path", `detail/${type}/${fileDetail.id}`, { indent: 1 }),
 			]);
 
 		case "image/jpeg":
@@ -94,6 +97,7 @@ export async function handleReadFile({
 				xml("content", fileDetail.content ?? "", { indent: 1 }),
 				xml("name", fileDetail.fileName ?? "", { indent: 1 }),
 				xml("type", fileDetail.fileType ?? "", { indent: 1 }),
+				xml("path", `detail/${type}/${fileDetail.id}`, { indent: 1 }),
 			]);
 
 		default:
