@@ -8,7 +8,11 @@ import {
 } from "../chat.language-models";
 import type { ChatLogger } from "../chat.logger";
 import { buildEnvironmentContext } from "../prompts/environment-context";
-import { buildPrompt, getSystemPrompt } from "../prompts/prompts";
+import {
+	buildPrompt,
+	getSingleFilePrompt,
+	getSystemPrompt,
+} from "../prompts/prompts";
 import { handleListAllFiles } from "../tools/list-all-files";
 import { handleListCollectionFiles } from "../tools/list-collection-files";
 import { handleReadFile } from "../tools/read-file";
@@ -57,7 +61,8 @@ function buildSession({
 	const turnContext: TurnContext = {
 		model,
 		provider,
-		systemPrompt: getSystemPrompt(),
+		systemPrompt:
+			config.scope === "document" ? getSingleFilePrompt() : getSystemPrompt(),
 		environmentContext,
 		memberAuthToken: config.memberAuthToken,
 		scope: config.scope,

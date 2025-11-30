@@ -4,8 +4,13 @@ import type { ChatMessagesScope } from "@/config/env";
 import { getAllowedTools, type getTools } from "../tools/tools";
 
 const SYSTEM_PROMPT_URL = new URL("./system-prompt.md", import.meta.url);
+const SINGLE_FILE_PROMPT_URL = new URL(
+	"./single-file-prompt.md",
+	import.meta.url,
+);
 
 let cachedSystemPrompt: string | null = null;
+let cachedSingleFilePrompt: string | null = null;
 
 export function getSystemPrompt(): string {
 	if (cachedSystemPrompt) {
@@ -16,6 +21,17 @@ export function getSystemPrompt(): string {
 	cachedSystemPrompt = rawPrompt.trim();
 
 	return cachedSystemPrompt;
+}
+
+export function getSingleFilePrompt(): string {
+	if (cachedSingleFilePrompt) {
+		return cachedSingleFilePrompt;
+	}
+
+	const rawPrompt = readFileSync(SINGLE_FILE_PROMPT_URL, "utf8");
+	cachedSingleFilePrompt = rawPrompt.trim();
+
+	return cachedSingleFilePrompt;
 }
 
 export function buildPrompt({
