@@ -151,6 +151,7 @@ async function runTurn(
 			const { inputTokens, outputTokens, totalTokens } = usage;
 			turnContext.logger.info({
 				message: "Usage",
+				model: turnContext.model,
 				inputTokens,
 				outputTokens,
 				totalTokens,
