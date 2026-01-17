@@ -183,7 +183,7 @@ uv run pytest tests/test_worker.py -v
 FROM python:3.11-slim
 
 WORKDIR /app
-COPY . .
+COPY .. .
 
 # Install dependencies
 RUN pip install uv && uv sync --no-dev

@@ -110,4 +110,4 @@ Make sure they're marked with `@pytest.mark.integration`.
 ## More Information
 
 - [pytest documentation](https://docs.pytest.org/) - General pytest info
-- [Collection Relationship Implementation](../COLLECTION_RELATIONSHIP_IMPLEMENTATION.md) - Feature overview
+- [Collection Relationship Implementation](../docs/COLLECTION_RELATIONSHIP_IMPLEMENTATION.md) - Feature overview
