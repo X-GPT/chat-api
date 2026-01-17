@@ -4,7 +4,7 @@ services:
     image: ${API_IMAGE}
     restart: unless-stopped
     env_file:
-      - /etc/mymemo/chat-api/env.dev
+      - /etc/mymemo/chat-api/env.staging
     environment:
       - NODE_ENV=production
     ports:
