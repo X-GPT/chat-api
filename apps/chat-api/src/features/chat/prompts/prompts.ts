@@ -8,9 +8,14 @@ const SINGLE_FILE_PROMPT_URL = new URL(
 	"./single-file-prompt.md",
 	import.meta.url,
 );
+const NO_KNOWLEDGE_PROMPT_URL = new URL(
+	"./no-knowledge-prompt.md",
+	import.meta.url,
+);
 
 let cachedSystemPrompt: string | null = null;
 let cachedSingleFilePrompt: string | null = null;
+let cachedNoKnowledgePrompt: string | null = null;
 
 export function getSystemPrompt(): string {
 	if (cachedSystemPrompt) {
@@ -32,6 +37,17 @@ export function getSingleFilePrompt(): string {
 	cachedSingleFilePrompt = rawPrompt.trim();
 
 	return cachedSingleFilePrompt;
+}
+
+export function getNoKnowledgePrompt(): string {
+	if (cachedNoKnowledgePrompt) {
+		return cachedNoKnowledgePrompt;
+	}
+
+	const rawPrompt = readFileSync(NO_KNOWLEDGE_PROMPT_URL, "utf8");
+	cachedNoKnowledgePrompt = rawPrompt.trim();
+
+	return cachedNoKnowledgePrompt;
 }
 
 export function buildPrompt({

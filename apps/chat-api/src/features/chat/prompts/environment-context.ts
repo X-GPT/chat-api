@@ -69,15 +69,6 @@ const ALL_FILES_CONTEXT_TEMPLATE = [
 	"---",
 ].join("\n");
 
-const NO_FILES_CONTEXT_TEMPLATE = [
-	"---",
-	"",
-	"### Context",
-	"",
-	"You don't have access to any files in the system. You can't use any file related tools.",
-	"",
-	"---",
-].join("\n");
 
 export function buildEnvironmentContext(
 	scope: ChatMessagesScope,
@@ -97,10 +88,6 @@ export function buildEnvironmentContext(
 
 	if (scope === "general" && enableKnowledge) {
 		return ALL_FILES_CONTEXT_TEMPLATE;
-	}
-
-	if (scope === "general" && !enableKnowledge) {
-		return NO_FILES_CONTEXT_TEMPLATE;
 	}
 
 	return null;

@@ -1,13 +1,13 @@
 {
   "name": "chat-api",
   "module": "index.ts",
-  "type": "module",
-  "private": true,
   "devDependencies": {
-    "@biomejs/biome": "^2.2.5",
+    "@biomejs/biome": "^2.3.11",
     "@types/bun": "latest"
   },
   "peerDependencies": {
-    "typescript": "^5"
-  }
+    "typescript": "^5.9.3"
+  },
+  "private": true,
+  "type": "module"
 }

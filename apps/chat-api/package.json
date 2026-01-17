@@ -6,12 +6,12 @@
 		"lint": "biome lint --write"
 	},
 	"dependencies": {
-		"@ai-sdk/anthropic": "^2.0.35",
-		"@ai-sdk/google": "^2.0.23",
-		"@ai-sdk/openai": "^3.0.0-beta.34",
+		"@ai-sdk/anthropic": "^3.0.12",
+		"@ai-sdk/google": "^3.0.7",
+		"@ai-sdk/openai": "^3.0.9",
 		"@hono/standard-validator": "^0.1.5",
 		"@scalar/hono-api-reference": "^0.9.22",
-		"ai": "^6.0.0-beta.66",
+		"ai": "^6.0.33",
 		"hono": "^4.10.1",
 		"hono-openapi": "^1.1.0",
 		"hono-pino": "^0.10.3",

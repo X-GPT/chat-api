@@ -10,6 +10,7 @@ import type { ChatLogger } from "../chat.logger";
 import { buildEnvironmentContext } from "../prompts/environment-context";
 import {
 	buildPrompt,
+	getNoKnowledgePrompt,
 	getSingleFilePrompt,
 	getSystemPrompt,
 } from "../prompts/prompts";
@@ -58,11 +59,19 @@ function buildSession({
 		});
 	}
 
+	let systemPrompt = getSystemPrompt();
+	if (config.scope === "document") {
+		systemPrompt = getSingleFilePrompt();
+	} else if (config.scope === "collection") {
+		systemPrompt = getSystemPrompt();
+	} else if (!config.enableKnowledge) {
+		systemPrompt = getNoKnowledgePrompt();
+	}
+
 	const turnContext: TurnContext = {
 		model,
 		provider,
-		systemPrompt:
-			config.scope === "document" ? getSingleFilePrompt() : getSystemPrompt(),
+		systemPrompt,
 		environmentContext,
 		memberAuthToken: config.memberAuthToken,
 		scope: config.scope,
