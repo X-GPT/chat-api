@@ -3,7 +3,10 @@
 	"scripts": {
 		"dev": "bun run --hot src/index.ts",
 		"format": "biome format --write",
-		"lint": "biome lint --write"
+		"lint": "biome lint --write",
+		"prototype:sandbox": "bun run scripts/run-sandbox-prototype.ts",
+		"e2b:build:dev": "cd sandbox-template && npx tsx build.dev.ts",
+		"e2b:build:prod": "cd sandbox-template && npx tsx build.prod.ts"
 	},
 	"dependencies": {
 		"@ai-sdk/anthropic": "^3.0.12",
@@ -25,6 +28,7 @@
 	"devDependencies": {
 		"@biomejs/biome": "2.2.4",
 		"@types/bun": "latest",
-		"@types/json-bigint": "^1.0.4"
+		"@types/json-bigint": "^1.0.4",
+		"e2b": "^2.14.0"
 	}
 }
