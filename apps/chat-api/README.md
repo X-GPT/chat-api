@@ -141,9 +141,43 @@ When running the development server, interactive API documentation is available 
 | Variable | Description | Required |
 |----------|-------------|----------|
 | `OPENAI_API_KEY` | OpenAI API key for chat functionality | Yes |
+| `E2B_API_KEY` | API key for the sandbox prototype script | Yes (for prototype) |
+| `E2B_TEMPLATE` | E2B sandbox template for the prototype script | Yes (for prototype) |
 | `PORT` | Server port (default: 3000) | No |
 | `PROTECTED_API_PREFIX` | Path prefix used when forwarding chat entities (e.g. `/beta-api` or `/api`) | No |
 | `PROTECTED_API_ORIGIN` | Origin (protocol + host[:port]) for the protected service (default: `http://127.0.0.1`) | No |
+
+## Sandbox Prototype
+
+The Phase 1 spike is exposed as a script:
+
+```sh
+bun run prototype:sandbox ./sandbox-prototype-input.json
+```
+
+It requires `E2B_API_KEY` and `E2B_TEMPLATE`.
+
+The input file accepts:
+
+```json
+{
+  "userId": "prototype-user",
+  "query": "How does the auth flow work?",
+  "exactQuery": "\"signed challenge\"",
+  "conceptualQuery": "how users authenticate",
+  "documents": [
+    {
+      "summaryId": "42",
+      "type": 7,
+      "title": "Auth Spec",
+      "sourceKind": "markdown",
+      "content": "# Auth flow\nUsers authenticate with a signed challenge."
+    }
+  ]
+}
+```
+
+The script prints JSON including `answerText`, `citationsParseable`, timing metrics, exact/conceptual query results, and raw observations from the sandbox runner.
 
 ## Contributing
 
