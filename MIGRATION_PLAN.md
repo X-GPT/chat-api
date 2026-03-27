@@ -54,7 +54,7 @@ Treat protected/MySQL documents as the source of truth.
 
 Treat the sandbox filesystem as a materialized cache.
 
-Add a MySQL sync-state table owned by `chat-api` with fields equivalent to:
+Add a sync-state store owned by `chat-api` behind a `SyncStateRepository` interface (database engine — MySQL or Postgres — to be finalized later). Fields equivalent to:
 - `user_id`
 - `sandbox_id`
 - `summary_id`
@@ -63,7 +63,6 @@ Add a MySQL sync-state table owned by `chat-api` with fields equivalent to:
 - `content_checksum`
 - `source_updated_at`
 - `last_synced_at`
-- `last_indexed_at`
 - `sync_status`
 
 On each sync cycle, derive:
@@ -149,16 +148,34 @@ Artifacts:
 - Build: `bun run e2b:build:dev` / `bun run e2b:build:prod`
 - Run: `E2B_TEMPLATE=sandbox-template-dev bun run prototype:sandbox <input.json>`
 
-### Phase 2: Sync foundation
+### Phase 2: Sync foundation — IN PROGRESS
 
-Add a MySQL sync-state table and sync service in `chat-api`.
+Add a sync-state layer and sync service in `chat-api`.
+
+**Design decisions (2026-03-27):**
+
+- **Repository interface pattern**: Sync-state uses a `SyncStateRepository` TypeScript interface, decoupled from any specific database. The database schema (MySQL or Postgres) is finalized later when the broader refactoring settles.
+- **In-memory Map initial implementation**: Development and testing use `InMemorySyncStateRepository`. A real DB adapter is added when the schema is finalized.
+- **Composite key**: `(userId, summaryId)`. `sandboxId` is stored but not part of the key — it changes on sandbox recreation.
+- **Caller-driven source fetching**: The sync service receives `ProtectedSummary[]` from the caller. It does not fetch from the Protected Service API itself.
+- **Per-user locking**: Promise-chain pattern serializes sync operations per userId. No concurrent syncs for the same user. Distributed locking deferred to Phase 5.
+- **No chat-path integration**: Phase 2 builds sync primitives only, tested via unit tests and standalone scripts. The trigger point (on-request, background, etc.) is decided in Phase 3/4.
+- **`last_indexed_at` deferred**: Not needed for Phase 2 (no indexing step with grep/glob retrieval). Can be added in Phase 6 if vector search needs it.
 
 Implement source-to-sandbox reconciliation:
 - create/update/delete
-- checksum validation
-- sandbox manifest verification
+- checksum validation (sha256 over materialized content including frontmatter)
+- sandbox manifest verification and drift repair
 
-Define a stable on-disk file format for synced docs that includes source metadata.
+Define a stable on-disk file format for synced docs that includes source metadata (reuses Phase 1 YAML frontmatter format).
+
+Artifacts:
+- Types: `src/features/sandbox/sync-state.types.ts`
+- Repository interface: `src/features/sandbox/sync-state.repository.ts`
+- In-memory implementation: `src/features/sandbox/sync-state.repository.memory.ts`
+- Materialization: `src/features/sandbox/materialization.ts`
+- Manifest verification: `src/features/sandbox/sandbox-manifest.ts`
+- Sync service: `src/features/sandbox/sandbox-sync.service.ts`
 
 Exit criteria:
 - sandbox content can be rebuilt from source
