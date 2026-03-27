@@ -5,6 +5,7 @@
 		"format": "biome format --write",
 		"lint": "biome lint --write",
 		"prototype:sandbox": "bun run scripts/run-sandbox-prototype.ts",
+		"test:sync-integration": "bun run scripts/run-sync-integration.ts",
 		"e2b:build:dev": "cd sandbox-template && npx tsx build.dev.ts",
 		"e2b:build:prod": "cd sandbox-template && npx tsx build.prod.ts"
 	},

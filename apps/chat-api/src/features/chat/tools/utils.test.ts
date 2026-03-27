@@ -24,7 +24,7 @@ describe("escapeXml", () => {
 
 	it("escapes all special characters at once", () => {
 		expect(escapeXml('<tag attr="value">Tom & Jerry\'s</tag>')).toBe(
-			"&lt;tag attr=&quot;value&quot;&gt;Tom &amp; Jerry&apos;s&lt;/tag&gt;"
+			"&lt;tag attr=&quot;value&quot;&gt;Tom &amp; Jerry&apos;s&lt;/tag&gt;",
 		);
 	});
 
@@ -68,25 +68,25 @@ describe("xml", () => {
 	describe("automatic escaping", () => {
 		it("escapes special characters in content by default", () => {
 			expect(xml("text", "<script>alert('xss')</script>")).toBe(
-				"<text>&lt;script&gt;alert(&apos;xss&apos;)&lt;/script&gt;</text>"
+				"<text>&lt;script&gt;alert(&apos;xss&apos;)&lt;/script&gt;</text>",
 			);
 		});
 
 		it("escapes ampersands in content", () => {
 			expect(xml("company", "Tom & Jerry Inc.")).toBe(
-				"<company>Tom &amp; Jerry Inc.</company>"
+				"<company>Tom &amp; Jerry Inc.</company>",
 			);
 		});
 
 		it("can disable escaping with shouldEscape: false", () => {
 			expect(xml("text", "Tom & Jerry", { shouldEscape: false })).toBe(
-				"<text>Tom & Jerry</text>"
+				"<text>Tom & Jerry</text>",
 			);
 		});
 
 		it("can use raw option to skip escaping", () => {
 			expect(xml("html", "<b>bold</b>", { raw: true })).toBe(
-				"<html><b>bold</b></html>"
+				"<html><b>bold</b></html>",
 			);
 		});
 	});
@@ -102,7 +102,7 @@ describe("xml", () => {
 
 		it("adds multiple levels of indentation", () => {
 			expect(xml("name", "John", { indent: 3 })).toBe(
-				"\t\t\t<name>John</name>"
+				"\t\t\t<name>John</name>",
 			);
 		});
 
@@ -119,27 +119,31 @@ describe("xml", () => {
 			]);
 
 			expect(result).toBe(
-				"<person>\n\t<name>John</name>\n\t<age>30</age>\n</person>"
+				"<person>\n\t<name>John</name>\n\t<age>30</age>\n</person>",
 			);
 		});
 
 		it("handles deeply nested structures", () => {
 			const result = xml("user", [
 				xml("id", 123, { indent: 1 }),
-				xml("profile", [
-					xml("name", "John", { indent: 2 }),
-					xml("email", "john@example.com", { indent: 2 }),
-				], { indent: 1 }),
+				xml(
+					"profile",
+					[
+						xml("name", "John", { indent: 2 }),
+						xml("email", "john@example.com", { indent: 2 }),
+					],
+					{ indent: 1 },
+				),
 			]);
 
 			expect(result).toBe(
 				"<user>\n" +
-				"\t<id>123</id>\n" +
-				"\t<profile>\n" +
-				"\t\t<name>John</name>\n" +
-				"\t\t<email>john@example.com</email>\n" +
-				"\t</profile>\n" +
-				"</user>"
+					"\t<id>123</id>\n" +
+					"\t<profile>\n" +
+					"\t\t<name>John</name>\n" +
+					"\t\t<email>john@example.com</email>\n" +
+					"\t</profile>\n" +
+					"</user>",
 			);
 		});
 
@@ -148,7 +152,9 @@ describe("xml", () => {
 			const items = ["<item>A</item>", "<item>B</item>", "<item>C</item>"];
 			const result = xml("list", items);
 
-			expect(result).toBe("<list><item>A</item><item>B</item><item>C</item></list>");
+			expect(result).toBe(
+				"<list><item>A</item><item>B</item><item>C</item></list>",
+			);
 		});
 
 		it("handles mixed content in arrays", () => {
@@ -159,7 +165,7 @@ describe("xml", () => {
 			]);
 
 			expect(result).toBe(
-				"<data>\n\t<string>text</string>\n\t<number>42</number>\n\t<empty />\n</data>"
+				"<data>\n\t<string>text</string>\n\t<number>42</number>\n\t<empty />\n</data>",
 			);
 		});
 	});
@@ -172,7 +178,7 @@ describe("xml", () => {
 			]);
 
 			expect(result).toBe(
-				"<searchResults>\n\t<query>test query</query>\n\t<totalResults>5</totalResults>\n</searchResults>"
+				"<searchResults>\n\t<query>test query</query>\n\t<totalResults>5</totalResults>\n</searchResults>",
 			);
 		});
 
@@ -185,25 +191,33 @@ describe("xml", () => {
 
 			expect(result).toBe(
 				"<searchResults>\n" +
-				"\t<query>no results</query>\n" +
-				"\t<totalResults>0</totalResults>\n" +
-				"\t<message>No results found for this query.</message>\n" +
-				"</searchResults>"
+					"\t<query>no results</query>\n" +
+					"\t<totalResults>0</totalResults>\n" +
+					"\t<message>No results found for this query.</message>\n" +
+					"</searchResults>",
 			);
 		});
 
 		it("formats complex nested search results with escaping", () => {
-			const matchingChild = xml("matchingChild", [
-				xml("chunkIndex", 0, { indent: 3 }),
-				xml("score", "0.8500", { indent: 3 }),
-				xml("text", "Text with <special> & 'characters'", { indent: 3 }),
-			], { indent: 2 });
+			const matchingChild = xml(
+				"matchingChild",
+				[
+					xml("chunkIndex", 0, { indent: 3 }),
+					xml("score", "0.8500", { indent: 3 }),
+					xml("text", "Text with <special> & 'characters'", { indent: 3 }),
+				],
+				{ indent: 2 },
+			);
 
-			const chunk = xml("chunk", [
-				xml("chunkIndex", 0, { indent: 2 }),
-				xml("maxScore", "0.9200", { indent: 2 }),
-				xml("matchingChildren", [matchingChild], { indent: 2 }),
-			], { indent: 1 });
+			const chunk = xml(
+				"chunk",
+				[
+					xml("chunkIndex", 0, { indent: 2 }),
+					xml("maxScore", "0.9200", { indent: 2 }),
+					xml("matchingChildren", [matchingChild], { indent: 2 }),
+				],
+				{ indent: 1 },
+			);
 
 			const result = xml("searchResults", [
 				xml("query", "test", { indent: 1 }),
@@ -214,7 +228,7 @@ describe("xml", () => {
 			expect(result).toContain("<chunkIndex>0</chunkIndex>");
 			expect(result).toContain("<score>0.8500</score>");
 			expect(result).toContain(
-				"Text with &lt;special&gt; &amp; &apos;characters&apos;"
+				"Text with &lt;special&gt; &amp; &apos;characters&apos;",
 			);
 		});
 	});
@@ -257,22 +271,21 @@ describe("xml", () => {
 
 	describe("option combinations", () => {
 		it("combines indent and shouldEscape options", () => {
-			expect(xml("text", "Tom & Jerry", { indent: 2, shouldEscape: false })).toBe(
-				"\t\t<text>Tom & Jerry</text>"
-			);
+			expect(
+				xml("text", "Tom & Jerry", { indent: 2, shouldEscape: false }),
+			).toBe("\t\t<text>Tom & Jerry</text>");
 		});
 
 		it("combines indent and raw options", () => {
 			expect(xml("html", "<b>bold</b>", { indent: 1, raw: true })).toBe(
-				"\t<html><b>bold</b></html>"
+				"\t<html><b>bold</b></html>",
 			);
 		});
 
 		it("raw option overrides shouldEscape option", () => {
 			expect(xml("text", "<tag>", { shouldEscape: true, raw: true })).toBe(
-				"<text><tag></text>"
+				"<text><tag></text>",
 			);
 		});
 	});
 });
-

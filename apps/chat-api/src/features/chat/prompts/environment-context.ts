@@ -69,7 +69,6 @@ const ALL_FILES_CONTEXT_TEMPLATE = [
 	"---",
 ].join("\n");
 
-
 export function buildEnvironmentContext(
 	scope: ChatMessagesScope,
 	enableKnowledge: boolean,

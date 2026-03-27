@@ -5,10 +5,11 @@ import { adaptProtectedMessagesToModelMessages } from "./chat.adapter";
 const buildMessage = (
 	chatContent: string | null,
 	senderType: string | null | undefined,
-): ProtectedChatMessage => ({
-	chatContent,
-	senderType,
-} as ProtectedChatMessage);
+): ProtectedChatMessage =>
+	({
+		chatContent,
+		senderType,
+	}) as ProtectedChatMessage;
 
 describe("adaptProtectedMessagesToModelMessages", () => {
 	it("returns alternating messages with trimmed content", () => {
