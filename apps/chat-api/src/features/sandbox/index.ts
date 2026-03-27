@@ -1,8 +1,10 @@
 export {
 	computeChecksum,
+	getCollectionDocsRoot,
 	getDocsRoot,
 	type MaterializationConfig,
 	type MaterializedFile,
+	materializeCollectionCopies,
 	materializeSummaries,
 	materializeSummary,
 	resolveContent,
