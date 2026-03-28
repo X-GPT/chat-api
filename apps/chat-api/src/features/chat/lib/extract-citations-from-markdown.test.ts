@@ -199,7 +199,7 @@ describe("extractReferencesFromText", () => {
 		});
 
 		it("handles very long markdown text", () => {
-			const longText = "a".repeat(1000) + "[c1]: 123/456" + "b".repeat(1000);
+			const longText = `${"a".repeat(1000)}[c1]: 123/456${"b".repeat(1000)}`;
 			const result = extractReferencesFromText(longText);
 			expect(result).toEqual([{ id: "456", type: 123, index: 1 }]);
 		});

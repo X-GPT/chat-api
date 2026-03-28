@@ -148,7 +148,7 @@ Artifacts:
 - Build: `bun run e2b:build:dev` / `bun run e2b:build:prod`
 - Run: `E2B_TEMPLATE=sandbox-template-dev bun run prototype:sandbox <input.json>`
 
-### Phase 2: Sync foundation — IN PROGRESS
+### Phase 2: Sync foundation — COMPLETE
 
 Add a sync-state layer and sync service in `chat-api`.
 
@@ -182,17 +182,34 @@ Exit criteria:
 - drift is detected and repaired
 - deletes and scope changes remove stale files correctly
 
-### Phase 3: Sandbox agent integration
+### Phase 3: Sandbox agent integration — IN PROGRESS
 
 Add a sandbox request path that accepts:
 - user query
 - scope context
 - conversation context needed for answering
 
+**Design decisions (2026-03-27):**
+
+- **Claude Agent SDK inside sandbox**: LLM orchestration runs inside the E2B sandbox using `@anthropic-ai/claude-agent-sdk` with built-in tools (Bash, Read, Grep, Glob). Chat-api uploads an agent runner script and streams NDJSON results back via `sandbox.commands.run()` with `onStdout` callback.
+- **NDJSON streaming protocol**: Agent runner writes `{"type":"text_delta","text":"..."}` and `{"type":"result","text":"..."}` lines to stdout. Chat-api parses these and forwards to SSE.
+- **Collection-aware directory structure**: Files organized as `docs/{userId}/{type}/{summaryId}.txt` (general scope) with copies in `docs/{userId}/collections/{collectionId}/{type}/{summaryId}.txt` for collection scope. Agent `cwd` is set per scope to restrict tool access.
+- **API key per-command**: `ANTHROPIC_API_KEY` passed via E2B `envs` option on each command, not baked into the template.
+
 Agent behavior:
-- use `grep`/glob for keyword and exact-match retrieval
-- read top files before answering
-- include inline stable citations in the answer text
+- Claude Agent SDK handles agentic loop with built-in Grep/Read/Glob tools
+- Searches and reads local `.txt` files with YAML frontmatter
+- Includes inline stable citations in `[[N]][cN]` format with `[cN]: detail/{type}/{summaryId}` definitions
+
+Artifacts:
+- Template update: `sandbox-template/template.ts` (adds Claude Code + Agent SDK)
+- Agent runner: `src/features/sandbox-agent/agent-runner.mjs`
+- Orchestration: `src/features/sandbox-agent/sandbox-agent.ts`
+- System prompt: `src/features/sandbox-agent/sandbox-agent.prompt.ts`
+- NDJSON parser: `src/features/sandbox-agent/ndjson-parser.ts`
+- Types: `src/features/sandbox-agent/sandbox-agent.types.ts`
+- Collection materialization: `src/features/sandbox/materialization.ts` (extended)
+- Integration test: `scripts/run-sandbox-agent.ts`
 
 Exit criteria:
 - answer text streams back through `chat-api`

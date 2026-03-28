@@ -82,7 +82,7 @@ describe("SandboxSyncService.buildReconciliationPlan", () => {
 
 		expect(plan.creates).toHaveLength(0);
 		expect(plan.updates).toHaveLength(1);
-		expect(plan.updates[0].reason).toBe("content_changed");
+		expect(plan.updates[0]?.reason).toBe("content_changed");
 		expect(plan.deletes).toHaveLength(0);
 		expect(plan.unchanged).toBe(0);
 	});
@@ -139,7 +139,7 @@ describe("SandboxSyncService.buildReconciliationPlan", () => {
 
 		expect(plan.creates).toHaveLength(0);
 		expect(plan.deletes).toHaveLength(1);
-		expect(plan.deletes[0].record.summaryId).toBe("2");
+		expect(plan.deletes[0]?.record.summaryId).toBe("2");
 		expect(plan.unchanged).toBe(1);
 	});
 
@@ -166,7 +166,7 @@ describe("SandboxSyncService.buildReconciliationPlan", () => {
 
 		expect(plan.creates).toHaveLength(0);
 		expect(plan.deletes).toHaveLength(1);
-		expect(plan.deletes[0].record.summaryId).toBe("1");
+		expect(plan.deletes[0]?.record.summaryId).toBe("1");
 	});
 
 	it("handles delFlag as string '1'", async () => {
@@ -224,11 +224,11 @@ describe("SandboxSyncService.buildReconciliationPlan", () => {
 
 		expect(plan.unchanged).toBe(1);
 		expect(plan.updates).toHaveLength(1);
-		expect(plan.updates[0].record.summaryId).toBe("change");
+		expect(plan.updates[0]?.record.summaryId).toBe("change");
 		expect(plan.deletes).toHaveLength(1);
-		expect(plan.deletes[0].record.summaryId).toBe("remove");
+		expect(plan.deletes[0]?.record.summaryId).toBe("remove");
 		expect(plan.creates).toHaveLength(1);
-		expect(plan.creates[0].record.summaryId).toBe("new-doc");
+		expect(plan.creates[0]?.record.summaryId).toBe("new-doc");
 	});
 
 	it("empty source with existing records produces all deletes", async () => {

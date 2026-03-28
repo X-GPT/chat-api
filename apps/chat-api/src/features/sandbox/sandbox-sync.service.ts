@@ -4,6 +4,7 @@ import {
 	getDocsRoot,
 	type MaterializationConfig,
 	type MaterializedFile,
+	materializeCollectionCopies,
 	materializeSummaries,
 } from "./materialization";
 import { diffManifest } from "./sandbox-manifest";
@@ -45,6 +46,7 @@ export class SandboxSyncService {
 	/**
 	 * Full reconciliation: compare source summaries against sync-state,
 	 * produce a plan, apply it to the sandbox, update sync-state.
+	 * Also writes collection directory copies if collectionMap is provided.
 	 */
 	async syncUser(
 		userId: string,
@@ -72,6 +74,18 @@ export class SandboxSyncService {
 			});
 
 			await this.applyPlan(userId, sandboxId, sandbox, plan);
+
+			// Write collection directory copies if collectionMap is provided
+			if (config.collectionMap && config.collectionMap.size > 0) {
+				const activeSummaries = sourceSummaries.filter((s) => !isDeleted(s));
+				await this.syncCollectionCopies(
+					userId,
+					sandboxId,
+					sandbox,
+					activeSummaries,
+					config,
+				);
+			}
 
 			return plan;
 		});
@@ -260,9 +274,10 @@ export class SandboxSyncService {
 				if (!summary) continue;
 
 				const materialized = materializeSummaries([summary], config);
-				if (materialized.length === 0) continue;
 
 				const file = materialized[0];
+				if (!file) continue;
+
 				try {
 					await sandbox.files.write(file.path, file.content);
 					await this.repository.upsert({
@@ -348,6 +363,48 @@ export class SandboxSyncService {
 
 			return plan;
 		});
+	}
+
+	/**
+	 * Write collection directory copies for summaries that belong to collections.
+	 * Overwrites existing collection files to ensure consistency.
+	 */
+	private async syncCollectionCopies(
+		userId: string,
+		sandboxId: string,
+		sandbox: Sandbox,
+		activeSummaries: ProtectedSummary[],
+		config: MaterializationConfig,
+	): Promise<void> {
+		const copies = materializeCollectionCopies(activeSummaries, config);
+		if (copies.length === 0) return;
+
+		this.logger.info({
+			msg: "writing collection copies",
+			userId,
+			sandboxId,
+			count: copies.length,
+		});
+
+		const results = await Promise.allSettled(
+			copies.map((file) => sandbox.files.write(file.path, file.content)),
+		);
+		for (const [i, result] of results.entries()) {
+			const copy = copies[i];
+			if (!copy) continue;
+			if (result.status === "rejected") {
+				this.logger.error({
+					msg: "failed to write collection copy",
+					userId,
+					sandboxId,
+					path: copy.path,
+					error:
+						result.reason instanceof Error
+							? result.reason.message
+							: String(result.reason),
+				});
+			}
+		}
 	}
 
 	/**
