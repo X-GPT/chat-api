@@ -317,10 +317,10 @@ describe("materializeCollectionCopies", () => {
 		});
 
 		expect(result).toHaveLength(1);
-		expect(result[0].path).toBe(
+		expect(result[0]?.path).toBe(
 			"/workspace/sandbox-prototype/docs/user-1/collections/col-A/0/200.txt",
 		);
-		expect(result[0].relativePath).toBe("collections/col-A/0/200.txt");
+		expect(result[0]?.relativePath).toBe("collections/col-A/0/200.txt");
 	});
 
 	it("creates copies in multiple collection directories", () => {
@@ -333,8 +333,8 @@ describe("materializeCollectionCopies", () => {
 		});
 
 		expect(result).toHaveLength(2);
-		expect(result[0].path).toContain("/collections/col-A/");
-		expect(result[1].path).toContain("/collections/col-B/");
+		expect(result[0]?.path).toContain("/collections/col-A/");
+		expect(result[1]?.path).toContain("/collections/col-B/");
 	});
 
 	it("skips summaries not in collectionMap", () => {
@@ -348,7 +348,7 @@ describe("materializeCollectionCopies", () => {
 		});
 
 		expect(result).toHaveLength(1);
-		expect(result[0].summaryId).toBe("400");
+		expect(result[0]?.summaryId).toBe("400");
 	});
 
 	it("collection copies have same content and checksum as primary", () => {
@@ -359,7 +359,7 @@ describe("materializeCollectionCopies", () => {
 		const primary = materializeSummary(summary, config);
 		const copies = materializeCollectionCopies([summary], config);
 
-		expect(copies[0].content).toBe(primary.content);
-		expect(copies[0].checksum).toBe(primary.checksum);
+		expect(copies[0]?.content).toBe(primary.content);
+		expect(copies[0]?.checksum).toBe(primary.checksum);
 	});
 });

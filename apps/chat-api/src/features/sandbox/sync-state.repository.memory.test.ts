@@ -81,7 +81,7 @@ describe("InMemorySyncStateRepository", () => {
 			await repo.bulkDelete("user-1", ["a", "c"]);
 			const results = await repo.findByUserId("user-1");
 			expect(results).toHaveLength(1);
-			expect(results[0].summaryId).toBe("b");
+			expect(results[0]?.summaryId).toBe("b");
 		});
 	});
 
@@ -107,7 +107,7 @@ describe("InMemorySyncStateRepository", () => {
 			]);
 			const results = await repo.findByUserAndSandbox("user-1", "sbx-1");
 			expect(results).toHaveLength(2);
-			expect(results.map((r) => r.summaryId).sort()).toEqual(["a", "c"]);
+			expect(results.map((r) => r?.summaryId).sort()).toEqual(["a", "c"]);
 		});
 	});
 
@@ -140,7 +140,7 @@ describe("InMemorySyncStateRepository", () => {
 
 			const errors = await repo.findByStatus("user-1", "error");
 			expect(errors).toHaveLength(1);
-			expect(errors[0].summaryId).toBe("b");
+			expect(errors[0]?.summaryId).toBe("b");
 		});
 	});
 

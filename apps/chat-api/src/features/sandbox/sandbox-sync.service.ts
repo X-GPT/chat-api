@@ -274,9 +274,10 @@ export class SandboxSyncService {
 				if (!summary) continue;
 
 				const materialized = materializeSummaries([summary], config);
-				if (materialized.length === 0) continue;
 
 				const file = materialized[0];
+				if (!file) continue;
+
 				try {
 					await sandbox.files.write(file.path, file.content);
 					await this.repository.upsert({
@@ -388,14 +389,15 @@ export class SandboxSyncService {
 		const results = await Promise.allSettled(
 			copies.map((file) => sandbox.files.write(file.path, file.content)),
 		);
-		for (let i = 0; i < results.length; i++) {
-			const result = results[i];
+		for (const [i, result] of results.entries()) {
+			const copy = copies[i];
+			if (!copy) continue;
 			if (result.status === "rejected") {
 				this.logger.error({
 					msg: "failed to write collection copy",
 					userId,
 					sandboxId,
-					path: copies[i].path,
+					path: copy.path,
 					error:
 						result.reason instanceof Error
 							? result.reason.message
