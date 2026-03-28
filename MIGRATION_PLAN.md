@@ -182,7 +182,7 @@ Exit criteria:
 - drift is detected and repaired
 - deletes and scope changes remove stale files correctly
 
-### Phase 3: Sandbox agent integration — IN PROGRESS
+### Phase 3: Sandbox agent integration — COMPLETE
 
 Add a sandbox request path that accepts:
 - user query

@@ -17,12 +17,14 @@ export interface SandboxAgentOptions {
 	collectionId: string | null;
 	/** Summary ID for document scope */
 	summaryId: string | null;
-	/** Prior conversation context summary */
-	conversationContext: string | null;
+	/** Session ID from a previous query — enables conversation resume */
+	sessionId: string | null;
 	/** Called for each text delta from the agent */
 	onTextDelta: (text: string) => void;
 	/** Called when the agent finishes producing text */
 	onTextEnd: () => Promise<void>;
+	/** Called when the agent emits a session ID for future resume */
+	onSessionId?: (sessionId: string) => void;
 	/** Logger */
 	logger: SyncLogger;
 }

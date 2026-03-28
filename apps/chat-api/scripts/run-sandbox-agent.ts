@@ -175,7 +175,7 @@ async function main() {
 			scope: "general",
 			collectionId: null,
 			summaryId: null,
-			conversationContext: null,
+			sessionId: null,
 			onTextDelta: (text) => {
 				accumulatedText += text;
 				process.stdout.write(text);
@@ -217,7 +217,7 @@ async function main() {
 			scope: "collection",
 			collectionId: TEST_COLLECTION_ID,
 			summaryId: null,
-			conversationContext: null,
+			sessionId: null,
 			onTextDelta: (text) => {
 				collectionText += text;
 				process.stdout.write(text);

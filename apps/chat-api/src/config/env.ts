@@ -25,6 +25,8 @@ export const apiEnv = (() => {
 		PROTECTED_API_TOKEN: Bun.env.PROTECTED_API_TOKEN,
 		RAG_API_ORIGIN: Bun.env.RAG_API_ORIGIN || DEFAULT_RAG_API_ORIGIN,
 		LOG_LEVEL: Bun.env.LOG_LEVEL || "info",
+		SANDBOX_ENABLED: Bun.env.SANDBOX_ENABLED === "true",
+		E2B_TEMPLATE: Bun.env.E2B_TEMPLATE || "sandbox-template-dev",
 	} as const;
 })();
 
