@@ -218,7 +218,6 @@ export async function complete(
 			scope,
 			collectionId: normalizeCollectionId,
 			summaryId: normalizedSummaryId,
-			syncEndpointOrigin: `http://127.0.0.1:${Bun.env.PORT || "3000"}`,
 			onTextDelta,
 			onTextEnd,
 			logger,

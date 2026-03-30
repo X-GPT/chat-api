@@ -1,12 +1,10 @@
 /**
- * Phase 4 Integration Test: Sandbox orchestration end-to-end.
+ * Phase 4 Integration Test: Sandbox query + session resume end-to-end.
  *
- * Tests the full flow:
- *   1. Seed InMemoryDocumentRepository with test data
- *   2. Start internal sync endpoint on a local server
- *   3. Create sandbox, trigger sync via sync-runner.mjs pulling from endpoint
- *   4. Run query via sandbox agent, verify text + citations
- *   5. Run second query with session resume, verify context continuity
+ * Tests:
+ *   1. Create sandbox, sync test documents via SandboxSyncService
+ *   2. Run query via sandbox agent, verify text + citations
+ *   3. Run second query with session resume, verify context continuity
  *
  * Usage:
  *   E2B_TEMPLATE=sandbox-template-dev bun run scripts/run-phase4-integration.ts
@@ -16,93 +14,68 @@
  *   - ANTHROPIC_API_KEY
  */
 
-import { serve } from "bun";
+import { Sandbox } from "e2b";
 import type { ProtectedSummary } from "../src/features/chat/api/types";
 import { extractReferencesFromText } from "../src/features/chat/lib/extract-citations-from-markdown";
-import { computeChecksum, materializeSummary } from "../src/features/sandbox";
 import {
-	InMemoryDocumentRepository,
-	createSyncEndpoint,
-} from "../src/features/sandbox-orchestration";
-import { SandboxManager } from "../src/features/sandbox-orchestration/sandbox-manager";
-import { SessionStore } from "../src/features/sandbox-orchestration/session-store";
+	getDocsRoot,
+	InMemorySyncStateRepository,
+	type MaterializationConfig,
+	SandboxSyncService,
+} from "../src/features/sandbox";
 import { runSandboxAgent } from "../src/features/sandbox-agent";
-import type { SyncDocument } from "../src/features/sandbox-orchestration/sync-types";
+import { SessionStore } from "../src/features/sandbox-orchestration/session-store";
 
 const now = () => Date.now();
-
-/**
- * Compute checksum using the canonical materialization from Phase 2.
- * In production, this would be stored in the DB at write time.
- */
-function testChecksum(doc: {
-	summaryId: string;
-	type: number;
-	title: string | null;
-	content: string | null;
-	parseContent: string | null;
-	fileType: string | null;
-}): string {
-	const summary = {
-		id: doc.summaryId,
-		type: doc.type,
-		title: doc.title,
-		content: doc.content,
-		parseContent: doc.parseContent,
-		fileType: doc.fileType,
-	} as ProtectedSummary;
-	const { content } = materializeSummary(summary, {
-		workspaceRoot: "/workspace/sandbox-prototype",
-		userId: "unused",
-	});
-	return computeChecksum(content);
-}
 
 // ─── Test Data ───────────────────────────────────────────────────────────────
 
 const TEST_USER_ID = "test-user-phase4";
 const TEST_COLLECTION_ID = "col-abc";
 
-const rawDocs = [
+const testSummaries: ProtectedSummary[] = [
 	{
-		summaryId: "1001",
+		id: "1001",
 		type: 0,
-		title: "Q4 2025 Budget Report",
 		content:
 			"The Q4 2025 budget allocates $2.5M to engineering and $1.2M to marketing. The engineering budget includes $800K for infrastructure upgrades and $500K for new hires.",
 		parseContent: null,
+		title: "Q4 2025 Budget Report",
+		summaryTitle: null,
 		fileType: null,
-		collections: [TEST_COLLECTION_ID],
+		delFlag: 0,
+		updateTime: "2026-03-27T00:00:00Z",
 	},
 	{
-		summaryId: "1002",
+		id: "1002",
 		type: 0,
-		title: "Project Alpha Status",
 		content:
 			"Project Alpha launched on March 1, 2026. The team consists of 5 engineers and 2 designers. Key milestones: MVP by April 15, Beta by June 1, GA by August 15.",
 		parseContent: null,
+		title: "Project Alpha Status",
+		summaryTitle: null,
 		fileType: null,
-		collections: [],
+		delFlag: 0,
+		updateTime: "2026-03-27T00:00:00Z",
 	},
 	{
-		summaryId: "1003",
+		id: "1003",
 		type: 3,
-		title: "Team Meeting Notes",
 		content:
 			"# Meeting Notes - March 27\n\nAttendees: Alice, Bob, Charlie\n\n## Decisions\n- Approved Q4 budget\n- Project Alpha timeline confirmed\n- New hiring plan for engineering team",
 		parseContent: null,
+		title: "Team Meeting Notes",
+		summaryTitle: null,
 		fileType: null,
-		collections: [TEST_COLLECTION_ID],
+		delFlag: 0,
+		updateTime: "2026-03-27T00:00:00Z",
 	},
-] as const;
+];
 
-const testDocuments: SyncDocument[] = rawDocs.map((doc) => ({
-	...doc,
-	collections: [...doc.collections],
-	checksum: testChecksum(doc),
-}));
-
-// ─── Logger ──────────────────────────────────────────────────────────────────
+const collectionMap = new Map<string, string[]>([
+	["1001", [TEST_COLLECTION_ID]],
+	["1003", [TEST_COLLECTION_ID]],
+]);
 
 const logger = {
 	info: (obj: Record<string, unknown>) =>
@@ -114,6 +87,7 @@ const logger = {
 // ─── Main ────────────────────────────────────────────────────────────────────
 
 async function main() {
+	const e2bTemplate = process.env.E2B_TEMPLATE || "sandbox-template-dev";
 	const anthropicApiKey = process.env.ANTHROPIC_API_KEY;
 
 	if (!process.env.E2B_API_KEY) {
@@ -125,54 +99,50 @@ async function main() {
 		process.exit(1);
 	}
 
-	// ─── Step 1: Set up sync endpoint ─────────────────────────────────────
+	const config: MaterializationConfig = {
+		workspaceRoot: "/workspace/sandbox-prototype",
+		userId: TEST_USER_ID,
+		collectionMap,
+	};
+	const docsRoot = getDocsRoot(config);
 
-	console.log("\n=== Phase 4 Integration Test ===\n");
+	console.log("\n=== Phase 4 Integration Test ===");
+	console.log(`Template: ${e2bTemplate}`);
+	console.log(`Docs root: ${docsRoot}`);
+	console.log(`Test documents: ${testSummaries.length}\n`);
 
-	const documentRepository = new InMemoryDocumentRepository();
-	documentRepository.seed(TEST_USER_ID, testDocuments);
-
-	const syncApp = createSyncEndpoint(documentRepository);
-	const SYNC_PORT = 9876;
-	const server = serve({
-		fetch: syncApp.fetch,
-		port: SYNC_PORT,
-	});
-	const syncEndpointOrigin = `http://host.docker.internal:${SYNC_PORT}`;
-	console.log(`1. Sync endpoint running at http://localhost:${SYNC_PORT}`);
-	console.log(`   Sandbox will reach it at: ${syncEndpointOrigin}\n`);
-
-	const sandboxManager = new SandboxManager();
 	const sessionStore = new SessionStore();
-	let sandbox: Awaited<
-		ReturnType<typeof sandboxManager.getOrCreateSandbox>
-	> | null = null;
+	let sandbox: Sandbox | null = null;
 
 	try {
-		// ─── Step 2: Create sandbox and trigger sync ──────────────────────
+		// ─── Step 1: Create sandbox and sync documents ───────────────────
 
-		console.log("2. Creating sandbox and syncing documents...");
+		console.log("1. Creating sandbox and syncing documents...");
 		const t0 = now();
 
-		sandbox = await sandboxManager.getOrCreateSandbox(TEST_USER_ID, logger);
+		sandbox = await Sandbox.create(e2bTemplate, {
+			metadata: { userId: TEST_USER_ID, purpose: "phase4-integration" },
+		});
 		const bootMs = now() - t0;
 		console.log(`   Sandbox created: ${sandbox.sandboxId} (${bootMs}ms)`);
 
 		const t1 = now();
-		await sandboxManager.triggerSync(
-			TEST_USER_ID,
-			sandbox,
-			syncEndpointOrigin,
+		const syncService = new SandboxSyncService({
+			repository: new InMemorySyncStateRepository(),
 			logger,
+		});
+		const plan = await syncService.syncUser(
+			TEST_USER_ID,
+			sandbox.sandboxId,
+			sandbox,
+			testSummaries,
+			config,
 		);
-		const status = await sandboxManager.waitForSync(sandbox, 60_000);
 		const syncMs = now() - t1;
 		console.log(
-			`   Sync complete: ${status.status === "ready" ? status.documentCount : 0} docs (${syncMs}ms)`,
+			`   Synced: ${plan.creates.length} creates, ${plan.updates.length} updates, ${plan.deletes.length} deletes (${syncMs}ms)`,
 		);
 
-		// Verify files on disk
-		const docsRoot = sandboxManager.getDocsRoot(TEST_USER_ID);
 		const lsResult = await sandbox.commands.run(
 			`find ${docsRoot} -name '*.txt' | sort`,
 			{ timeoutMs: 5000 },
@@ -184,9 +154,9 @@ async function main() {
 		}
 		console.log();
 
-		// ─── Step 3: First query (general scope) ─────────────────────────
+		// ─── Step 2: First query (general scope) ─────────────────────────
 
-		console.log("3. Running first query (general scope)...");
+		console.log("2. Running first query (general scope)...");
 		const query1 = "What is the engineering budget for Q4 2025?";
 		console.log(`   Query: "${query1}"\n`);
 
@@ -227,14 +197,13 @@ async function main() {
 		}
 		console.log();
 
-		// Store session for resume
 		if (sessionId1) {
 			sessionStore.setSessionId("test-chat-key", sessionId1, TEST_USER_ID);
 		}
 
-		// ─── Step 4: Second query with session resume ────────────────────
+		// ─── Step 3: Second query with session resume ────────────────────
 
-		console.log("4. Running second query (session resume)...");
+		console.log("3. Running second query (session resume)...");
 		const query2 =
 			"You mentioned the engineering budget earlier. What are the specific allocations within it?";
 		console.log(`   Query: "${query2}"`);
@@ -297,9 +266,8 @@ async function main() {
 	} finally {
 		console.log("Cleaning up...");
 		if (sandbox) {
-			await sandboxManager.killSandbox(TEST_USER_ID, sandbox, logger);
+			await sandbox.kill();
 		}
-		server.stop();
 		console.log("Done.\n");
 	}
 }

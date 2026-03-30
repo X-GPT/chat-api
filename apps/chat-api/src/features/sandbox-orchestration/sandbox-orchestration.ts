@@ -1,8 +1,8 @@
-import { apiEnv } from "@/config/env";
 import type { ChatMessagesScope } from "@/config/env";
+import { apiEnv } from "@/config/env";
 import type { ChatLogger } from "@/features/chat/chat.logger";
 import { runSandboxAgent } from "@/features/sandbox-agent";
-import { SandboxCreationError, SandboxSyncError } from "./errors";
+import { SandboxCreationError } from "./errors";
 import { sandboxManager, sessionStore } from "./singleton";
 
 export interface RunSandboxChatOptions {
@@ -12,14 +12,9 @@ export interface RunSandboxChatOptions {
 	collectionId: string | null;
 	summaryId: string | null;
 	chatKey: string;
-	syncEndpointOrigin: string;
 	onTextDelta: (text: string) => void;
 	onTextEnd: () => Promise<void>;
 	logger: ChatLogger;
-}
-
-function isSandboxInfraError(err: unknown): boolean {
-	return err instanceof SandboxCreationError || err instanceof SandboxSyncError;
 }
 
 export async function runSandboxChat(
@@ -32,19 +27,13 @@ export async function runSandboxChat(
 		collectionId,
 		summaryId,
 		chatKey,
-		syncEndpointOrigin,
 		onTextDelta,
 		onTextEnd,
 		logger,
 	} = options;
 
 	const attempt = async () => {
-		const sandbox = await sandboxManager.ensureReady(
-			userId,
-			syncEndpointOrigin,
-			logger,
-		);
-
+		const sandbox = await sandboxManager.getOrCreateSandbox(userId, logger);
 		const sessionId = sessionStore.getSessionId(chatKey);
 		const docsRoot = sandboxManager.getDocsRoot(userId);
 
@@ -75,22 +64,17 @@ export async function runSandboxChat(
 	try {
 		await attempt();
 	} catch (err) {
-		// Only retry infrastructure errors (sandbox creation/sync).
-		// Agent errors (LLM failures, prompt issues) are not transient.
-		if (!isSandboxInfraError(err)) {
+		if (!(err instanceof SandboxCreationError)) {
 			throw err;
 		}
 
 		logger.error({
-			msg: "Sandbox infra failed, retrying with fresh sandbox",
+			msg: "Sandbox creation failed, retrying",
 			userId,
-			error: err instanceof Error ? err.message : String(err),
+			error: err.message,
 		});
 
 		sessionStore.removeUserSessions(userId);
-
-		// Retry once — ensureReady will create a fresh sandbox
-		// since the old one likely failed or is unreachable
 		await attempt();
 	}
 }
