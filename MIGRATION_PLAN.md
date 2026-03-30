@@ -216,37 +216,64 @@ Exit criteria:
 - inline citations are emitted in a parseable stable format
 - keyword and exact-match queries behave as intended
 
-### Phase 4: `chat-api` integration
+### Phase 4: `chat-api` integration — COMPLETE
 
-Replace current `rag-api` retrieval calls with sandbox orchestration.
+Replace current `rag-api` retrieval calls with sandbox orchestration, gated behind a feature flag.
 
-Keep current request/response and persistence flow intact.
+**Design decisions (2026-03-28):**
 
-Parse sandbox answer citations and map them back into existing refs persistence behavior.
+- **Feature-flagged coexistence**: `SANDBOX_ENABLED` env var (defaults to `false`). When enabled and `enableKnowledge` is true, the sandbox path replaces `runMyMemo()`. The existing RAG path is completely unchanged — no RAG code removed or modified.
+- **Branch at controller level**: The sandbox agent replaces the entire tool-calling loop (search + read + answer generation), not just a single tool. The branch is in `chat.controller.ts::complete()` after building config and conversation history.
+- **Sandbox lifecycle via E2B SDK**: `SandboxManager` uses `Sandbox.list()` (metadata query by userId) to find existing sandboxes, `Sandbox.connect()` to reconnect, or `Sandbox.create()` to make new ones. A sandboxId cache avoids the list API call on every request.
+- **Session resume for conversation history**: Instead of serializing chat history as text, the Claude Agent SDK's `resume: sessionId` parameter is used. The agent runner captures and emits session IDs via NDJSON. `SessionStore` maps `chatKey → sessionId` in memory (24h TTL, 10k max entries).
+- **Sync is a separate concern**: This phase does not own document sync. The sandbox is assumed to be pre-synced by a separate sync service (Phase 4b). The integration test uses `SandboxSyncService` from Phase 2 directly for testing. The `sandbox.files.write()` API accepts arrays for batch writes, eliminating the N-round-trip concern that originally motivated sandbox-side sync.
+- **Shared callbacks**: `onTextDelta`/`onTextEnd` callbacks are extracted as shared functions in the controller, used by both RAG and sandbox paths. Citation extraction in `onTextEnd` works unchanged because both paths produce the same `[cN]: detail/{type}/{summaryId}` format.
+- **Retry only infra errors**: Only `SandboxCreationError` triggers a retry (one attempt). Agent/LLM errors propagate immediately.
 
-Add error handling for:
-- sandbox not found
-- sandbox cold start
-- sync failure
-- retrieval failure
+Artifacts:
+- Orchestration: `src/features/sandbox-orchestration/sandbox-orchestration.ts`
+- Sandbox lifecycle: `src/features/sandbox-orchestration/sandbox-manager.ts`
+- Session store: `src/features/sandbox-orchestration/session-store.ts`
+- Error types: `src/features/sandbox-orchestration/errors.ts`
+- Controller changes: `src/features/chat/chat.controller.ts` (feature-flagged branch)
+- Agent runner update: `src/features/sandbox-agent/agent-runner.mjs` (session resume)
+- NDJSON parser update: `src/features/sandbox-agent/ndjson-parser.ts` (session_id event)
+- Integration test: `scripts/run-phase4-integration.ts`
 
 Exit criteria:
 - end-to-end chat works with existing SSE and persistence contracts
 - refs are persisted in the current format
 - users remain isolated by sandbox
+- session resume preserves conversation context across queries
+- `SANDBOX_ENABLED=false` uses existing RAG path with zero change
+
+### Phase 4b: Sync service
+
+Extract document sync into a separate service, decoupled from the chat request path.
+
+Responsibilities:
+- Keep sandbox filesystems up-to-date with source data (protected/MySQL)
+- React to document CRUD events or run on a periodic schedule
+- Use `SandboxSyncService` from Phase 2 with `sandbox.files.write(files: WriteEntry[])` for batch writes (one API call for all files)
+- Own sync state persistence (upgrade `InMemorySyncStateRepository` to DB-backed)
+
+Design constraints:
+- Sync must not be tied to any HTTP request lifecycle — runs independently
+- Multiple chat-api replicas must see the same synced sandbox state
+- E2B `sandbox.files.write()` accepts arrays, eliminating the N-round-trip concern
 
 ### Phase 5: Production hardening
 
 Add:
-- sandbox lifecycle management
-- sync/index locking per sandbox
+- sandbox lifecycle management (TTL, pause/resume, cleanup)
+- distributed sync locking per sandbox
 - retries and failure recovery
-- metrics for sync, index, query, and sandbox health
+- metrics for sync, query, and sandbox health
 
 Validate concurrency and cost with representative load.
 
 Exit criteria:
-- concurrent requests do not corrupt sync/index state
+- concurrent requests do not corrupt sync state
 - warm and cold latency are within acceptable limits
 - operational alerts and dashboards exist
 
