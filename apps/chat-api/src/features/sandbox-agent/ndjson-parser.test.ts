@@ -113,4 +113,22 @@ describe("createNdjsonParser", () => {
 
 		expect(events).toEqual([]);
 	});
+
+	it("parses session_id events", () => {
+		const events: AgentStreamEvent[] = [];
+		const parser = createNdjsonParser((e) => events.push(e));
+
+		parser.feed('{"type":"session_id","sessionId":"abc-123"}\n');
+
+		expect(events).toEqual([{ type: "session_id", sessionId: "abc-123" }]);
+	});
+
+	it("ignores session_id with non-string sessionId", () => {
+		const events: AgentStreamEvent[] = [];
+		const parser = createNdjsonParser((e) => events.push(e));
+
+		parser.feed('{"type":"session_id","sessionId":42}\n');
+
+		expect(events).toEqual([]);
+	});
 });
