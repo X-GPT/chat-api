@@ -10,8 +10,24 @@ export class SandboxManager {
 	// Cache sandboxId per user to avoid Sandbox.list() API call on every request.
 	// Invalidated on connect failure or killSandbox.
 	private sandboxIdCache = new Map<string, string>();
+	// Dedup concurrent getOrCreateSandbox calls for the same user.
+	private inFlight = new Map<string, Promise<Sandbox>>();
 
 	async getOrCreateSandbox(
+		userId: string,
+		logger: SyncLogger,
+	): Promise<Sandbox> {
+		const existing = this.inFlight.get(userId);
+		if (existing) return existing;
+
+		const promise = this._getOrCreateSandbox(userId, logger).finally(() => {
+			this.inFlight.delete(userId);
+		});
+		this.inFlight.set(userId, promise);
+		return promise;
+	}
+
+	private async _getOrCreateSandbox(
 		userId: string,
 		logger: SyncLogger,
 	): Promise<Sandbox> {

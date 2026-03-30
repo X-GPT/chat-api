@@ -9,7 +9,7 @@ export class SessionStore {
 
 	private sessions = new Map<
 		string,
-		{ sessionId: string; updatedAt: number }
+		{ sessionId: string; userId: string; updatedAt: number }
 	>();
 	private chatKeysByUser = new Map<string, Set<string>>();
 
@@ -18,6 +18,7 @@ export class SessionStore {
 		if (!entry) return null;
 		if (Date.now() - entry.updatedAt > SessionStore.TTL_MS) {
 			this.sessions.delete(chatKey);
+			this.removeChatKeyFromUser(entry.userId, chatKey);
 			return null;
 		}
 		return entry.sessionId;
@@ -25,18 +26,28 @@ export class SessionStore {
 
 	setSessionId(chatKey: string, sessionId: string, userId: string): void {
 		if (this.sessions.size >= SessionStore.MAX_ENTRIES) {
-			const oldest = this.sessions.keys().next();
+			const oldest = this.sessions.entries().next();
 			if (!oldest.done) {
-				this.sessions.delete(oldest.value);
+				const [oldKey, oldEntry] = oldest.value;
+				this.sessions.delete(oldKey);
+				this.removeChatKeyFromUser(oldEntry.userId, oldKey);
 			}
 		}
-		this.sessions.set(chatKey, { sessionId, updatedAt: Date.now() });
+		this.sessions.set(chatKey, { sessionId, userId, updatedAt: Date.now() });
 		let keys = this.chatKeysByUser.get(userId);
 		if (!keys) {
 			keys = new Set();
 			this.chatKeysByUser.set(userId, keys);
 		}
 		keys.add(chatKey);
+	}
+
+	private removeChatKeyFromUser(userId: string, chatKey: string): void {
+		const keys = this.chatKeysByUser.get(userId);
+		if (keys) {
+			keys.delete(chatKey);
+			if (keys.size === 0) this.chatKeysByUser.delete(userId);
+		}
 	}
 
 	removeUserSessions(userId: string): void {

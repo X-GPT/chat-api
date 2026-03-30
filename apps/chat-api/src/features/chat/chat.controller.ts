@@ -211,8 +211,11 @@ export async function complete(
 	};
 
 	if (apiEnv.SANDBOX_ENABLED && mymemoConfig.enableKnowledge) {
+		if (!resolvedMemberCode) {
+			throw new Error("memberCode is required for sandbox chat");
+		}
 		await runSandboxChat({
-			userId: resolvedMemberCode ?? "",
+			userId: resolvedMemberCode,
 			chatKey,
 			query: chatContent,
 			scope,

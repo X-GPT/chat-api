@@ -75,6 +75,16 @@ export async function runSandboxChat(
 		});
 
 		sessionStore.removeUserSessions(userId);
-		await attempt();
+
+		try {
+			await attempt();
+		} catch (retryErr) {
+			logger.error({
+				msg: "Sandbox creation retry also failed",
+				userId,
+				error: retryErr instanceof Error ? retryErr.message : String(retryErr),
+			});
+			throw retryErr;
+		}
 	}
 }
