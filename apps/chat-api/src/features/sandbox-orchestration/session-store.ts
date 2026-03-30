@@ -1,6 +1,6 @@
 /**
  * In-memory store for Claude Agent SDK session IDs.
- * Maps chatKey → sessionId to enable session resume across queries.
+ * Keys are scoped by userId to prevent cross-user session collisions.
  * Entries expire after 24 hours (matching E2B sandbox max lifetime).
  */
 export class SessionStore {
@@ -11,52 +11,58 @@ export class SessionStore {
 		string,
 		{ sessionId: string; userId: string; updatedAt: number }
 	>();
-	private chatKeysByUser = new Map<string, Set<string>>();
+	private keysByUser = new Map<string, Set<string>>();
 
-	getSessionId(chatKey: string): string | null {
-		const entry = this.sessions.get(chatKey);
+	private static scopedKey(userId: string, chatKey: string): string {
+		return `${userId}:${chatKey}`;
+	}
+
+	getSessionId(chatKey: string, userId: string): string | null {
+		const key = SessionStore.scopedKey(userId, chatKey);
+		const entry = this.sessions.get(key);
 		if (!entry) return null;
 		if (Date.now() - entry.updatedAt > SessionStore.TTL_MS) {
-			this.sessions.delete(chatKey);
-			this.removeChatKeyFromUser(entry.userId, chatKey);
+			this.sessions.delete(key);
+			this.removeKeyFromUser(userId, key);
 			return null;
 		}
 		return entry.sessionId;
 	}
 
 	setSessionId(chatKey: string, sessionId: string, userId: string): void {
+		const key = SessionStore.scopedKey(userId, chatKey);
 		if (this.sessions.size >= SessionStore.MAX_ENTRIES) {
 			const oldest = this.sessions.entries().next();
 			if (!oldest.done) {
 				const [oldKey, oldEntry] = oldest.value;
 				this.sessions.delete(oldKey);
-				this.removeChatKeyFromUser(oldEntry.userId, oldKey);
+				this.removeKeyFromUser(oldEntry.userId, oldKey);
 			}
 		}
-		this.sessions.set(chatKey, { sessionId, userId, updatedAt: Date.now() });
-		let keys = this.chatKeysByUser.get(userId);
+		this.sessions.set(key, { sessionId, userId, updatedAt: Date.now() });
+		let keys = this.keysByUser.get(userId);
 		if (!keys) {
 			keys = new Set();
-			this.chatKeysByUser.set(userId, keys);
+			this.keysByUser.set(userId, keys);
 		}
-		keys.add(chatKey);
+		keys.add(key);
 	}
 
-	private removeChatKeyFromUser(userId: string, chatKey: string): void {
-		const keys = this.chatKeysByUser.get(userId);
+	private removeKeyFromUser(userId: string, key: string): void {
+		const keys = this.keysByUser.get(userId);
 		if (keys) {
-			keys.delete(chatKey);
-			if (keys.size === 0) this.chatKeysByUser.delete(userId);
+			keys.delete(key);
+			if (keys.size === 0) this.keysByUser.delete(userId);
 		}
 	}
 
 	removeUserSessions(userId: string): void {
-		const keys = this.chatKeysByUser.get(userId);
+		const keys = this.keysByUser.get(userId);
 		if (keys) {
-			for (const chatKey of keys) {
-				this.sessions.delete(chatKey);
+			for (const key of keys) {
+				this.sessions.delete(key);
 			}
-			this.chatKeysByUser.delete(userId);
+			this.keysByUser.delete(userId);
 		}
 	}
 }

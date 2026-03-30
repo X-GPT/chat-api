@@ -34,7 +34,7 @@ export async function runSandboxChat(
 
 	const attempt = async () => {
 		const sandbox = await sandboxManager.getOrCreateSandbox(userId, logger);
-		const sessionId = sessionStore.getSessionId(chatKey);
+		const sessionId = sessionStore.getSessionId(chatKey, userId);
 		const docsRoot = sandboxManager.getDocsRoot(userId);
 
 		let newSessionId: string | null = null;

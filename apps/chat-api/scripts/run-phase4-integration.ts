@@ -208,7 +208,7 @@ async function main() {
 			"You mentioned the engineering budget earlier. What are the specific allocations within it?";
 		console.log(`   Query: "${query2}"`);
 		console.log(
-			`   Resuming session: ${sessionStore.getSessionId("test-chat-key") ?? "none"}\n`,
+			`   Resuming session: ${sessionStore.getSessionId("test-chat-key", TEST_USER_ID) ?? "none"}\n`,
 		);
 
 		let text2 = "";
@@ -222,7 +222,7 @@ async function main() {
 			scope: "general",
 			collectionId: null,
 			summaryId: null,
-			sessionId: sessionStore.getSessionId("test-chat-key"),
+			sessionId: sessionStore.getSessionId("test-chat-key", TEST_USER_ID),
 			onTextDelta: (text) => {
 				text2 += text;
 				process.stdout.write(text);
