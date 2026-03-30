@@ -1,7 +1,8 @@
 export type AgentStreamEvent =
 	| { type: "text_delta"; text: string }
 	| { type: "result"; text: string }
-	| { type: "error"; message: string };
+	| { type: "error"; message: string }
+	| { type: "session_id"; sessionId: string };
 
 /**
  * Create a line-buffered NDJSON parser for sandbox agent stdout.
@@ -43,6 +44,14 @@ export function createNdjsonParser(
 				case "error":
 					if (typeof parsed.message === "string") {
 						onEvent({ type: "error", message: parsed.message });
+					}
+					break;
+				case "session_id":
+					if (typeof parsed.sessionId === "string") {
+						onEvent({
+							type: "session_id",
+							sessionId: parsed.sessionId,
+						});
 					}
 					break;
 				// Ignore unknown event types (e.g. tool_use for logging)

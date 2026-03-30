@@ -13,6 +13,11 @@ export const apiEnv = (() => {
 	invariant(Bun.env.ANTHROPIC_API_KEY, "ANTHROPIC_API_KEY is required");
 	invariant(Bun.env.PROTECTED_API_TOKEN, "PROTECTED_API_TOKEN is required");
 
+	const sandboxEnabled = Bun.env.SANDBOX_ENABLED === "true";
+	if (sandboxEnabled) {
+		invariant(Bun.env.E2B_API_KEY, "E2B_API_KEY is required when SANDBOX_ENABLED=true");
+	}
+
 	return {
 		OPENAI_API_KEY: Bun.env.OPENAI_API_KEY,
 		ANTHROPIC_API_KEY: Bun.env.ANTHROPIC_API_KEY,
@@ -25,6 +30,8 @@ export const apiEnv = (() => {
 		PROTECTED_API_TOKEN: Bun.env.PROTECTED_API_TOKEN,
 		RAG_API_ORIGIN: Bun.env.RAG_API_ORIGIN || DEFAULT_RAG_API_ORIGIN,
 		LOG_LEVEL: Bun.env.LOG_LEVEL || "info",
+		SANDBOX_ENABLED: sandboxEnabled,
+		E2B_TEMPLATE: Bun.env.E2B_TEMPLATE || "sandbox-template-dev",
 	} as const;
 })();
 

@@ -51,9 +51,10 @@ export async function runSandboxAgent(
 		scope,
 		collectionId,
 		summaryId,
-		conversationContext,
+		sessionId,
 		onTextDelta,
 		onTextEnd,
+		onSessionId,
 		logger,
 	} = options;
 
@@ -62,7 +63,7 @@ export async function runSandboxAgent(
 		summaryId,
 		collectionId,
 		docsRoot,
-		conversationContext,
+		conversationContext: null,
 	});
 
 	const agentCwd = resolveAgentCwd(docsRoot, scope, collectionId);
@@ -80,6 +81,7 @@ export async function runSandboxAgent(
 		query,
 		systemPrompt,
 		cwd: agentCwd,
+		...(sessionId ? { sessionId } : {}),
 	});
 
 	await Promise.all([
@@ -100,6 +102,9 @@ export async function runSandboxAgent(
 				break;
 			case "error":
 				agentError = event.message;
+				break;
+			case "session_id":
+				onSessionId?.(event.sessionId);
 				break;
 		}
 	});

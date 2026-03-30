@@ -1,4 +1,5 @@
-import type { ChatMessagesScope } from "@/config/env";
+import { apiEnv, type ChatMessagesScope } from "@/config/env";
+import { runSandboxChat } from "@/features/sandbox-orchestration";
 import {
 	fetchProtectedChatContext,
 	fetchProtectedChatId,
@@ -9,7 +10,7 @@ import { fetchProtectedSummaries } from "./api/summaries";
 import type { ProtectedSummary } from "./api/types";
 import { adaptProtectedMessagesToModelMessages } from "./chat.adapter";
 import type { ChatConfig } from "./chat.config";
-import type { ChatEntity, Citation } from "./chat.events";
+import type { ChatEntity, Citation, EventMessage } from "./chat.events";
 import type { ChatLogger } from "./chat.logger";
 import type { ChatRequest } from "./chat.schema";
 import type { MymemoEventSender } from "./chat.streaming";
@@ -103,115 +104,138 @@ export async function complete(
 	let lastChatEntity: ChatEntity | null = null;
 	const accumulatedCitations: Citation[] = [];
 
-	await runMyMemo({
-		config: mymemoConfig,
-		conversationHistory,
-		userInput: chatContent,
-		onTextDelta: (text) => {
-			accumulatedContent += text;
-			const chatEntity: ChatEntity = {
-				id: chatId,
-				chatKey,
-				readFlag: "1",
-				delFlag: "0",
-				teamCode: resolvedTeamCode,
-				memberCode: resolvedMemberCode,
-				memberName: resolvedMemberName,
-				partnerCode: resolvedPartnerCode,
-				partnerName: resolvedPartnerName,
-				chatType,
-				senderType: "AI",
-				senderCode: resolvedSenderCode,
-				chatContent: accumulatedContent,
-				followup: "",
-				endFlag: 1,
-				collectionId: normalizeCollectionId,
-				summaryId: normalizedSummaryId,
-				refsId: refsId,
-				// Only send the not collapsed messages
-				collapseFlag: "1",
-				refsContent: null,
-			};
+	// Shared callbacks used by both RAG and sandbox paths
+	const onTextDelta = (text: string) => {
+		accumulatedContent += text;
+		const chatEntity: ChatEntity = {
+			id: chatId,
+			chatKey,
+			readFlag: "1",
+			delFlag: "0",
+			teamCode: resolvedTeamCode,
+			memberCode: resolvedMemberCode,
+			memberName: resolvedMemberName,
+			partnerCode: resolvedPartnerCode,
+			partnerName: resolvedPartnerName,
+			chatType,
+			senderType: "AI",
+			senderCode: resolvedSenderCode,
+			chatContent: accumulatedContent,
+			followup: "",
+			endFlag: 1,
+			collectionId: normalizeCollectionId,
+			summaryId: normalizedSummaryId,
+			refsId: refsId,
+			collapseFlag: "1",
+			refsContent: null,
+		};
 
-			lastChatEntity = chatEntity;
+		lastChatEntity = chatEntity;
 
-			mymemoEventSender.send({
-				id: crypto.randomUUID(),
-				message: {
-					type: "chat_entity",
-					...chatEntity,
-				},
+		mymemoEventSender.send({
+			id: crypto.randomUUID(),
+			message: {
+				type: "chat_entity",
+				...chatEntity,
+			},
+		});
+	};
+
+	const onTextEnd = async () => {
+		if (!lastChatEntity) {
+			logger.error({
+				message: "Last chat entity is null",
 			});
-		},
-		onTextEnd: async () => {
-			if (!lastChatEntity) {
-				logger.error({
-					message: "Last chat entity is null",
-				});
-				throw new Error("Last chat entity is null");
+			throw new Error("Last chat entity is null");
+		}
+
+		lastChatEntity.readFlag = "0";
+
+		const citations = extractReferencesFromText(lastChatEntity.chatContent);
+		const fileIdToIndex = citations.reduce((map, citation) => {
+			if (!map.has(citation.id)) {
+				map.set(citation.id, citation.index);
 			}
+			return map;
+		}, new Map<string, number>());
 
-			lastChatEntity.readFlag = "0";
-
-			const citations = extractReferencesFromText(lastChatEntity.chatContent);
-			const fileIdToIndex = citations.reduce((map, citation) => {
-				if (!map.has(citation.id)) {
-					map.set(citation.id, citation.index);
-				}
-				return map;
-			}, new Map<string, number>());
-
-			let summaries: ProtectedSummary[] = [];
-			if (citations.length > 0) {
-				summaries = await fetchProtectedSummaries(
-					citations.map((citation) => citation.id),
-					protectedFetchOptions,
-					logger,
-					mymemoConfig.summaryCache,
-				);
-			}
-			summaries.sort((a, b) => {
-				const aIndex = fileIdToIndex.get(a.id) ?? Infinity;
-				const bIndex = fileIdToIndex.get(b.id) ?? Infinity;
-				return aIndex - bIndex;
-			});
-			accumulatedCitations.push(
-				...summaries
-					.map((summary) => {
-						const number = fileIdToIndex.get(summary.id);
-						return number !== undefined ? { ...summary, number } : null;
-					})
-					.filter(
-						(citation): citation is NonNullable<typeof citation> =>
-							citation !== null,
-					),
-			);
-			lastChatEntity.refsContent = JSON.stringify(accumulatedCitations);
-			logger.info({
-				message: "Sending chat entity to protected service",
-				chatEntity: lastChatEntity,
-			});
-			await sendChatEntityToProtectedService(
-				lastChatEntity,
+		let summaries: ProtectedSummary[] = [];
+		if (citations.length > 0) {
+			summaries = await fetchProtectedSummaries(
+				citations.map((citation) => citation.id),
 				protectedFetchOptions,
 				logger,
+				mymemoConfig.summaryCache,
 			);
-			mymemoEventSender.send({
-				id: crypto.randomUUID(),
-				message: {
-					type: "chat_entity",
-					...lastChatEntity,
-				},
-			});
-		},
-		onEvent: (event) => {
-			mymemoEventSender.send({
-				id: crypto.randomUUID(),
-				message: event,
-			});
-		},
-		logger,
-	});
+		}
+		summaries.sort((a, b) => {
+			const aIndex = fileIdToIndex.get(a.id) ?? Infinity;
+			const bIndex = fileIdToIndex.get(b.id) ?? Infinity;
+			return aIndex - bIndex;
+		});
+		accumulatedCitations.push(
+			...summaries
+				.map((summary) => {
+					const number = fileIdToIndex.get(summary.id);
+					return number !== undefined ? { ...summary, number } : null;
+				})
+				.filter(
+					(citation): citation is NonNullable<typeof citation> =>
+						citation !== null,
+				),
+		);
+		lastChatEntity.refsContent = JSON.stringify(accumulatedCitations);
+		logger.info({
+			message: "Sending chat entity to protected service",
+			chatEntity: lastChatEntity,
+		});
+		await sendChatEntityToProtectedService(
+			lastChatEntity,
+			protectedFetchOptions,
+			logger,
+		);
+		mymemoEventSender.send({
+			id: crypto.randomUUID(),
+			message: {
+				type: "chat_entity",
+				...lastChatEntity,
+			},
+		});
+	};
+
+	const onEvent = (event: EventMessage) => {
+		mymemoEventSender.send({
+			id: crypto.randomUUID(),
+			message: event,
+		});
+	};
+
+	if (apiEnv.SANDBOX_ENABLED && mymemoConfig.enableKnowledge) {
+		if (!resolvedMemberCode) {
+			throw new Error("memberCode is required for sandbox chat");
+		}
+		await runSandboxChat({
+			userId: resolvedMemberCode,
+			chatKey,
+			query: chatContent,
+			scope,
+			collectionId: normalizeCollectionId,
+			summaryId: normalizedSummaryId,
+			onTextDelta,
+			onTextEnd,
+			logger,
+		});
+	} else {
+		await runMyMemo({
+			config: mymemoConfig,
+			conversationHistory,
+			userInput: chatContent,
+			onTextDelta,
+			onTextEnd,
+			onEvent,
+			logger,
+		});
+	}
 
 	if (accumulatedCitations.length > 0) {
 		const chatEntity: ChatEntity = {

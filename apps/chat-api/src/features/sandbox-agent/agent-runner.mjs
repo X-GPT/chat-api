@@ -7,10 +7,11 @@
  *
  * Usage: node agent-runner.mjs request.json
  *
- * Input JSON: { query, systemPrompt, cwd }
+ * Input JSON: { query, systemPrompt, cwd, sessionId? }
  * Output: NDJSON lines to stdout
  *   {"type":"text_delta","text":"..."}
  *   {"type":"result","text":"<full accumulated text>"}
+ *   {"type":"session_id","sessionId":"..."}
  *   {"type":"error","message":"..."}
  */
 
@@ -43,7 +44,7 @@ async function main() {
 		process.exit(1);
 	}
 
-	const { query: userQuery, systemPrompt, cwd } = input;
+	const { query: userQuery, systemPrompt, cwd, sessionId } = input;
 
 	if (!userQuery || !systemPrompt || !cwd) {
 		emit({
@@ -56,19 +57,34 @@ async function main() {
 	let accumulatedText = "";
 
 	try {
+		const queryOptions = {
+			cwd,
+			systemPrompt,
+			allowedTools: ["Bash", "Read", "Grep", "Glob"],
+			permissionMode: "bypassPermissions",
+			includePartialMessages: true,
+			model: "claude-sonnet-4-6",
+		};
+
+		// If resuming a previous session, pass the session ID
+		if (sessionId) {
+			queryOptions.resume = sessionId;
+		}
+
 		const result = query({
 			prompt: userQuery,
-			options: {
-				cwd,
-				systemPrompt,
-				allowedTools: ["Bash", "Read", "Grep", "Glob"],
-				permissionMode: "bypassPermissions",
-				includePartialMessages: true,
-				model: "claude-sonnet-4-6",
-			},
+			options: queryOptions,
 		});
 
+		let emittedSessionId = false;
+
 		for await (const msg of result) {
+			// Capture session ID from any message that carries it
+			if (!emittedSessionId && msg.session_id) {
+				emit({ type: "session_id", sessionId: msg.session_id });
+				emittedSessionId = true;
+			}
+
 			if (msg.type === "stream_event") {
 				const event = msg.event;
 				if (
@@ -80,6 +96,12 @@ async function main() {
 					emit({ type: "text_delta", text });
 				}
 			} else if (msg.type === "result") {
+				// Capture session ID from result if not already emitted
+				if (!emittedSessionId && msg.session_id) {
+					emit({ type: "session_id", sessionId: msg.session_id });
+					emittedSessionId = true;
+				}
+
 				if (msg.subtype === "success") {
 					emit({ type: "result", text: msg.result || accumulatedText });
 				} else {
