@@ -1,4 +1,10 @@
+import { dirname, relative } from "node:path";
 import type { ProtectedSummary } from "@/features/chat/api/types";
+
+export interface SyncLogger {
+	info(obj: Record<string, unknown>): void;
+	error(obj: Record<string, unknown>): void;
+}
 
 export interface MaterializedFile {
 	summaryId: string;
@@ -21,27 +27,23 @@ export interface MaterializationConfig {
 	collectionMap?: Map<string, string[]>;
 }
 
-/**
- * Sanitize a value for use as a filesystem path segment.
- * Extracted from scripts/run-sandbox-prototype.ts.
- */
+export interface CollectionSymlink {
+	/** Path relative to docs root, e.g. "collections/col-A/0/abc.txt" */
+	relativePath: string;
+	/** Relative symlink target, e.g. "../../../0/abc.txt" */
+	target: string;
+}
+
 export function sanitizePathSegment(value: string): string {
 	return value.trim().replace(/[^a-zA-Z0-9._-]+/g, "-") || "unknown";
 }
 
-/** Compute SHA-256 hex checksum of content using Bun's crypto. */
 export function computeChecksum(content: string): string {
 	const hasher = new Bun.CryptoHasher("sha256");
 	hasher.update(content);
 	return hasher.digest("hex");
 }
 
-/**
- * Determine the source kind from a ProtectedSummary.
- * - PDFs and links use parsed content → "parser_output"
- * - Notes (type 3) are typically markdown → "markdown"
- * - Everything else → "text"
- */
 export function resolveSourceKind(
 	summary: ProtectedSummary,
 ): "markdown" | "text" | "parser_output" {
@@ -62,11 +64,6 @@ export function resolveSourceKind(
 	return "text";
 }
 
-/**
- * Extract the best available text content from a ProtectedSummary.
- * Prefers parseContent for file types that have parsed output,
- * falls back to content, then empty string.
- */
 export function resolveContent(summary: ProtectedSummary): string {
 	const sourceKind = resolveSourceKind(summary);
 
@@ -84,7 +81,6 @@ export function getDocsRoot(config: MaterializationConfig): string {
 
 /**
  * Materialize a single ProtectedSummary into a file with YAML frontmatter.
- * Format matches the prototype in scripts/run-sandbox-prototype.ts.
  */
 export function materializeSummary(
 	summary: ProtectedSummary,
@@ -129,8 +125,7 @@ export function materializeSummaries(
 }
 
 /**
- * Build collection directory paths for a given docs root.
- * Returns the path: {docsRoot}/collections/{collectionId}
+ * Build collection directory path: {docsRoot}/collections/{collectionId}
  */
 export function getCollectionDocsRoot(
 	docsRoot: string,
@@ -140,45 +135,35 @@ export function getCollectionDocsRoot(
 }
 
 /**
- * Generate collection directory copies of materialized files.
+ * Generate symlink entries for collection copies.
+ * Each symlink points from collections/{collectionId}/{type}/{id}.txt
+ * back to the primary file at {type}/{id}.txt via a relative path.
  *
- * For each summary that has collections in the collectionMap,
- * creates a MaterializedFile entry for each collection directory.
- * Content is identical to the primary file (same frontmatter + body).
- *
- * Returns only the collection copies — primary files are not included.
+ * Accepts either full ProtectedSummary objects or minimal {id, type} objects.
  */
-export function materializeCollectionCopies(
-	summaries: ProtectedSummary[],
+export function resolveCollectionSymlinks(
+	summaries: ReadonlyArray<{ id: string; type?: number | null }>,
 	config: MaterializationConfig,
-): MaterializedFile[] {
+): CollectionSymlink[] {
 	const { collectionMap } = config;
 	if (!collectionMap || collectionMap.size === 0) return [];
 
-	const copies: MaterializedFile[] = [];
-	const docsRoot = getDocsRoot(config);
+	const symlinks: CollectionSymlink[] = [];
 
 	for (const summary of summaries) {
 		const collectionIds = collectionMap.get(summary.id);
 		if (!collectionIds || collectionIds.length === 0) continue;
 
-		// Materialize the file once to get its content
-		const primary = materializeSummary(summary, config);
+		const type = summary.type ?? 0;
+		const primaryRelPath = `${type}/${sanitizePathSegment(summary.id)}.txt`;
 
 		for (const collectionId of collectionIds) {
-			const collectionRoot = getCollectionDocsRoot(docsRoot, collectionId);
-			const collectionPath = `${collectionRoot}/${primary.relativePath}`;
+			const linkRelPath = `collections/${sanitizePathSegment(collectionId)}/${primaryRelPath}`;
+			const target = relative(dirname(linkRelPath), primaryRelPath);
 
-			copies.push({
-				summaryId: primary.summaryId,
-				type: primary.type,
-				path: collectionPath,
-				relativePath: `collections/${sanitizePathSegment(collectionId)}/${primary.relativePath}`,
-				content: primary.content,
-				checksum: primary.checksum,
-			});
+			symlinks.push({ relativePath: linkRelPath, target });
 		}
 	}
 
-	return copies;
+	return symlinks;
 }

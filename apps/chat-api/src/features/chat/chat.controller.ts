@@ -1,4 +1,4 @@
-import { apiEnv, type ChatMessagesScope } from "@/config/env";
+import { apiEnv, isSandboxEnabled, type ChatMessagesScope } from "@/config/env";
 import { runSandboxChat } from "@/features/sandbox-orchestration";
 import {
 	fetchProtectedChatContext,
@@ -210,23 +210,8 @@ export async function complete(
 		});
 	};
 
-	if (apiEnv.SANDBOX_ENABLED && mymemoConfig.enableKnowledge) {
-		if (!resolvedMemberCode) {
-			throw new Error("memberCode is required for sandbox chat");
-		}
-		await runSandboxChat({
-			userId: resolvedMemberCode,
-			chatKey,
-			query: chatContent,
-			scope,
-			collectionId: normalizeCollectionId,
-			summaryId: normalizedSummaryId,
-			onTextDelta,
-			onTextEnd,
-			logger,
-		});
-	} else {
-		await runMyMemo({
+	const runDefaultChat = () =>
+		runMyMemo({
 			config: mymemoConfig,
 			conversationHistory,
 			userInput: chatContent,
@@ -235,6 +220,32 @@ export async function complete(
 			onEvent,
 			logger,
 		});
+
+	if (
+		isSandboxEnabled() &&
+		mymemoConfig.enableKnowledge &&
+		resolvedMemberCode &&
+		resolvedPartnerCode
+	) {
+		const sandboxResult = await runSandboxChat({
+			userId: resolvedMemberCode,
+			chatKey,
+			query: chatContent,
+			scope,
+			collectionId: normalizeCollectionId,
+			summaryId: normalizedSummaryId,
+			memberCode: resolvedMemberCode,
+			partnerCode: resolvedPartnerCode,
+			memberAuthToken: config.memberAuthToken,
+			onTextDelta,
+			onTextEnd,
+			logger,
+		});
+		if (sandboxResult.status === "syncing") {
+			await runDefaultChat();
+		}
+	} else {
+		await runDefaultChat();
 	}
 
 	if (accumulatedCitations.length > 0) {

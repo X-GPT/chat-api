@@ -1,10 +1,10 @@
 import { Sandbox } from "e2b";
 import { apiEnv } from "@/config/env";
+import type { SyncLogger } from "@/features/sandbox";
 import { getDocsRoot } from "@/features/sandbox";
-import type { SyncLogger } from "@/features/sandbox/sandbox-sync.service";
 import { SandboxCreationError } from "./errors";
 
-const WORKSPACE_ROOT = "/workspace/sandbox-prototype";
+export const WORKSPACE_ROOT = "/workspace/sandbox-prototype";
 
 export class SandboxManager {
 	// Cache sandboxId per user to avoid Sandbox.list() API call on every request.
@@ -118,5 +118,9 @@ export class SandboxManager {
 
 	getDocsRoot(userId: string): string {
 		return getDocsRoot({ workspaceRoot: WORKSPACE_ROOT, userId });
+	}
+
+	getCachedSandboxId(userId: string): string | undefined {
+		return this.sandboxIdCache.get(userId);
 	}
 }
