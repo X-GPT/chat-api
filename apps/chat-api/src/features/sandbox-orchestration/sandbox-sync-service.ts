@@ -57,7 +57,7 @@ export async function getSyncStatus(input: {
 	return { status: "idle" };
 }
 
-export async function ensureInitialSync(
+export async function startInitialSyncIfNeeded(
 	input: SyncContext,
 ): Promise<{ status: "synced" | "syncing" }> {
 	const { userId, sandbox, options, logger } = input;

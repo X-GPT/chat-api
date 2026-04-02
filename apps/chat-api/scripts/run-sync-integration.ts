@@ -21,7 +21,7 @@ import {
 	WORKSPACE_ROOT,
 } from "@/features/sandbox-orchestration/sandbox-manager";
 import {
-	ensureInitialSync,
+	startInitialSyncIfNeeded,
 	getSyncStatus,
 	runIncrementalSync,
 } from "@/features/sandbox-orchestration/sandbox-sync-service";
@@ -258,8 +258,8 @@ async function testInitialSync(sandboxManager: SandboxManager) {
 
 	const e2eStart = performance.now();
 
-	const result = await timed("[initial] ensureInitialSync", () =>
-		ensureInitialSync(ctx),
+	const result = await timed("[initial] startInitialSyncIfNeeded", () =>
+		startInitialSyncIfNeeded(ctx),
 	);
 	assert.equal(result.status, "syncing");
 
@@ -341,7 +341,7 @@ async function testIncrementalSync(sandboxManager: SandboxManager) {
 		fetchers: mock.fetchers,
 	};
 
-	await ensureInitialSync(setupCtx);
+	await startInitialSyncIfNeeded(setupCtx);
 	await waitForSync(userId, sandbox, docsRoot);
 	_resetSyncState();
 	console.log("  Setup complete.\n");

@@ -1,9 +1,4 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
-
-Bun.env.OPENAI_API_KEY = Bun.env.OPENAI_API_KEY ?? "test-openai-key";
-Bun.env.ANTHROPIC_API_KEY = Bun.env.ANTHROPIC_API_KEY ?? "test-anthropic-key";
-Bun.env.PROTECTED_API_TOKEN = Bun.env.PROTECTED_API_TOKEN ?? "test-token";
-
 import { fetchSummariesManifest } from "./manifest";
 
 const silentLogger = {

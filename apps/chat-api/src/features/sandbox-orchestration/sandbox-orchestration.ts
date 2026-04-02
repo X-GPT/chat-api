@@ -4,7 +4,7 @@ import type { ChatLogger } from "@/features/chat/chat.logger";
 import { runSandboxAgent } from "@/features/sandbox-agent";
 import { SandboxCreationError } from "./errors";
 import {
-	ensureInitialSync,
+	startInitialSyncIfNeeded,
 	runIncrementalSync,
 } from "./sandbox-sync-service";
 import { sandboxManager, sessionStore } from "./singleton";
@@ -52,7 +52,7 @@ export async function runSandboxChat(
 		const sandbox = await sandboxManager.getOrCreateSandbox(userId, logger);
 		const docsRoot = sandboxManager.getDocsRoot(userId);
 
-		const ensured = await ensureInitialSync({
+		const ensured = await startInitialSyncIfNeeded({
 			userId,
 			sandbox,
 			options: syncOptions,

@@ -58,7 +58,7 @@ describe("runSandboxChat sync check", () => {
 			"/workspace/sandbox-prototype/docs/user-1",
 		);
 		spyIncrementalSync = spyOn(syncModule, "runIncrementalSync");
-		spyEnsureInitialSync = spyOn(syncModule, "ensureInitialSync");
+		spyEnsureInitialSync = spyOn(syncModule, "startInitialSyncIfNeeded");
 	});
 
 	afterEach(() => {
@@ -80,7 +80,7 @@ describe("runSandboxChat sync check", () => {
 		}
 	});
 
-	it("returns syncing when ensureInitialSync returns syncing", async () => {
+	it("returns syncing when startInitialSyncIfNeeded returns syncing", async () => {
 		spyEnsureInitialSync.mockResolvedValue({ status: "syncing" });
 
 		await expect(runSandboxChat(makeOptions())).resolves.toEqual({
@@ -109,7 +109,7 @@ describe("runSandboxChat sync check", () => {
 		}
 	});
 
-	it("runs incremental sync and agent when ensureInitialSync returns synced", async () => {
+	it("runs incremental sync and agent when startInitialSyncIfNeeded returns synced", async () => {
 		spyEnsureInitialSync.mockResolvedValue({ status: "synced" });
 		spyIncrementalSync.mockResolvedValue(undefined);
 

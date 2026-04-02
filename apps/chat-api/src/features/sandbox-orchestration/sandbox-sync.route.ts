@@ -3,7 +3,7 @@ import { validator as zValidator } from "hono-openapi";
 import type { Env as PinoEnv } from "hono-pino";
 import * as z from "zod";
 import {
-	ensureInitialSync,
+	startInitialSyncIfNeeded,
 	getSyncStatus,
 } from "./sandbox-sync-service";
 import { sandboxManager } from "./singleton";
@@ -39,7 +39,7 @@ app.post(
 				memberCode,
 				logger,
 			);
-			const status = await ensureInitialSync({
+			const status = await startInitialSyncIfNeeded({
 				userId: memberCode,
 				sandbox,
 				options: { memberCode, partnerCode, memberAuthToken },

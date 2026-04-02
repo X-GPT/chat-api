@@ -3,7 +3,7 @@ import * as manifestModule from "@/features/chat/api/manifest";
 import * as summariesModule from "@/features/chat/api/summaries";
 import * as fetchAllModule from "./fetch-all-summaries";
 import {
-	ensureInitialSync,
+	startInitialSyncIfNeeded,
 	getSyncStatus,
 	runIncrementalSync,
 } from "./sandbox-sync-service";
@@ -49,7 +49,7 @@ describe("sandbox-sync-service", () => {
 
 		try {
 			expect(
-				await ensureInitialSync({
+				await startInitialSyncIfNeeded({
 					userId: "user-1",
 					sandbox: sandbox as any,
 					options: syncOptions,
@@ -78,7 +78,7 @@ describe("sandbox-sync-service", () => {
 		);
 
 		try {
-			await ensureInitialSync({
+			await startInitialSyncIfNeeded({
 				userId: "user-1",
 				sandbox: sandbox as any,
 				options: syncOptions,
