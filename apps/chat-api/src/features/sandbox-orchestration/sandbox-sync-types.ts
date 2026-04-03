@@ -13,6 +13,7 @@ export interface StoredSyncEntry {
 	id: string;
 	checksum: string;
 	relativePath: string;
+	type: number;
 	collectionIds?: string[];
 }
 

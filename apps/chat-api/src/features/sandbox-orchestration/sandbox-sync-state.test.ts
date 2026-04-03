@@ -38,7 +38,7 @@ describe("sandbox-sync-state", () => {
 
 	it("round-trips stored state", async () => {
 		const sandbox = createMockSandbox();
-		const state = [{ id: "1", checksum: "aaa", relativePath: "0/1.txt" }];
+		const state = [{ id: "1", checksum: "aaa", relativePath: "0/1.txt", type: 0 }];
 		await writeStoredSyncState(sandbox as any, "/docs", state);
 		expect(await readStoredSyncState(sandbox as any, "/docs")).toEqual(state);
 	});

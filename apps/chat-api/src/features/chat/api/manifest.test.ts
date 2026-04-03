@@ -23,8 +23,8 @@ describe("fetchSummariesManifest", () => {
 
 	it("returns manifest entries on successful response", async () => {
 		const entries = [
-			{ id: "1", checksum: "abc123" },
-			{ id: "2", checksum: "def456" },
+			{ id: "1", checksum: "abc123", type: 0 },
+			{ id: "2", checksum: "def456", type: 3 },
 		];
 		mockFetchResponse({ code: 200, msg: "ok", data: entries });
 
@@ -36,8 +36,8 @@ describe("fetchSummariesManifest", () => {
 		);
 
 		expect(result).toHaveLength(2);
-		expect(result[0]).toEqual({ id: "1", checksum: "abc123" });
-		expect(result[1]).toEqual({ id: "2", checksum: "def456" });
+		expect(result[0]).toEqual({ id: "1", checksum: "abc123", type: 0 });
+		expect(result[1]).toEqual({ id: "2", checksum: "def456", type: 3 });
 	});
 
 	it("throws when data field is missing", async () => {

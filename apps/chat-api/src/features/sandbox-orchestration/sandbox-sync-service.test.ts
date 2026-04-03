@@ -111,13 +111,13 @@ describe("sandbox-sync-service", () => {
 		const sandbox = createMockSandbox();
 		sandbox.filesContent.set(
 			"/workspace/sandbox-prototype/docs/user-1/.sync-state.json",
-			JSON.stringify([{ id: "1", checksum: "aaa", relativePath: "0/1.txt" }]),
+			JSON.stringify([{ id: "1", checksum: "aaa", relativePath: "0/1.txt", type: 0 }]),
 		);
 
 		const spyManifest = spyOn(
 			manifestModule,
 			"fetchSummariesManifest",
-		).mockResolvedValue([{ id: "1", checksum: "aaa", collectionIds: [] }]);
+		).mockResolvedValue([{ id: "1", checksum: "aaa", type: 0, collectionIds: [] }]);
 		const spySummaries = spyOn(
 			summariesModule,
 			"fetchProtectedSummaries",

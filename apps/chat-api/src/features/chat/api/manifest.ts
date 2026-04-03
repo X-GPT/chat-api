@@ -7,6 +7,7 @@ import { parseJsonSafely } from "./json-parser";
 const manifestEntrySchema = z.object({
 	id: z.string(),
 	checksum: z.string(),
+	type: z.number(),
 	collectionIds: z.array(z.string()).optional(),
 });
 

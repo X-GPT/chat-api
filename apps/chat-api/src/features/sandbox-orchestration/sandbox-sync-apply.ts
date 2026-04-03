@@ -16,9 +16,10 @@ export async function applyInitialSyncPlan(
 	plan: InitialSyncPlan,
 ): Promise<void> {
 	if (plan.isEmpty) {
-		await sandbox.commands.run(`mkdir -p ${JSON.stringify(plan.docsRoot)}`, {
-			timeoutMs: 10_000,
-		});
+		await sandbox.commands.run(
+			`rm -rf ${JSON.stringify(plan.docsRoot)} && mkdir -p ${JSON.stringify(plan.docsRoot)}`,
+			{ timeoutMs: 10_000 },
+		);
 		await writeStoredSyncState(sandbox, plan.docsRoot, plan.nextState);
 		await writeSyncCompleteMarker(sandbox, plan.docsRoot);
 		return;
@@ -86,25 +87,20 @@ export async function applyIncrementalSyncPlan(
 	}
 
 	// Execute content writes and shell commands in parallel
-	const promises: Promise<unknown>[] = [];
+	const writePromise =
+		writeEntries.length > 0
+			? sandbox.files.write(writeEntries)
+			: undefined;
 
-	if (writeEntries.length > 0) {
-		promises.push(sandbox.files.write(writeEntries));
-	}
+	const cmdPromise =
+		cmdParts.length > 0
+			? sandbox.commands.run(cmdParts.join(" && "), { timeoutMs: 10_000 })
+			: undefined;
 
-	let cmdResultPromise: Promise<{ exitCode: number; stderr: string }> | null =
-		null;
-	if (cmdParts.length > 0) {
-		cmdResultPromise = sandbox.commands.run(cmdParts.join(" && "), {
-			timeoutMs: 10_000,
-		});
-		promises.push(cmdResultPromise);
-	}
+	await Promise.all([writePromise, cmdPromise].filter(Boolean));
 
-	await Promise.all(promises);
-
-	if (cmdResultPromise) {
-		const cmdResult = await cmdResultPromise;
+	if (cmdPromise) {
+		const cmdResult = await cmdPromise;
 		if (cmdResult.exitCode !== 0) {
 			throw new Error(
 				`Incremental sync: shell command failed (exit ${cmdResult.exitCode}): ${cmdResult.stderr}`,

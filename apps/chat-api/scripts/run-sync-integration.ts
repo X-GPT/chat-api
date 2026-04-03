@@ -331,6 +331,7 @@ async function testIncrementalSync(sandboxManager: SandboxManager) {
 		state.map((e: any, i: number) => ({
 			id: e.id,
 			checksum: i < CHANGE_COUNT ? `changed-${e.id}` : e.checksum,
+			type: e.type ?? 0,
 			collectionIds: e.collectionIds ?? [],
 		})),
 	);
@@ -392,6 +393,7 @@ async function testIncrementalSync(sandboxManager: SandboxManager) {
 		keptEntries.map((e: any) => ({
 			id: e.id,
 			checksum: e.checksum,
+			type: e.type ?? 0,
 			collectionIds: e.collectionIds ?? [],
 		})),
 	);
@@ -439,6 +441,7 @@ async function testIncrementalSync(sandboxManager: SandboxManager) {
 		stateForNoop.map((e: any) => ({
 			id: e.id,
 			checksum: e.checksum,
+			type: e.type ?? 0,
 			collectionIds: e.collectionIds ?? [],
 		})),
 	);

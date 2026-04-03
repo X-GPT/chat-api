@@ -42,7 +42,7 @@ export function diffIncrementalSync(
 	const storedMap = new Map(
 		storedState.map((entry) => [
 			entry.id,
-			{ checksum: entry.checksum, collectionIds: normalizeCollectionIds(entry.collectionIds) },
+			{ checksum: entry.checksum, type: entry.type, collectionIds: normalizeCollectionIds(entry.collectionIds) },
 		]),
 	);
 	const manifestMap = new Map(
@@ -57,7 +57,11 @@ export function diffIncrementalSync(
 	);
 
 	const contentChangedIds = manifest
-		.filter((entry) => storedMap.get(entry.id)?.checksum !== entry.checksum)
+		.filter((entry) => {
+			const stored = storedMap.get(entry.id);
+			if (!stored) return true;
+			return stored.checksum !== entry.checksum || stored.type !== entry.type;
+		})
 		.map((entry) => entry.id);
 
 	const deletedEntries = storedState.filter((entry) => !manifestMap.has(entry.id));
@@ -67,6 +71,7 @@ export function diffIncrementalSync(
 			const stored = storedMap.get(entry.id);
 			if (!stored) return false;
 			if (stored.checksum !== entry.checksum) return false;
+			if (stored.type !== entry.type) return false;
 			const storedCols = [...stored.collectionIds].sort().join(",");
 			const manifestCols = [...normalizeCollectionIds(entry.collectionIds)].sort().join(",");
 			return storedCols !== manifestCols;
@@ -121,6 +126,7 @@ export function buildInitialSyncPlan(input: {
 		id: file.summaryId,
 		checksum: checksumMap.get(file.summaryId) ?? file.checksum,
 		relativePath: file.relativePath,
+		type: file.type,
 		collectionIds: collectionMap.get(file.summaryId) ?? [],
 	}));
 
@@ -158,6 +164,7 @@ export function buildIncrementalSyncPlan(input: {
 		id: file.summaryId,
 		checksum: diff.manifestMap.get(file.summaryId)?.checksum ?? file.checksum,
 		relativePath: file.relativePath,
+		type: diff.manifestMap.get(file.summaryId)?.entry.type ?? 0,
 		collectionIds: collectionMap.get(file.summaryId) ?? [],
 	}));
 

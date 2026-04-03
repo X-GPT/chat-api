@@ -39,9 +39,22 @@ describe("buildInitialSyncPlan", () => {
 				id: "1",
 				checksum: "aaa",
 				relativePath: "0/1.txt",
+				type: 0,
 				collectionIds: ["col-A"],
 			},
 		]);
+	});
+
+	it("stores type in nextState", () => {
+		const plan = buildInitialSyncPlan({
+			userId: "user-1",
+			fullSummaries: [
+				makeSummary({ id: "1", checksum: "aaa", type: 3 }),
+			],
+		});
+
+		expect(plan.nextState[0]?.type).toBe(3);
+		expect(plan.nextState[0]?.relativePath).toBe("3/1.txt");
 	});
 });
 
@@ -49,13 +62,13 @@ describe("diffIncrementalSync", () => {
 	it("detects content, collection, and deleted changes", () => {
 		const diff = diffIncrementalSync(
 			[
-				{ id: "1", checksum: "a2", collectionIds: [] },
-				{ id: "2", checksum: "b1", collectionIds: ["col-B"] },
+				{ id: "1", checksum: "a2", type: 0, collectionIds: [] },
+				{ id: "2", checksum: "b1", type: 0, collectionIds: ["col-B"] },
 			],
 			[
-				{ id: "1", checksum: "a1", relativePath: "0/1.txt", collectionIds: [] },
-				{ id: "2", checksum: "b1", relativePath: "0/2.txt", collectionIds: ["col-A"] },
-				{ id: "3", checksum: "c1", relativePath: "0/3.txt", collectionIds: [] },
+				{ id: "1", checksum: "a1", relativePath: "0/1.txt", type: 0, collectionIds: [] },
+				{ id: "2", checksum: "b1", relativePath: "0/2.txt", type: 0, collectionIds: ["col-A"] },
+				{ id: "3", checksum: "c1", relativePath: "0/3.txt", type: 0, collectionIds: [] },
 			],
 		);
 
@@ -66,12 +79,13 @@ describe("diffIncrementalSync", () => {
 
 	it("detects collection removal when manifest omits collectionIds", () => {
 		const diff = diffIncrementalSync(
-			[{ id: "1", checksum: "aaa" }],
+			[{ id: "1", checksum: "aaa", type: 0 }],
 			[
 				{
 					id: "1",
 					checksum: "aaa",
 					relativePath: "0/1.txt",
+					type: 0,
 					collectionIds: ["col-A"],
 				},
 			],
@@ -79,16 +93,53 @@ describe("diffIncrementalSync", () => {
 
 		expect(diff.collectionChangedIds).toEqual(["1"]);
 	});
+
+	it("detects type change as content change", () => {
+		const diff = diffIncrementalSync(
+			[{ id: "1", checksum: "aaa", type: 3, collectionIds: [] }],
+			[
+				{
+					id: "1",
+					checksum: "aaa",
+					relativePath: "0/1.txt",
+					type: 0,
+					collectionIds: [],
+				},
+			],
+		);
+
+		expect(diff.contentChangedIds).toEqual(["1"]);
+		expect(diff.collectionChangedIds).toEqual([]);
+	});
+
+	it("does not double-count type change in collectionChangedIds", () => {
+		const diff = diffIncrementalSync(
+			[{ id: "1", checksum: "aaa", type: 3, collectionIds: ["col-B"] }],
+			[
+				{
+					id: "1",
+					checksum: "aaa",
+					relativePath: "0/1.txt",
+					type: 0,
+					collectionIds: ["col-A"],
+				},
+			],
+		);
+
+		expect(diff.contentChangedIds).toEqual(["1"]);
+		expect(diff.collectionChangedIds).toEqual([]);
+	});
 });
 
 describe("buildIncrementalSyncPlan", () => {
 	it("updates collection-only changes without rewriting content", () => {
-		const manifest = [{ id: "1", checksum: "aaa", collectionIds: ["col-B"] }];
+		const manifest = [{ id: "1", checksum: "aaa", type: 0, collectionIds: ["col-B"] }];
 		const storedState = [
 			{
 				id: "1",
 				checksum: "aaa",
 				relativePath: "0/1.txt",
+				type: 0,
 				collectionIds: ["col-A"],
 			},
 		];
@@ -112,6 +163,7 @@ describe("buildIncrementalSyncPlan", () => {
 				id: "1",
 				checksum: "aaa",
 				relativePath: "0/1.txt",
+				type: 0,
 				collectionIds: ["col-B"],
 			},
 		]);
@@ -129,12 +181,13 @@ describe("buildIncrementalSyncPlan", () => {
 			});
 
 		try {
-			const manifest = [{ id: "1", checksum: "bbb", collectionIds: [] }];
+			const manifest = [{ id: "1", checksum: "bbb", type: 2, collectionIds: [] }];
 			const storedState = [
 				{
 					id: "1",
 					checksum: "aaa",
 					relativePath: "0/1.txt",
+					type: 0,
 					collectionIds: [],
 				},
 			];
