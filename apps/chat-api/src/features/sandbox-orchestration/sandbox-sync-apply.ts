@@ -31,10 +31,7 @@ export async function applyInitialSyncPlan(
 	);
 	await sandbox.files.write(
 		"/tmp/docs.tar.gz",
-		tarBuffer.buffer.slice(
-			tarBuffer.byteOffset,
-			tarBuffer.byteOffset + tarBuffer.byteLength,
-		) as ArrayBuffer,
+		new Uint8Array(tarBuffer).buffer as ArrayBuffer,
 	);
 
 	const quotedRoot = JSON.stringify(plan.docsRoot);
