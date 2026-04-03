@@ -5,9 +5,6 @@ export const SYNC_COMPLETE_FILE = ".sync-complete";
 export const SYNC_STATE_FILE = ".sync-state.json";
 export const SYNC_ERROR_FILE = ".sync-error";
 
-const syncCompleteCache = new Map<string, string>();
-const initialSyncLocks = new Map<string, Promise<void>>();
-
 export async function readStoredSyncState(
 	sandbox: Sandbox,
 	docsRoot: string,
@@ -90,49 +87,4 @@ export async function clearSyncErrorMessage(
 	} catch {
 		// Best-effort.
 	}
-}
-
-export function isInitialSyncInFlight(userId: string): boolean {
-	return initialSyncLocks.has(userId);
-}
-
-export function trackInitialSync(userId: string, promise: Promise<void>): void {
-	initialSyncLocks.set(
-		userId,
-		promise.finally(() => {
-			initialSyncLocks.delete(userId);
-		}),
-	);
-}
-
-export function rememberCompletedSync(userId: string, sandboxId: string): void {
-	syncCompleteCache.set(userId, sandboxId);
-}
-
-export function hasCompletedSyncCache(
-	userId: string,
-	sandboxId: string,
-): boolean {
-	return syncCompleteCache.get(userId) === sandboxId;
-}
-
-export async function hasCompletedSync(
-	userId: string,
-	sandbox: Sandbox,
-	docsRoot: string,
-): Promise<boolean> {
-	if (hasCompletedSyncCache(userId, sandbox.sandboxId)) {
-		return true;
-	}
-
-	const complete = await isInitialSyncComplete(sandbox, docsRoot);
-	if (complete) {
-		rememberCompletedSync(userId, sandbox.sandboxId);
-	}
-	return complete;
-}
-
-export function _resetSyncState(): void {
-	syncCompleteCache.clear();
-	initialSyncLocks.clear();
 }

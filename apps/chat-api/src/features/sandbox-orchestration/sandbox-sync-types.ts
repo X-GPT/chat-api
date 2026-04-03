@@ -38,7 +38,7 @@ export interface IncrementalSyncPlan {
 	};
 }
 
-export type SyncStatus = "idle" | "syncing" | "synced" | "error";
+export type SyncStatus = "idle" | "synced" | "error";
 
 export interface SyncFetchers {
 	fetchAllFullSummaries(

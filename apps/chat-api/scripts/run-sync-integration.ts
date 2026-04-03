@@ -21,11 +21,10 @@ import {
 	WORKSPACE_ROOT,
 } from "@/features/sandbox-orchestration/sandbox-manager";
 import {
-	startInitialSyncIfNeeded,
+	ensureInitialSync,
 	getSyncStatus,
 	runIncrementalSync,
 } from "@/features/sandbox-orchestration/sandbox-sync-service";
-import { _resetSyncState } from "@/features/sandbox-orchestration/sandbox-sync-state";
 import type { SyncFetchers } from "@/features/sandbox-orchestration/sandbox-sync-types";
 
 // ── Timing ───────────────────────────────────────────────────────────
@@ -204,26 +203,6 @@ function buildMockFetchers(): {
 	};
 }
 
-async function waitForSync(
-	userId: string,
-	sandbox: Sandbox,
-	docsRoot: string,
-	timeoutMs = 30_000,
-): Promise<void> {
-	const start = Date.now();
-	while (Date.now() - start < timeoutMs) {
-		const { status, message } = await getSyncStatus({
-			userId,
-			sandbox,
-			docsRoot,
-		});
-		if (status === "synced") return;
-		if (status === "error") throw new Error(`Sync failed: ${message}`);
-		await new Promise((r) => setTimeout(r, 500));
-	}
-	throw new Error("Sync timed out");
-}
-
 // ── Test 1: Initial Sync ─────────────────────────────────────────────
 
 async function testInitialSync(sandboxManager: SandboxManager) {
@@ -246,7 +225,6 @@ async function testInitialSync(sandboxManager: SandboxManager) {
 	await timed("[initial] clean docs dir", () =>
 		sandbox.commands.run(`rm -rf ${docsRoot}`),
 	);
-	_resetSyncState();
 
 	const ctx = {
 		userId,
@@ -258,13 +236,8 @@ async function testInitialSync(sandboxManager: SandboxManager) {
 
 	const e2eStart = performance.now();
 
-	const result = await timed("[initial] startInitialSyncIfNeeded", () =>
-		startInitialSyncIfNeeded(ctx),
-	);
-	assert.equal(result.status, "syncing");
-
-	await timed("[initial] waitForSync (poll)", () =>
-		waitForSync(userId, sandbox, docsRoot),
+	await timed("[initial] ensureInitialSync", () =>
+		ensureInitialSync(ctx),
 	);
 
 	const e2eMs = performance.now() - e2eStart;
@@ -273,6 +246,10 @@ async function testInitialSync(sandboxManager: SandboxManager) {
 		ms: e2eMs,
 		detail: `${FILE_COUNT} files`,
 	});
+
+	// Verify status is synced
+	const status = await getSyncStatus({ sandbox, docsRoot });
+	assert.equal(status.status, "synced", "status should be synced after initial sync");
 
 	await timed("[initial] verify", async () => {
 		const file1 = await sandbox.files.read(`${docsRoot}/0/sum-1.txt`);
@@ -331,7 +308,6 @@ async function testIncrementalSync(sandboxManager: SandboxManager) {
 	// ── Setup: seed with initial sync (untimed) ──────────────────
 	console.log("\n  Setting up: running initial sync to seed sandbox...");
 	await sandbox.commands.run(`rm -rf ${docsRoot}`);
-	_resetSyncState();
 
 	const setupCtx = {
 		userId,
@@ -341,9 +317,7 @@ async function testIncrementalSync(sandboxManager: SandboxManager) {
 		fetchers: mock.fetchers,
 	};
 
-	await startInitialSyncIfNeeded(setupCtx);
-	await waitForSync(userId, sandbox, docsRoot);
-	_resetSyncState();
+	await ensureInitialSync(setupCtx);
 	console.log("  Setup complete.\n");
 
 	// ── Scenario A: 10 content changes ───────────────────────────
@@ -404,7 +378,6 @@ async function testIncrementalSync(sandboxManager: SandboxManager) {
 	const DELETE_COUNT = 5;
 	console.log(`--- Scenario B: ${DELETE_COUNT} deletions ---`);
 
-	_resetSyncState();
 	const stateBeforeDelete: any[] = JSON.parse(
 		await sandbox.files.read(`${docsRoot}/.sync-state.json`),
 	);
@@ -459,7 +432,6 @@ async function testIncrementalSync(sandboxManager: SandboxManager) {
 	// ── Scenario C: no changes ───────────────────────────────────
 	console.log("--- Scenario C: no changes ---");
 
-	_resetSyncState();
 	const stateForNoop = JSON.parse(
 		await sandbox.files.read(`${docsRoot}/.sync-state.json`),
 	);

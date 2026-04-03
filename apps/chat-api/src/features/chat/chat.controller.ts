@@ -227,7 +227,7 @@ export async function complete(
 		resolvedMemberCode &&
 		resolvedPartnerCode
 	) {
-		const sandboxResult = await runSandboxChat({
+		await runSandboxChat({
 			userId: resolvedMemberCode,
 			chatKey,
 			query: chatContent,
@@ -241,9 +241,6 @@ export async function complete(
 			onTextEnd,
 			logger,
 		});
-		if (sandboxResult.status === "syncing") {
-			await runDefaultChat();
-		}
 	} else {
 		await runDefaultChat();
 	}

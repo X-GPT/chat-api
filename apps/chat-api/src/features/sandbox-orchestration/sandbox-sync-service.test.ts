@@ -1,13 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, spyOn } from "bun:test";
+import { describe, expect, it, spyOn } from "bun:test";
 import * as manifestModule from "@/features/chat/api/manifest";
 import * as summariesModule from "@/features/chat/api/summaries";
 import * as fetchAllModule from "./fetch-all-summaries";
 import {
-	startInitialSyncIfNeeded,
+	ensureInitialSync,
 	getSyncStatus,
 	runIncrementalSync,
 } from "./sandbox-sync-service";
-import { _resetSyncState } from "./sandbox-sync-state";
 import { createMockSandbox } from "./test-helpers";
 
 const silentLogger = {
@@ -22,77 +21,87 @@ const syncOptions = {
 };
 
 describe("sandbox-sync-service", () => {
-	beforeEach(() => {
-		_resetSyncState();
-	});
-
-	afterEach(() => {
-		_resetSyncState();
-	});
-
 	it("returns idle when no state exists", async () => {
 		const sandbox = createMockSandbox();
 		await expect(
 			getSyncStatus({
-				userId: "user-1",
 				sandbox: sandbox as any,
 				docsRoot: "/workspace/sandbox-prototype/docs/user-1",
 			}),
 		).resolves.toEqual({ status: "idle" });
 	});
 
-	it("starts background initial sync and marks synced on completion", async () => {
+	it("runs initial sync inline and returns", async () => {
 		const sandbox = createMockSandbox();
 		const spyFetchAll = spyOn(fetchAllModule, "fetchAllFullSummaries").mockResolvedValue(
 			[],
 		);
 
 		try {
-			expect(
-				await startInitialSyncIfNeeded({
-					userId: "user-1",
-					sandbox: sandbox as any,
-					options: syncOptions,
-					logger: silentLogger as any,
-				}),
-			).toEqual({ status: "syncing" });
+			await ensureInitialSync({
+				userId: "user-1",
+				sandbox: sandbox as any,
+				options: syncOptions,
+				logger: silentLogger as any,
+			});
 
-			await new Promise((resolve) => setTimeout(resolve, 0));
-
-			expect(
-				await getSyncStatus({
-					userId: "user-1",
+			// .sync-complete marker should be written by applyInitialSyncPlan
+			await expect(
+				getSyncStatus({
 					sandbox: sandbox as any,
 					docsRoot: "/workspace/sandbox-prototype/docs/user-1",
 				}),
-			).toEqual({ status: "synced" });
+			).resolves.toEqual({ status: "synced" });
 		} finally {
 			spyFetchAll.mockRestore();
 		}
 	});
 
-	it("returns error status when initial sync fails", async () => {
+	it("throws and writes .sync-error on failure", async () => {
 		const sandbox = createMockSandbox();
 		const spyFetchAll = spyOn(fetchAllModule, "fetchAllFullSummaries").mockRejectedValue(
 			new Error("boom"),
 		);
 
 		try {
-			await startInitialSyncIfNeeded({
+			await expect(
+				ensureInitialSync({
+					userId: "user-1",
+					sandbox: sandbox as any,
+					options: syncOptions,
+					logger: silentLogger as any,
+				}),
+			).rejects.toThrow("boom");
+
+			await expect(
+				getSyncStatus({
+					sandbox: sandbox as any,
+					docsRoot: "/workspace/sandbox-prototype/docs/user-1",
+				}),
+			).resolves.toEqual({ status: "error", message: "boom" });
+		} finally {
+			spyFetchAll.mockRestore();
+		}
+	});
+
+	it("skips initial sync when already complete", async () => {
+		const sandbox = createMockSandbox();
+		// Write .sync-complete marker
+		sandbox.filesContent.set(
+			"/workspace/sandbox-prototype/docs/user-1/.sync-complete",
+			new Date().toISOString(),
+		);
+		const spyFetchAll = spyOn(fetchAllModule, "fetchAllFullSummaries");
+
+		try {
+			await ensureInitialSync({
 				userId: "user-1",
 				sandbox: sandbox as any,
 				options: syncOptions,
 				logger: silentLogger as any,
 			});
-			await new Promise((resolve) => setTimeout(resolve, 0));
 
-			expect(
-				await getSyncStatus({
-					userId: "user-1",
-					sandbox: sandbox as any,
-					docsRoot: "/workspace/sandbox-prototype/docs/user-1",
-				}),
-			).toEqual({ status: "error", message: "boom" });
+			expect(spyFetchAll).not.toHaveBeenCalled();
 		} finally {
 			spyFetchAll.mockRestore();
 		}

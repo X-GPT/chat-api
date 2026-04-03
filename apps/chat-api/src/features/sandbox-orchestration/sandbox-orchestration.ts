@@ -4,7 +4,7 @@ import type { ChatLogger } from "@/features/chat/chat.logger";
 import { runSandboxAgent } from "@/features/sandbox-agent";
 import { SandboxCreationError } from "./errors";
 import {
-	startInitialSyncIfNeeded,
+	ensureInitialSync,
 	runIncrementalSync,
 } from "./sandbox-sync-service";
 import { sandboxManager, sessionStore } from "./singleton";
@@ -24,9 +24,7 @@ export interface RunSandboxChatOptions {
 	logger: ChatLogger;
 }
 
-export type RunSandboxChatResult =
-	| { status: "completed" }
-	| { status: "syncing" };
+export type RunSandboxChatResult = { status: "completed" };
 
 export async function runSandboxChat(
 	options: RunSandboxChatOptions,
@@ -52,15 +50,12 @@ export async function runSandboxChat(
 		const sandbox = await sandboxManager.getOrCreateSandbox(userId, logger);
 		const docsRoot = sandboxManager.getDocsRoot(userId);
 
-		const ensured = await startInitialSyncIfNeeded({
+		await ensureInitialSync({
 			userId,
 			sandbox,
 			options: syncOptions,
 			logger,
 		});
-		if (ensured.status !== "synced") {
-			return { status: "syncing" } as const;
-		}
 
 		// Incremental sync — inline, blocking, every request
 		await runIncrementalSync({

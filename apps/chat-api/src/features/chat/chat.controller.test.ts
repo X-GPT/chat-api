@@ -20,7 +20,7 @@ const sender = {
 	send(_event: unknown) {},
 };
 
-describe("complete sandbox fallback", () => {
+describe("complete sandbox behavior", () => {
 	let chatApiModule: typeof import("./api/chat");
 	let summariesModule: typeof import("./api/summaries");
 	let sandboxModule: typeof import("@/features/sandbox-orchestration");
@@ -40,50 +40,7 @@ describe("complete sandbox fallback", () => {
 		mock.restore();
 	});
 
-	it("falls back to runMyMemo when sandbox chat is still syncing", async () => {
-		spyOn(chatApiModule, "fetchProtectedChatId").mockResolvedValueOnce(
-			"chat-id",
-		).mockResolvedValueOnce("refs-id");
-		spyOn(chatApiModule, "fetchProtectedChatContext").mockResolvedValue({
-			chatKey: "chat-1",
-			chatData: {
-				memberCode: "user-1",
-				partnerCode: "partner-1",
-				enableKnowledge: 1,
-				modelType: "gpt-4o",
-			},
-		});
-		spyOn(chatApiModule, "fetchProtectedChatMessages").mockResolvedValue([]);
-		spyOn(summariesModule, "fetchProtectedSummaries").mockResolvedValue([]);
-
-		const spySandbox = spyOn(sandboxModule, "runSandboxChat").mockResolvedValue({
-			status: "syncing",
-		});
-		const spyRunMyMemo = spyOn(mymemoModule, "runMyMemo").mockResolvedValue(
-			undefined,
-		);
-
-		await controllerModule.complete(
-			{
-				chatContent: "hello",
-				chatKey: "chat-1",
-				chatType: "text",
-				collectionId: null,
-				summaryId: null,
-			},
-			{
-				memberAuthToken: "token-123",
-				memberCode: "user-1",
-			},
-			sender as any,
-			silentLogger as any,
-		);
-
-		expect(spySandbox).toHaveBeenCalled();
-		expect(spyRunMyMemo).toHaveBeenCalled();
-	});
-
-	it("uses sandbox chat only when the sandbox is ready", async () => {
+	it("uses sandbox chat when sync completes", async () => {
 		spyOn(chatApiModule, "fetchProtectedChatId").mockResolvedValueOnce(
 			"chat-id",
 		).mockResolvedValueOnce("refs-id");

@@ -1,15 +1,10 @@
-import { afterEach, describe, expect, it } from "bun:test";
+import { describe, expect, it } from "bun:test";
+import { createMockSandbox } from "./test-helpers";
 import {
-	createMockSandbox,
-} from "./test-helpers";
-import {
-	_resetSyncState,
 	clearSyncErrorMessage,
-	hasCompletedSync,
 	isInitialSyncComplete,
 	readStoredSyncState,
 	readSyncErrorMessage,
-	rememberCompletedSync,
 	writeStoredSyncState,
 	writeSyncCompleteMarker,
 	writeSyncErrorMessage,
@@ -35,15 +30,6 @@ describe("sandbox-sync-state", () => {
 		expect(sandbox.commandsRun.at(-1)).toContain(".sync-error");
 	});
 
-	it("honors sync complete cache before filesystem read", async () => {
-		const sandbox = createMockSandbox("sbx-1");
-		rememberCompletedSync("user-1", "sbx-1");
-
-		expect(await hasCompletedSync("user-1", sandbox as any, "/docs")).toBe(
-			true,
-		);
-	});
-
 	it("detects sync complete marker on disk", async () => {
 		const sandbox = createMockSandbox();
 		await writeSyncCompleteMarker(sandbox as any, "/docs");
@@ -56,8 +42,4 @@ describe("sandbox-sync-state", () => {
 		await writeStoredSyncState(sandbox as any, "/docs", state);
 		expect(await readStoredSyncState(sandbox as any, "/docs")).toEqual(state);
 	});
-});
-
-afterEach(() => {
-	_resetSyncState();
 });

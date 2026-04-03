@@ -16,12 +16,9 @@ import {
 } from "./sandbox-sync-planner";
 import {
 	clearSyncErrorMessage,
-	hasCompletedSync,
-	isInitialSyncInFlight,
+	isInitialSyncComplete,
 	readStoredSyncState,
 	readSyncErrorMessage,
-	rememberCompletedSync,
-	trackInitialSync,
 	writeSyncErrorMessage,
 } from "./sandbox-sync-state";
 import type { SyncFetchers, SyncOptions, SyncStatus } from "./sandbox-sync-types";
@@ -35,43 +32,32 @@ interface SyncContext {
 }
 
 export async function getSyncStatus(input: {
-	userId: string;
 	sandbox: Sandbox;
 	docsRoot: string;
 }): Promise<{ status: SyncStatus; message?: string }> {
-	const { userId, sandbox, docsRoot } = input;
-
-	if (isInitialSyncInFlight(userId)) {
-		return { status: "syncing" };
-	}
+	const { sandbox, docsRoot } = input;
 
 	const errorMessage = await readSyncErrorMessage(sandbox, docsRoot);
 	if (errorMessage) {
 		return { status: "error", message: errorMessage };
 	}
 
-	if (await hasCompletedSync(userId, sandbox, docsRoot)) {
+	if (await isInitialSyncComplete(sandbox, docsRoot)) {
 		return { status: "synced" };
 	}
 
 	return { status: "idle" };
 }
 
-export async function startInitialSyncIfNeeded(
-	input: SyncContext,
-): Promise<{ status: "synced" | "syncing" }> {
+export async function ensureInitialSync(input: SyncContext): Promise<void> {
 	const { userId, sandbox, options, logger } = input;
 	const docsRoot = getDocsRoot({
 		workspaceRoot: WORKSPACE_ROOT,
 		userId,
 	});
 
-	const status = await getSyncStatus({ userId, sandbox, docsRoot });
-	if (status.status === "synced") {
-		return { status: "synced" };
-	}
-	if (status.status === "syncing") {
-		return { status: "syncing" };
+	if (await isInitialSyncComplete(sandbox, docsRoot)) {
+		return;
 	}
 
 	await clearSyncErrorMessage(sandbox, docsRoot);
@@ -80,46 +66,38 @@ export async function startInitialSyncIfNeeded(
 		memberAuthToken: options.memberAuthToken,
 	};
 
-	const promise = (async () => {
-		try {
-			const fetchAll = input.fetchers?.fetchAllFullSummaries ?? defaultFetchAllFull;
-			const fullSummaries = await fetchAll(
-				options.memberCode,
-				options.partnerCode,
-				fetchOptions,
-				logger,
-			);
-			const plan = buildInitialSyncPlan({ userId, fullSummaries });
+	try {
+		const fetchAll = input.fetchers?.fetchAllFullSummaries ?? defaultFetchAllFull;
+		const fullSummaries = await fetchAll(
+			options.memberCode,
+			options.partnerCode,
+			fetchOptions,
+			logger,
+		);
+		const plan = buildInitialSyncPlan({ userId, fullSummaries });
 
-			logger.info({
-				msg: "Initial sync: fetched summaries",
-				userId,
-				total: fullSummaries.length,
-				active: plan.primaryFiles.length,
-				collections: plan.collectionSymlinks.length,
-			});
+		logger.info({
+			msg: "Initial sync: fetched summaries",
+			userId,
+			total: fullSummaries.length,
+			active: plan.primaryFiles.length,
+			collections: plan.collectionSymlinks.length,
+		});
 
-			await applyInitialSyncPlan(sandbox, plan);
-			rememberCompletedSync(userId, sandbox.sandboxId);
-			logger.info({
-				msg: "Initial sync complete",
-				userId,
-				fileCount: plan.primaryFiles.length,
-				symlinks: plan.collectionSymlinks.length,
-			});
-		} catch (err) {
-			const message = err instanceof Error ? err.message : String(err);
-			await writeSyncErrorMessage(sandbox, docsRoot, message);
-			logger.error({
-				msg: "Initial sync failed",
-				userId,
-				error: message,
-			});
-		}
-	})();
+		await applyInitialSyncPlan(sandbox, plan);
 
-	trackInitialSync(userId, promise);
-	return { status: "syncing" };
+		logger.info({
+			msg: "Initial sync complete",
+			userId,
+			fileCount: plan.primaryFiles.length,
+			symlinks: plan.collectionSymlinks.length,
+		});
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		await writeSyncErrorMessage(sandbox, docsRoot, message);
+		logger.error({ msg: "Initial sync failed", userId, error: message });
+		throw err;
+	}
 }
 
 export async function runIncrementalSync(input: SyncContext): Promise<void> {
