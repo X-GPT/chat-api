@@ -5,6 +5,7 @@ import * as z from "zod";
 import {
 	ensureInitialSync,
 	getSyncStatus,
+	runIncrementalSync,
 } from "./sandbox-sync-service";
 import { sandboxManager } from "./singleton";
 
@@ -39,10 +40,19 @@ app.post(
 				memberCode,
 				logger,
 			);
+			const syncOptions = { memberCode, partnerCode, memberAuthToken };
+
 			await ensureInitialSync({
 				userId: memberCode,
 				sandbox,
-				options: { memberCode, partnerCode, memberAuthToken },
+				options: syncOptions,
+				logger,
+			});
+
+			await runIncrementalSync({
+				userId: memberCode,
+				sandbox,
+				options: syncOptions,
 				logger,
 			});
 
