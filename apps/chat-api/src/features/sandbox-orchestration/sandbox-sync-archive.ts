@@ -1,27 +1,37 @@
 import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import pLimit from "p-limit";
 import { create as createTar } from "tar";
 import type { CollectionSymlink, MaterializedFile } from "@/features/sandbox";
+
+const CONCURRENCY = 50;
 
 export async function buildTarGz(
 	files: MaterializedFile[],
 	symlinks: CollectionSymlink[],
 ): Promise<Buffer> {
 	const tmpDir = await mkdtemp(join(tmpdir(), "sandbox-sync-"));
+	const limit = pLimit(CONCURRENCY);
 
 	try {
-		for (const file of files) {
-			const filePath = join(tmpDir, file.relativePath);
-			await mkdir(dirname(filePath), { recursive: true });
-			await writeFile(filePath, file.content, "utf-8");
-		}
+		// Pre-create all unique directories, then write files in parallel
+		const fileDirs = new Set(files.map((f) => dirname(join(tmpDir, f.relativePath))));
+		const linkDirs = new Set(symlinks.map((l) => dirname(join(tmpDir, l.relativePath))));
+		const allDirs = new Set([...fileDirs, ...linkDirs]);
+		await Promise.all([...allDirs].map((d) => mkdir(d, { recursive: true })));
 
-		for (const link of symlinks) {
-			const linkPath = join(tmpDir, link.relativePath);
-			await mkdir(dirname(linkPath), { recursive: true });
-			await symlink(link.target, linkPath);
-		}
+		await Promise.all(
+			files.map((file) =>
+				limit(() => writeFile(join(tmpDir, file.relativePath), file.content, "utf-8")),
+			),
+		);
+
+		await Promise.all(
+			symlinks.map((link) =>
+				limit(() => symlink(link.target, join(tmpDir, link.relativePath))),
+			),
+		);
 
 		const chunks: Uint8Array[] = [];
 		const stream = createTar({ gzip: true, cwd: tmpDir }, ["."]);
