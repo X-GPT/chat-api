@@ -94,15 +94,12 @@ export async function applyIncrementalSyncPlan(
 			? sandbox.commands.run(cmdParts.join(" && "), { timeoutMs: 10_000 })
 			: undefined;
 
-	await Promise.all([writePromise, cmdPromise].filter(Boolean));
+	const [, cmdResult] = await Promise.all([writePromise, cmdPromise]);
 
-	if (cmdPromise) {
-		const cmdResult = await cmdPromise;
-		if (cmdResult.exitCode !== 0) {
-			throw new Error(
-				`Incremental sync: shell command failed (exit ${cmdResult.exitCode}): ${cmdResult.stderr}`,
-			);
-		}
+	if (cmdResult && cmdResult.exitCode !== 0) {
+		throw new Error(
+			`Incremental sync: shell command failed (exit ${cmdResult.exitCode}): ${cmdResult.stderr}`,
+		);
 	}
 
 	// Persist state only after all filesystem mutations succeed
