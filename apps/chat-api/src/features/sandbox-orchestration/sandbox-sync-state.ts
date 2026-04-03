@@ -21,7 +21,15 @@ export async function readStoredSyncState(
 		const parsed = JSON.parse(raw);
 		return Array.isArray(parsed) ? parsed : [];
 	} catch {
-		logger?.error({ msg: "Corrupt .sync-state.json, treating as empty", docsRoot });
+		logger?.error({ msg: "Corrupt .sync-state.json, clearing .sync-complete to force full re-sync", docsRoot });
+		try {
+			await sandbox.commands.run(
+				`rm -f ${JSON.stringify(`${docsRoot}/${SYNC_COMPLETE_FILE}`)}`,
+				{ timeoutMs: 5_000 },
+			);
+		} catch {
+			// Best-effort.
+		}
 		return [];
 	}
 }
