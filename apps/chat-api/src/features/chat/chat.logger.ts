@@ -15,6 +15,14 @@ export class ChatLogger {
 		});
 	}
 
+	warn(message: Record<string, unknown>) {
+		this.logger.warn({
+			memberCode: this.memberCode,
+			chatKey: this.chatKey,
+			...message,
+		});
+	}
+
 	error(message: Record<string, unknown>) {
 		this.logger.error({
 			memberCode: this.memberCode,
