@@ -9,11 +9,17 @@ export async function readStoredSyncState(
 	sandbox: Sandbox,
 	docsRoot: string,
 ): Promise<StoredSyncEntry[]> {
+	let raw: string;
 	try {
-		const raw = await sandbox.files.read(`${docsRoot}/${SYNC_STATE_FILE}`);
+		raw = await sandbox.files.read(`${docsRoot}/${SYNC_STATE_FILE}`);
+	} catch {
+		return [];
+	}
+	try {
 		const parsed = JSON.parse(raw);
 		return Array.isArray(parsed) ? parsed : [];
 	} catch {
+		console.warn(`Corrupt ${SYNC_STATE_FILE} in ${docsRoot}, treating as empty`);
 		return [];
 	}
 }

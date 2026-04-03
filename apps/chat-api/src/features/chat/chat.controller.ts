@@ -221,6 +221,16 @@ export async function complete(
 			logger,
 		});
 
+	if (isSandboxEnabled() && mymemoConfig.enableKnowledge) {
+		if (!resolvedMemberCode || !resolvedPartnerCode) {
+			logger.warn({
+				msg: "Sandbox enabled but missing credentials, falling back to default chat",
+				hasMemberCode: !!resolvedMemberCode,
+				hasPartnerCode: !!resolvedPartnerCode,
+			});
+		}
+	}
+
 	if (
 		isSandboxEnabled() &&
 		mymemoConfig.enableKnowledge &&
