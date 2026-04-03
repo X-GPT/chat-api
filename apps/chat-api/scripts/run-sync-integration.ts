@@ -470,12 +470,26 @@ async function main() {
 	console.log("=== Sandbox Sync Integration Test ===");
 
 	const sandboxManager = new SandboxManager();
+	const sandboxes: Sandbox[] = [];
 
-	await testInitialSync(sandboxManager);
-	await testIncrementalSync(sandboxManager);
+	const originalGetOrCreate = sandboxManager.getOrCreateSandbox.bind(sandboxManager);
+	sandboxManager.getOrCreateSandbox = async (userId, log) => {
+		const sb = await originalGetOrCreate(userId, log);
+		sandboxes.push(sb);
+		return sb;
+	};
 
-	console.log("\n\n=== All tests passed ===\n");
-	printTimingSummary();
+	try {
+		await testInitialSync(sandboxManager);
+		await testIncrementalSync(sandboxManager);
+
+		console.log("\n\n=== All tests passed ===\n");
+		printTimingSummary();
+	} finally {
+		console.log(`\nCleaning up ${sandboxes.length} sandbox(es)...`);
+		await Promise.allSettled(sandboxes.map((sb) => sb.kill()));
+		console.log("Done.");
+	}
 }
 
 main().catch((err) => {
