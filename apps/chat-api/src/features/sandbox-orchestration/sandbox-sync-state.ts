@@ -1,4 +1,5 @@
 import type { Sandbox } from "e2b";
+import type { SyncLogger } from "@/features/sandbox";
 import type { StoredSyncEntry } from "./sandbox-sync-types";
 
 export const SYNC_COMPLETE_FILE = ".sync-complete";
@@ -8,6 +9,7 @@ export const SYNC_ERROR_FILE = ".sync-error";
 export async function readStoredSyncState(
 	sandbox: Sandbox,
 	docsRoot: string,
+	logger?: SyncLogger,
 ): Promise<StoredSyncEntry[]> {
 	let raw: string;
 	try {
@@ -19,7 +21,7 @@ export async function readStoredSyncState(
 		const parsed = JSON.parse(raw);
 		return Array.isArray(parsed) ? parsed : [];
 	} catch {
-		console.warn(`Corrupt ${SYNC_STATE_FILE} in ${docsRoot}, treating as empty`);
+		logger?.error({ msg: "Corrupt .sync-state.json, treating as empty", docsRoot });
 		return [];
 	}
 }

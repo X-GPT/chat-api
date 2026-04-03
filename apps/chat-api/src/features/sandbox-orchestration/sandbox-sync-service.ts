@@ -118,7 +118,7 @@ export async function runIncrementalSync(input: SyncContext): Promise<void> {
 			fetchOptions,
 			logger,
 		),
-		readStoredSyncState(sandbox, docsRoot),
+		readStoredSyncState(sandbox, docsRoot, logger),
 	]);
 
 	const diff = diffIncrementalSync(manifest, storedState);
