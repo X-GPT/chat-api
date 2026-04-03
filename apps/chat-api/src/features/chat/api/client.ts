@@ -5,14 +5,10 @@ export interface FetchOptions {
 	memberAuthToken?: string;
 }
 
-const defaultHeaders = {
-	"content-type": "application/json",
-	Authorization: `Bearer ${apiEnv.PROTECTED_API_TOKEN}`,
-};
-
 export const buildHeaders = (options?: FetchOptions) => {
 	const headers: Record<string, string> = {
-		...defaultHeaders,
+		"content-type": "application/json",
+		Authorization: `Bearer ${apiEnv.PROTECTED_API_TOKEN}`,
 	};
 
 	if (options?.memberAuthToken) {

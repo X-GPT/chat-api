@@ -4,8 +4,8 @@ import {
 	computeChecksum,
 	getCollectionDocsRoot,
 	getDocsRoot,
-	materializeCollectionCopies,
 	materializeSummary,
+	resolveCollectionSymlinks,
 	resolveContent,
 	resolveSourceKind,
 	sanitizePathSegment,
@@ -293,48 +293,50 @@ describe("getCollectionDocsRoot", () => {
 	});
 });
 
-describe("materializeCollectionCopies", () => {
+describe("resolveCollectionSymlinks", () => {
 	it("returns empty array when no collectionMap", () => {
-		const result = materializeCollectionCopies([makeSummary()], makeConfig());
+		const result = resolveCollectionSymlinks([makeSummary()], makeConfig());
 		expect(result).toEqual([]);
 	});
 
 	it("returns empty array when collectionMap is empty", () => {
-		const result = materializeCollectionCopies([makeSummary()], {
+		const result = resolveCollectionSymlinks([makeSummary()], {
 			...makeConfig(),
 			collectionMap: new Map(),
 		});
 		expect(result).toEqual([]);
 	});
 
-	it("creates copies in collection directories", () => {
+	it("creates symlinks pointing to primary files", () => {
 		const summary = makeSummary({ id: "200", type: 0 });
 		const collectionMap = new Map([["200", ["col-A"]]]);
 
-		const result = materializeCollectionCopies([summary], {
+		const result = resolveCollectionSymlinks([summary], {
 			...makeConfig(),
 			collectionMap,
 		});
 
 		expect(result).toHaveLength(1);
-		expect(result[0]?.path).toBe(
-			"/workspace/sandbox-prototype/docs/user-1/collections/col-A/0/200.txt",
-		);
 		expect(result[0]?.relativePath).toBe("collections/col-A/0/200.txt");
+		// Symlink target should point back to the primary file via relative path
+		expect(result[0]?.target).toBe("../../../0/200.txt");
 	});
 
-	it("creates copies in multiple collection directories", () => {
+	it("creates symlinks for multiple collections", () => {
 		const summary = makeSummary({ id: "300", type: 3 });
 		const collectionMap = new Map([["300", ["col-A", "col-B"]]]);
 
-		const result = materializeCollectionCopies([summary], {
+		const result = resolveCollectionSymlinks([summary], {
 			...makeConfig(),
 			collectionMap,
 		});
 
 		expect(result).toHaveLength(2);
-		expect(result[0]?.path).toContain("/collections/col-A/");
-		expect(result[1]?.path).toContain("/collections/col-B/");
+		expect(result[0]?.relativePath).toContain("collections/col-A/");
+		expect(result[1]?.relativePath).toContain("collections/col-B/");
+		// Both should point to same primary
+		expect(result[0]?.target).toBe("../../../3/300.txt");
+		expect(result[1]?.target).toBe("../../../3/300.txt");
 	});
 
 	it("skips summaries not in collectionMap", () => {
@@ -342,24 +344,12 @@ describe("materializeCollectionCopies", () => {
 		const summary2 = makeSummary({ id: "401" });
 		const collectionMap = new Map([["400", ["col-X"]]]);
 
-		const result = materializeCollectionCopies([summary1, summary2], {
+		const result = resolveCollectionSymlinks([summary1, summary2], {
 			...makeConfig(),
 			collectionMap,
 		});
 
 		expect(result).toHaveLength(1);
-		expect(result[0]?.summaryId).toBe("400");
-	});
-
-	it("collection copies have same content and checksum as primary", () => {
-		const summary = makeSummary({ id: "500", content: "Test content" });
-		const collectionMap = new Map([["500", ["col-Z"]]]);
-		const config = { ...makeConfig(), collectionMap };
-
-		const primary = materializeSummary(summary, config);
-		const copies = materializeCollectionCopies([summary], config);
-
-		expect(copies[0]?.content).toBe(primary.content);
-		expect(copies[0]?.checksum).toBe(primary.checksum);
+		expect(result[0]?.relativePath).toContain("400.txt");
 	});
 });

@@ -1,15 +1,18 @@
 import {
+	getProtectedFullSummariesEndpoint,
 	getProtectedMemberSummariesEndpoint,
 	getProtectedSummariesEndpoint,
 } from "@/config/env";
-import type { ChatLogger } from "../chat.logger";
+import type { SyncLogger } from "@/features/sandbox";
 import type { RequestCache } from "../core/cache";
 import { buildHeaders, type FetchOptions } from "./client";
 import { parseJsonSafely } from "./json-parser";
 import {
 	type FetchProtectedMemberSummariesParams,
+	type PaginatedFullSummariesData,
 	type PaginatedSummariesData,
 	type ProtectedSummary,
+	protectedFullSummariesResponseSchema,
 	protectedMemberSummariesResponseSchema,
 	protectedSummariesResponseSchema,
 } from "./types";
@@ -17,7 +20,7 @@ import {
 export async function fetchProtectedSummaries(
 	ids: Array<string | number>,
 	options: FetchOptions = {},
-	logger: ChatLogger,
+	logger: SyncLogger,
 	cache?: RequestCache<ProtectedSummary[]>,
 ): Promise<ProtectedSummary[]> {
 	// Check cache first if provided
@@ -116,7 +119,7 @@ export async function fetchProtectedMemberSummaries(
 	memberCode: string,
 	params: FetchProtectedMemberSummariesParams,
 	options: FetchOptions = {},
-	logger: ChatLogger,
+	logger: SyncLogger,
 ): Promise<PaginatedSummariesData> {
 	const endpoint = getProtectedMemberSummariesEndpoint(memberCode, params);
 
@@ -187,6 +190,75 @@ export async function fetchProtectedMemberSummaries(
 
 		logger.error({
 			message: "Error fetching member summaries from protected service",
+			error: String(error),
+			memberCode,
+			params,
+		});
+		throw new Error(String(error));
+	}
+}
+
+export async function fetchProtectedFullSummaries(
+	memberCode: string,
+	params: FetchProtectedMemberSummariesParams,
+	options: FetchOptions = {},
+	logger: SyncLogger,
+): Promise<PaginatedFullSummariesData> {
+	const endpoint = getProtectedFullSummariesEndpoint(memberCode, params);
+
+	try {
+		const response = await fetch(endpoint, {
+			method: "GET",
+			headers: buildHeaders(options),
+		});
+
+		if (!response.ok) {
+			throw new Error(`Failed to fetch full summaries: ${response.status}`);
+		}
+
+		const rawBody = await parseJsonSafely(response);
+		const parseResult = protectedFullSummariesResponseSchema.safeParse(rawBody);
+
+		if (!parseResult.success) {
+			logger.error({
+				message: "Invalid full summaries response",
+				target: endpoint,
+				errors: parseResult.error,
+				memberCode,
+				params,
+			});
+			throw new Error("Invalid full summaries response structure");
+		}
+
+		const body = parseResult.data;
+
+		if ("error" in body) {
+			logger.error({
+				message:
+					"Protected service returned error when fetching full summaries",
+				code: body.error.code,
+				msg: body.error.message,
+				status: body.error.status,
+				memberCode,
+				params,
+			});
+			throw new Error(`Failed to fetch full summaries: ${body.error.message}`);
+		}
+
+		return body;
+	} catch (error) {
+		if (error instanceof Error) {
+			logger.error({
+				message: "Error fetching full summaries from protected service",
+				error: error.message,
+				memberCode,
+				params,
+			});
+			throw error;
+		}
+
+		logger.error({
+			message: "Error fetching full summaries from protected service",
 			error: String(error),
 			memberCode,
 			params,

@@ -15,7 +15,10 @@ export const apiEnv = (() => {
 
 	const sandboxEnabled = Bun.env.SANDBOX_ENABLED === "true";
 	if (sandboxEnabled) {
-		invariant(Bun.env.E2B_API_KEY, "E2B_API_KEY is required when SANDBOX_ENABLED=true");
+		invariant(
+			Bun.env.E2B_API_KEY,
+			"E2B_API_KEY is required when SANDBOX_ENABLED=true",
+		);
 	}
 
 	return {
@@ -30,10 +33,13 @@ export const apiEnv = (() => {
 		PROTECTED_API_TOKEN: Bun.env.PROTECTED_API_TOKEN,
 		RAG_API_ORIGIN: Bun.env.RAG_API_ORIGIN || DEFAULT_RAG_API_ORIGIN,
 		LOG_LEVEL: Bun.env.LOG_LEVEL || "info",
-		SANDBOX_ENABLED: sandboxEnabled,
 		E2B_TEMPLATE: Bun.env.E2B_TEMPLATE || "sandbox-template-dev",
 	} as const;
 })();
+
+export function isSandboxEnabled(): boolean {
+	return Bun.env.SANDBOX_ENABLED === "true";
+}
 
 const sanitizePrefix = (value: string) => {
 	const trimmed = value.trim();
@@ -271,6 +277,63 @@ export const getProtectedMemberSummariesEndpoint = (
 	}
 
 	// 1-based pagination with defaults
+	if (
+		typeof pageIndex === "number" &&
+		Number.isFinite(pageIndex) &&
+		pageIndex >= 1
+	) {
+		url.searchParams.set("pageIndex", String(pageIndex));
+	}
+
+	if (
+		typeof pageSize === "number" &&
+		Number.isFinite(pageSize) &&
+		pageSize >= 1 &&
+		pageSize <= 100
+	) {
+		url.searchParams.set("pageSize", String(pageSize));
+	}
+
+	return url.toString();
+};
+
+export const getProtectedManifestEndpoint = (
+	memberCode: string,
+	partnerCode: string,
+) => {
+	const origin = getProtectedApiOrigin();
+	const prefix = getProtectedApiPrefix();
+	const encodedMemberCode = encodeURIComponent(memberCode);
+	const basePath = `/protected/members/${encodedMemberCode}/summaries/manifest`;
+	const path = prefix === "/" ? basePath : `${prefix}${basePath}`;
+	const url = new URL(path, origin);
+
+	const normalizedPartnerCode = partnerCode.trim();
+	if (normalizedPartnerCode) {
+		url.searchParams.set("partnerCode", normalizedPartnerCode);
+	}
+
+	return url.toString();
+};
+
+export const getProtectedFullSummariesEndpoint = (
+	memberCode: string,
+	options: MemberSummariesEndpointOptions,
+) => {
+	const origin = getProtectedApiOrigin();
+	const prefix = getProtectedApiPrefix();
+	const encodedMemberCode = encodeURIComponent(memberCode);
+	const basePath = `/protected/members/${encodedMemberCode}/summaries/full`;
+	const path = prefix === "/" ? basePath : `${prefix}${basePath}`;
+	const url = new URL(path, origin);
+
+	const { partnerCode, pageIndex, pageSize } = options;
+
+	const normalizedPartnerCode = partnerCode?.trim();
+	if (normalizedPartnerCode) {
+		url.searchParams.set("partnerCode", normalizedPartnerCode);
+	}
+
 	if (
 		typeof pageIndex === "number" &&
 		Number.isFinite(pageIndex) &&

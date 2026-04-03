@@ -3,6 +3,10 @@ import { apiEnv } from "@/config/env";
 import type { ChatLogger } from "@/features/chat/chat.logger";
 import { runSandboxAgent } from "@/features/sandbox-agent";
 import { SandboxCreationError } from "./errors";
+import {
+	ensureInitialSync,
+	runIncrementalSync,
+} from "./sandbox-sync-service";
 import { sandboxManager, sessionStore } from "./singleton";
 
 export interface RunSandboxChatOptions {
@@ -12,14 +16,19 @@ export interface RunSandboxChatOptions {
 	collectionId: string | null;
 	summaryId: string | null;
 	chatKey: string;
+	memberCode: string;
+	partnerCode: string;
+	memberAuthToken: string;
 	onTextDelta: (text: string) => void;
 	onTextEnd: () => Promise<void>;
 	logger: ChatLogger;
 }
 
+export type RunSandboxChatResult = { status: "completed" };
+
 export async function runSandboxChat(
 	options: RunSandboxChatOptions,
-): Promise<void> {
+): Promise<RunSandboxChatResult> {
 	const {
 		userId,
 		query,
@@ -27,15 +36,37 @@ export async function runSandboxChat(
 		collectionId,
 		summaryId,
 		chatKey,
+		memberCode,
+		partnerCode,
+		memberAuthToken,
 		onTextDelta,
 		onTextEnd,
 		logger,
 	} = options;
 
+	const syncOptions = { memberCode, partnerCode, memberAuthToken };
+
 	const attempt = async () => {
 		const sandbox = await sandboxManager.getOrCreateSandbox(userId, logger);
-		const sessionId = sessionStore.getSessionId(chatKey, userId);
 		const docsRoot = sandboxManager.getDocsRoot(userId);
+
+		await ensureInitialSync({
+			userId,
+			sandbox,
+			options: syncOptions,
+			logger,
+		});
+
+		// Incremental sync — inline, blocking, every request
+		await runIncrementalSync({
+			userId,
+			sandbox,
+			options: syncOptions,
+			logger,
+		});
+
+		// Proceed with agent
+		const sessionId = sessionStore.getSessionId(chatKey, userId);
 
 		let newSessionId: string | null = null;
 
@@ -59,10 +90,12 @@ export async function runSandboxChat(
 		if (newSessionId) {
 			sessionStore.setSessionId(chatKey, newSessionId, userId);
 		}
+
+		return { status: "completed" } as const;
 	};
 
 	try {
-		await attempt();
+		return await attempt();
 	} catch (err) {
 		if (!(err instanceof SandboxCreationError)) {
 			throw err;
@@ -77,7 +110,7 @@ export async function runSandboxChat(
 		sessionStore.removeUserSessions(userId);
 
 		try {
-			await attempt();
+			return await attempt();
 		} catch (retryErr) {
 			logger.error({
 				msg: "Sandbox creation retry also failed",

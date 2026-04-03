@@ -2,7 +2,7 @@ import {
 	getProtectedFileDetailEndpoint,
 	getProtectedFilesEndpoint,
 } from "@/config/env";
-import type { ChatLogger } from "../chat.logger";
+import type { SyncLogger } from "@/features/sandbox";
 import { buildHeaders, type FetchOptions } from "./client";
 import { parseJsonSafely } from "./json-parser";
 import {
@@ -17,7 +17,7 @@ export async function fetchProtectedFiles(
 	memberCode: string,
 	params: FetchProtectedFilesParams,
 	options: FetchOptions = {},
-	logger: ChatLogger,
+	logger: SyncLogger,
 ): Promise<{
 	list: ProtectedFileMetadata[];
 	nextCursor: string | null;
@@ -90,7 +90,7 @@ export async function fetchProtectedFileDetail(
 	type: number | string,
 	id: number | string,
 	options: FetchOptions = {},
-	logger: ChatLogger,
+	logger: SyncLogger,
 ): Promise<RawProtectedFileData | null> {
 	const endpoint = getProtectedFileDetailEndpoint(memberCode, type, id);
 

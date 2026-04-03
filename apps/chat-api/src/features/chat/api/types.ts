@@ -209,6 +209,37 @@ export interface FetchProtectedMemberSummariesParams {
 	pageSize?: number | null;
 }
 
+// Full summary schema (includes checksum + collection membership for sync)
+const fullSummarySchema = protectedSummarySchema.extend({
+	checksum: z.string(),
+	collectionIds: z.array(z.string()),
+});
+
+const paginatedFullSummariesDataSchema = z.object({
+	list: z.array(fullSummarySchema),
+	total: z.number().int().min(0),
+	totalPages: z.number().int().min(0),
+	page: z.number().int().min(1),
+	pageSize: z.number().int().min(1).max(100),
+});
+
+export const protectedFullSummariesResponseSchema = z.union([
+	paginatedFullSummariesDataSchema,
+	z.object({
+		error: z.object({
+			code: z.number(),
+			message: z.string(),
+			status: z.string(),
+		}),
+	}),
+]);
+
+export type FullSummary = z.infer<typeof fullSummarySchema>;
+
+export type PaginatedFullSummariesData = z.infer<
+	typeof paginatedFullSummariesDataSchema
+>;
+
 // Chat messages scope validation
 const VALID_CHAT_MESSAGE_SCOPES = new Set<ChatMessagesScope>([
 	"general",

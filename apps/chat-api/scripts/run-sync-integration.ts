@@ -1,293 +1,498 @@
 /**
- * Phase 2 integration test: exercises the full sync lifecycle against a real E2B sandbox.
+ * Integration test: real E2B sandbox, mocked Protected API.
+ *
+ * Tests initial sync and incremental sync independently, each with its own sandbox.
  *
  * Usage:
- *   E2B_TEMPLATE=sandbox-template-dev bun run scripts/run-sync-integration.ts
+ *   bun run scripts/run-sync-integration.ts
  *
- * Requires: E2B_API_KEY and E2B_TEMPLATE environment variables.
- *
- * Steps:
- *   1. Create sandbox, full sync 3 documents
- *   2. Verify files exist on sandbox
- *   3. Update one document, re-sync → verify update applied
- *   4. Delete one document from source, re-sync → verify removal
- *   5. Introduce drift (orphaned file + tampered content), verify manifest, repair
- *   6. Rebuild sandbox from scratch
- *   7. Cleanup
+ * Requires: E2B_API_KEY (via env or .env)
  */
-import { Sandbox } from "e2b";
-import type { ProtectedSummary } from "../src/features/chat/api/types";
+
+import assert from "node:assert/strict";
+import type { Sandbox } from "e2b";
+import type { ManifestEntry } from "@/features/chat/api/manifest";
+import type { FullSummary, ProtectedSummary } from "@/features/chat/api/types";
+import type { SyncLogger } from "@/features/sandbox";
+import { getDocsRoot } from "@/features/sandbox";
+import { computeChecksum } from "@/features/sandbox/materialization";
 import {
-	getDocsRoot,
-	InMemorySyncStateRepository,
-	type MaterializationConfig,
-	SandboxSyncService,
-} from "../src/features/sandbox";
+	SandboxManager,
+	WORKSPACE_ROOT,
+} from "@/features/sandbox-orchestration/sandbox-manager";
+import {
+	ensureInitialSync,
+	getSyncStatus,
+	runIncrementalSync,
+} from "@/features/sandbox-orchestration/sandbox-sync-service";
+import type { SyncFetchers } from "@/features/sandbox-orchestration/sandbox-sync-types";
 
-const now = () => Date.now();
+// ── Timing ───────────────────────────────────────────────────────────
 
-const makeSummary = (
+interface TimingEntry {
+	label: string;
+	ms: number;
+}
+
+interface E2eSummary {
+	label: string;
+	ms: number;
+	detail: string;
+}
+
+const timings: TimingEntry[] = [];
+const e2eSummaries: E2eSummary[] = [];
+
+async function timed<T>(label: string, fn: () => Promise<T>): Promise<T> {
+	const start = performance.now();
+	const result = await fn();
+	const ms = performance.now() - start;
+	timings.push({ label, ms });
+	console.log(`  [${ms.toFixed(0)}ms] ${label}`);
+	return result;
+}
+
+function printTimingSummary() {
+	const totalMs = timings.reduce((sum, t) => sum + t.ms, 0);
+	console.log("Step-by-step breakdown:");
+	console.log(
+		"┌─────────────────────────────────────────────────┬──────────┐",
+	);
+	console.log(
+		"│ Step                                            │ Latency  │",
+	);
+	console.log(
+		"├─────────────────────────────────────────────────┼──────────┤",
+	);
+	for (const { label, ms } of timings) {
+		console.log(
+			`│ ${label.padEnd(47)} │ ${`${ms.toFixed(0)}ms`.padStart(8)} │`,
+		);
+	}
+	console.log(
+		"├─────────────────────────────────────────────────┼──────────┤",
+	);
+	console.log(
+		`│ ${"Total".padEnd(47)} │ ${`${totalMs.toFixed(0)}ms`.padStart(8)} │`,
+	);
+	console.log(
+		"└─────────────────────────────────────────────────┴──────────┘",
+	);
+
+	console.log("\nE2E sync latency:");
+	console.log(
+		"┌─────────────────────────────────────────────────┬──────────┬────────────────────┐",
+	);
+	console.log(
+		"│ Scenario                                        │ Latency  │ Detail             │",
+	);
+	console.log(
+		"├─────────────────────────────────────────────────┼──────────┼────────────────────┤",
+	);
+	for (const { label, ms, detail } of e2eSummaries) {
+		console.log(
+			`│ ${label.padEnd(47)} │ ${`${ms.toFixed(0)}ms`.padStart(8)} │ ${detail.padEnd(18)} │`,
+		);
+	}
+	console.log(
+		"└─────────────────────────────────────────────────┴──────────┴────────────────────┘",
+	);
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────
+
+const logger: SyncLogger = {
+	info(obj) {
+		console.log("[info]", obj.msg ?? "", obj);
+	},
+	error(obj) {
+		console.error("[error]", obj.msg ?? "", obj);
+	},
+};
+
+const FILE_COUNT = 20;
+
+function makeSummary(
 	id: string,
 	content: string,
 	overrides: Partial<ProtectedSummary> = {},
-): ProtectedSummary => ({
-	id,
-	type: 0,
-	content,
-	parseContent: null,
-	title: `Document ${id}`,
-	summaryTitle: null,
-	fileType: null,
-	delFlag: 0,
-	updateTime: new Date().toISOString(),
-	...overrides,
-});
-
-const assert = (condition: boolean, message: string) => {
-	if (!condition) throw new Error(`ASSERTION FAILED: ${message}`);
-};
-
-const main = async () => {
-	if (!Bun.env.E2B_API_KEY) {
-		throw new Error("E2B_API_KEY is required.");
-	}
-	const template = Bun.env.E2B_TEMPLATE?.trim();
-	if (!template) {
-		throw new Error("E2B_TEMPLATE is required.");
-	}
-
-	const userId = "integration-test-user";
-	const repository = new InMemorySyncStateRepository();
-	const logs: Array<Record<string, unknown>> = [];
-	const logger = {
-		info(obj: Record<string, unknown>) {
-			logs.push({ level: "info", ...obj });
-		},
-		error(obj: Record<string, unknown>) {
-			logs.push({ level: "error", ...obj });
-		},
+): ProtectedSummary {
+	return {
+		id,
+		title: `Title ${id}`,
+		content,
+		type: 0,
+		fileType: "text/plain",
+		...overrides,
 	};
-	const service = new SandboxSyncService({ repository, logger });
-	const config: MaterializationConfig = {
-		workspaceRoot: "/workspace/sandbox-prototype",
-		userId,
-	};
-	const docsRoot = getDocsRoot(config);
+}
 
-	console.log("Creating sandbox...");
-	const t0 = now();
-	const sandbox = await Sandbox.create(template, {
-		metadata: { userId, purpose: "phase2-sync-integration" },
+function makeFullSummary(
+	id: string,
+	content: string,
+	collectionIds: string[] = [],
+	overrides: Partial<ProtectedSummary> = {},
+): FullSummary {
+	const summary = makeSummary(id, content, overrides);
+	const body = [
+		"---",
+		`summaryId: ${id}`,
+		`type: ${summary.type ?? 0}`,
+		"sourceKind: text",
+		`title: ${JSON.stringify(summary.title?.trim() ?? "")}`,
+		"---",
+		"",
+		content.trim(),
+		"",
+	].join("\n");
+	return {
+		...summary,
+		checksum: computeChecksum(body),
+		collectionIds,
+	};
+}
+
+function generateInitialSummaries(count: number): FullSummary[] {
+	return Array.from({ length: count }, (_, i) => {
+		const id = `sum-${i + 1}`;
+		const colId = `col-${String.fromCharCode(65 + (i % 3))}`;
+		return makeFullSummary(
+			id,
+			`Content for document ${i + 1}. `.repeat(10),
+			[colId],
+		);
 	});
-	console.log(`  Sandbox created in ${now() - t0}ms: ${sandbox.sandboxId}`);
+}
+
+const INITIAL_SUMMARIES = generateInitialSummaries(FILE_COUNT);
+
+function buildMockFetchers(): {
+	fetchers: SyncFetchers;
+	setManifest: (m: ManifestEntry[]) => void;
+	setSummaries: (s: ProtectedSummary[]) => void;
+	getFetchCount: () => number;
+	resetFetchCount: () => void;
+} {
+	let currentManifest: ManifestEntry[] = [];
+	let summariesForFetch: ProtectedSummary[] = [];
+	let fetchCount = 0;
+
+	return {
+		fetchers: {
+			async fetchAllFullSummaries() {
+				return INITIAL_SUMMARIES;
+			},
+			async fetchSummariesManifest() {
+				return currentManifest;
+			},
+			async fetchProtectedSummaries(ids) {
+				fetchCount++;
+				return summariesForFetch.filter((s) => ids.includes(s.id));
+			},
+		},
+		setManifest: (m) => {
+			currentManifest = m;
+		},
+		setSummaries: (s) => {
+			summariesForFetch = s;
+		},
+		getFetchCount: () => fetchCount,
+		resetFetchCount: () => {
+			fetchCount = 0;
+		},
+	};
+}
+
+// ── Test 1: Initial Sync ─────────────────────────────────────────────
+
+async function testInitialSync(sandboxManager: SandboxManager) {
+	const userId = "initial-sync-test";
+	const docsRoot = getDocsRoot({ workspaceRoot: WORKSPACE_ROOT, userId });
+	const syncOptions = {
+		memberCode: userId,
+		partnerCode: "partner-1",
+		memberAuthToken: "token-123",
+	};
+	const mock = buildMockFetchers();
+
+	console.log(`\n========== Test 1: Initial Sync (${FILE_COUNT} files) ==========\n`);
+
+	const sandbox = await timed("[initial] getOrCreateSandbox", () =>
+		sandboxManager.getOrCreateSandbox(userId, logger),
+	);
+	console.log(`Sandbox: ${sandbox.sandboxId}`);
+
+	await timed("[initial] clean docs dir", () =>
+		sandbox.commands.run(`rm -rf ${docsRoot}`),
+	);
+
+	const ctx = {
+		userId,
+		sandbox,
+		options: syncOptions,
+		logger,
+		fetchers: mock.fetchers,
+	};
+
+	const e2eStart = performance.now();
+
+	await timed("[initial] ensureInitialSync", () =>
+		ensureInitialSync(ctx),
+	);
+
+	const e2eMs = performance.now() - e2eStart;
+	e2eSummaries.push({
+		label: "Initial sync (e2e)",
+		ms: e2eMs,
+		detail: `${FILE_COUNT} files`,
+	});
+
+	// Verify status is synced
+	const status = await getSyncStatus({ sandbox, docsRoot });
+	assert.equal(status.status, "synced", "status should be synced after initial sync");
+
+	await timed("[initial] verify", async () => {
+		const file1 = await sandbox.files.read(`${docsRoot}/0/sum-1.txt`);
+		assert.ok(file1.includes("summaryId: sum-1"), "file1 ok");
+
+		const fileLast = await sandbox.files.read(
+			`${docsRoot}/0/sum-${FILE_COUNT}.txt`,
+		);
+		assert.ok(
+			fileLast.includes(`summaryId: sum-${FILE_COUNT}`),
+			"last file ok",
+		);
+
+		const marker = await sandbox.files.read(`${docsRoot}/.sync-complete`);
+		assert.ok(marker, ".sync-complete exists");
+
+		const stateRaw = await sandbox.files.read(
+			`${docsRoot}/.sync-state.json`,
+		);
+		const parsed = JSON.parse(stateRaw);
+		assert.equal(parsed.length, FILE_COUNT, `state has ${FILE_COUNT} entries`);
+
+		const readlinkResult = await sandbox.commands.run(
+			`readlink ${docsRoot}/collections/col-A/0/sum-1.txt`,
+		);
+		assert.ok(
+			readlinkResult.stdout.trim().includes("sum-1.txt"),
+			"symlink resolves",
+		);
+	});
+
+	console.log("PASS");
+}
+
+// ── Test 2: Incremental Sync ─────────────────────────────────────────
+
+async function testIncrementalSync(sandboxManager: SandboxManager) {
+	const userId = "incremental-sync-test";
+	const docsRoot = getDocsRoot({ workspaceRoot: WORKSPACE_ROOT, userId });
+	const syncOptions = {
+		memberCode: userId,
+		partnerCode: "partner-1",
+		memberAuthToken: "token-123",
+	};
+	const mock = buildMockFetchers();
+
+	console.log(
+		`\n========== Test 2: Incremental Sync (${FILE_COUNT} files base) ==========\n`,
+	);
+
+	const sandbox = await timed("[incremental] getOrCreateSandbox", () =>
+		sandboxManager.getOrCreateSandbox(userId, logger),
+	);
+	console.log(`Sandbox: ${sandbox.sandboxId}`);
+
+	// ── Setup: seed with initial sync (untimed) ──────────────────
+	console.log("\n  Setting up: running initial sync to seed sandbox...");
+	await sandbox.commands.run(`rm -rf ${docsRoot}`);
+
+	const setupCtx = {
+		userId,
+		sandbox,
+		options: syncOptions,
+		logger,
+		fetchers: mock.fetchers,
+	};
+
+	await ensureInitialSync(setupCtx);
+	console.log("  Setup complete.\n");
+
+	// ── Scenario A: 10 content changes ───────────────────────────
+	const CHANGE_COUNT = 10;
+	console.log(`--- Scenario A: ${CHANGE_COUNT} content changes ---`);
+
+	const stateRaw = await sandbox.files.read(`${docsRoot}/.sync-state.json`);
+	const state: any[] = JSON.parse(stateRaw);
+
+	mock.setManifest(
+		state.map((e: any, i: number) => ({
+			id: e.id,
+			checksum: i < CHANGE_COUNT ? `changed-${e.id}` : e.checksum,
+			type: e.type ?? 0,
+			collectionIds: e.collectionIds ?? [],
+		})),
+	);
+	mock.setSummaries(
+		Array.from({ length: CHANGE_COUNT }, (_, i) =>
+			makeSummary(`sum-${i + 1}`, `Updated content for doc ${i + 1}`),
+		),
+	);
+	mock.resetFetchCount();
+
+	let e2eStart = performance.now();
+	await timed(`[incremental] sync (${CHANGE_COUNT} changes)`, () =>
+		runIncrementalSync(setupCtx),
+	);
+	let e2eMs = performance.now() - e2eStart;
+	e2eSummaries.push({
+		label: "Incremental: content change (e2e)",
+		ms: e2eMs,
+		detail: `${CHANGE_COUNT} changed`,
+	});
+
+	await timed("[incremental] verify changes", async () => {
+		const updated = await sandbox.files.read(`${docsRoot}/0/sum-1.txt`);
+		assert.ok(updated.includes("Updated content for doc 1"), "changed file ok");
+
+		const unchanged = await sandbox.files.read(
+			`${docsRoot}/0/sum-${CHANGE_COUNT + 1}.txt`,
+		);
+		assert.ok(
+			unchanged.includes(`Content for document ${CHANGE_COUNT + 1}`),
+			"unchanged file ok",
+		);
+
+		const newState = JSON.parse(
+			await sandbox.files.read(`${docsRoot}/.sync-state.json`),
+		);
+		assert.equal(newState.length, FILE_COUNT, "state has all entries");
+		const changed = newState.find((e: any) => e.id === "sum-1");
+		assert.equal(changed.checksum, "changed-sum-1", "checksum updated");
+	});
+
+	console.log("PASS\n");
+
+	// ── Scenario B: 5 deletions ──────────────────────────────────
+	const DELETE_COUNT = 5;
+	console.log(`--- Scenario B: ${DELETE_COUNT} deletions ---`);
+
+	const stateBeforeDelete: any[] = JSON.parse(
+		await sandbox.files.read(`${docsRoot}/.sync-state.json`),
+	);
+
+	const deleteIds = new Set(
+		Array.from({ length: DELETE_COUNT }, (_, i) => `sum-${i + 1}`),
+	);
+	const keptEntries = stateBeforeDelete.filter(
+		(e: any) => !deleteIds.has(e.id),
+	);
+	mock.setManifest(
+		keptEntries.map((e: any) => ({
+			id: e.id,
+			checksum: e.checksum,
+			type: e.type ?? 0,
+			collectionIds: e.collectionIds ?? [],
+		})),
+	);
+	mock.setSummaries([]);
+	mock.resetFetchCount();
+
+	e2eStart = performance.now();
+	await timed(`[incremental] sync (${DELETE_COUNT} deletions)`, () =>
+		runIncrementalSync(setupCtx),
+	);
+	e2eMs = performance.now() - e2eStart;
+	e2eSummaries.push({
+		label: "Incremental: deletion (e2e)",
+		ms: e2eMs,
+		detail: `${DELETE_COUNT} deleted`,
+	});
+
+	await timed("[incremental] verify deletions", async () => {
+		const lsResult = await sandbox.commands.run(
+			`test -f ${docsRoot}/0/sum-1.txt && echo exists || echo missing`,
+		);
+		assert.equal(lsResult.stdout.trim(), "missing", "deleted file gone");
+
+		const survivorId = `sum-${DELETE_COUNT + 1}`;
+		const remaining = await sandbox.files.read(
+			`${docsRoot}/0/${survivorId}.txt`,
+		);
+		assert.ok(remaining.includes(`summaryId: ${survivorId}`), "survivor ok");
+
+		const stateAfter = JSON.parse(
+			await sandbox.files.read(`${docsRoot}/.sync-state.json`),
+		);
+		assert.equal(stateAfter.length, FILE_COUNT - DELETE_COUNT, "state updated");
+	});
+
+	console.log("PASS\n");
+
+	// ── Scenario C: no changes ───────────────────────────────────
+	console.log("--- Scenario C: no changes ---");
+
+	const stateForNoop = JSON.parse(
+		await sandbox.files.read(`${docsRoot}/.sync-state.json`),
+	);
+	mock.setManifest(
+		stateForNoop.map((e: any) => ({
+			id: e.id,
+			checksum: e.checksum,
+			type: e.type ?? 0,
+			collectionIds: e.collectionIds ?? [],
+		})),
+	);
+	mock.setSummaries([]);
+	mock.resetFetchCount();
+
+	e2eStart = performance.now();
+	await timed("[incremental] sync (no-op)", () =>
+		runIncrementalSync(setupCtx),
+	);
+	e2eMs = performance.now() - e2eStart;
+	e2eSummaries.push({
+		label: "Incremental: no-op (e2e)",
+		ms: e2eMs,
+		detail: "0 changes",
+	});
+
+	assert.equal(mock.getFetchCount(), 0, "fetchProtectedSummaries not called");
+
+	console.log("PASS");
+}
+
+// ── Main ─────────────────────────────────────────────────────────────
+
+async function main() {
+	console.log("=== Sandbox Sync Integration Test ===");
+
+	const sandboxManager = new SandboxManager();
+	const sandboxes: Sandbox[] = [];
+
+	const originalGetOrCreate = sandboxManager.getOrCreateSandbox.bind(sandboxManager);
+	sandboxManager.getOrCreateSandbox = async (userId, log) => {
+		const sb = await originalGetOrCreate(userId, log);
+		sandboxes.push(sb);
+		return sb;
+	};
 
 	try {
-		// ── Step 1: Initial full sync ───────────────────────────────
-		console.log("\n── Step 1: Initial full sync (3 documents)");
-		const docs = [
-			makeSummary("doc-1", "Content of document one"),
-			makeSummary("doc-2", "Content of document two"),
-			makeSummary("doc-3", "Content of document three", { type: 3 }),
-		];
+		await testInitialSync(sandboxManager);
+		await testIncrementalSync(sandboxManager);
 
-		const t1 = now();
-		const plan1 = await service.syncUser(
-			userId,
-			sandbox.sandboxId,
-			sandbox,
-			docs,
-			config,
-		);
-		console.log(`  Synced in ${now() - t1}ms`);
-		console.log(
-			`  Creates: ${plan1.creates.length}, Updates: ${plan1.updates.length}, Deletes: ${plan1.deletes.length}, Unchanged: ${plan1.unchanged}`,
-		);
-		assert(plan1.creates.length === 3, "Expected 3 creates");
-		assert(plan1.updates.length === 0, "Expected 0 updates");
-		assert(plan1.deletes.length === 0, "Expected 0 deletes");
-
-		// ── Step 2: Verify files exist ─────────────────────────────
-		console.log("\n── Step 2: Verify files exist on sandbox");
-		const t2 = now();
-		const diff2 = await service.verifyManifest(
-			userId,
-			sandbox.sandboxId,
-			sandbox,
-			config,
-		);
-		console.log(`  Verified in ${now() - t2}ms`);
-		console.log(
-			`  Missing: ${diff2.missingInSandbox.length}, Orphaned: ${diff2.orphanedInSandbox.length}, Checksum mismatches: ${diff2.checksumMismatches.length}`,
-		);
-		assert(diff2.missingInSandbox.length === 0, "No files should be missing");
-		assert(diff2.orphanedInSandbox.length === 0, "No files should be orphaned");
-		assert(
-			diff2.checksumMismatches.length === 0,
-			"No checksum mismatches expected",
-		);
-
-		// ── Step 3: Update one document ────────────────────────────
-		console.log("\n── Step 3: Update doc-2 content, re-sync");
-		const docsUpdated = [
-			makeSummary("doc-1", "Content of document one"),
-			makeSummary("doc-2", "UPDATED content of document two"),
-			makeSummary("doc-3", "Content of document three", { type: 3 }),
-		];
-
-		const t3 = now();
-		const plan3 = await service.syncUser(
-			userId,
-			sandbox.sandboxId,
-			sandbox,
-			docsUpdated,
-			config,
-		);
-		console.log(`  Synced in ${now() - t3}ms`);
-		console.log(
-			`  Creates: ${plan3.creates.length}, Updates: ${plan3.updates.length}, Deletes: ${plan3.deletes.length}, Unchanged: ${plan3.unchanged}`,
-		);
-		assert(plan3.updates.length === 1, "Expected 1 update");
-		assert(plan3.unchanged === 2, "Expected 2 unchanged");
-
-		// Verify updated content on disk
-		const updatedContent = await sandbox.files.read(`${docsRoot}/0/doc-2.txt`);
-		assert(
-			updatedContent.includes("UPDATED content"),
-			"Updated content should be on disk",
-		);
-
-		// ── Step 4: Delete one document from source ────────────────
-		console.log("\n── Step 4: Remove doc-3 from source, re-sync");
-		const docsReduced = [
-			makeSummary("doc-1", "Content of document one"),
-			makeSummary("doc-2", "UPDATED content of document two"),
-		];
-
-		const t4 = now();
-		const plan4 = await service.syncUser(
-			userId,
-			sandbox.sandboxId,
-			sandbox,
-			docsReduced,
-			config,
-		);
-		console.log(`  Synced in ${now() - t4}ms`);
-		console.log(
-			`  Creates: ${plan4.creates.length}, Updates: ${plan4.updates.length}, Deletes: ${plan4.deletes.length}, Unchanged: ${plan4.unchanged}`,
-		);
-		assert(plan4.deletes.length === 1, "Expected 1 delete");
-		assert(plan4.unchanged === 2, "Expected 2 unchanged");
-
-		// Verify file is gone
-		const listResult = await sandbox.commands.run(
-			`find ${docsRoot} -type f -name '*.txt'`,
-			{ timeoutMs: 5_000 },
-		);
-		const remainingFiles = listResult.stdout.trim().split("\n").filter(Boolean);
-		assert(
-			remainingFiles.length === 2,
-			`Expected 2 files remaining, got ${remainingFiles.length}`,
-		);
-		assert(
-			!remainingFiles.some((f) => f.includes("doc-3")),
-			"doc-3 should be removed",
-		);
-
-		// ── Step 5: Drift detection and repair ─────────────────────
-		console.log("\n── Step 5: Introduce drift, verify, repair");
-
-		// Create an orphaned file
-		await sandbox.files.write(`${docsRoot}/0/orphan.txt`, "I should not exist");
-		// Tamper with doc-1
-		await sandbox.files.write(`${docsRoot}/0/doc-1.txt`, "tampered content");
-
-		const t5 = now();
-		const diff5 = await service.verifyManifest(
-			userId,
-			sandbox.sandboxId,
-			sandbox,
-			config,
-		);
-		console.log(`  Drift detected in ${now() - t5}ms`);
-		console.log(
-			`  Missing: ${diff5.missingInSandbox.length}, Orphaned: ${diff5.orphanedInSandbox.length}, Checksum mismatches: ${diff5.checksumMismatches.length}`,
-		);
-		assert(
-			diff5.orphanedInSandbox.length === 1,
-			"Expected 1 orphaned file (orphan.txt)",
-		);
-		assert(
-			diff5.checksumMismatches.length === 1,
-			"Expected 1 checksum mismatch (doc-1)",
-		);
-
-		// Repair
-		const t5r = now();
-		await service.repairDrift(
-			userId,
-			sandbox.sandboxId,
-			sandbox,
-			diff5,
-			docsReduced,
-			config,
-		);
-		console.log(`  Repaired in ${now() - t5r}ms`);
-
-		// Verify clean after repair
-		const diff5post = await service.verifyManifest(
-			userId,
-			sandbox.sandboxId,
-			sandbox,
-			config,
-		);
-		assert(
-			diff5post.missingInSandbox.length === 0,
-			"No files should be missing after repair",
-		);
-		assert(diff5post.orphanedInSandbox.length === 0, "No orphans after repair");
-		assert(
-			diff5post.checksumMismatches.length === 0,
-			"No mismatches after repair",
-		);
-
-		// ── Step 6: Full rebuild ───────────────────────────────────
-		console.log("\n── Step 6: Full sandbox rebuild");
-		const t6 = now();
-		const plan6 = await service.rebuildSandbox(
-			userId,
-			sandbox.sandboxId,
-			sandbox,
-			docsReduced,
-			config,
-		);
-		console.log(`  Rebuilt in ${now() - t6}ms`);
-		console.log(
-			`  Creates: ${plan6.creates.length}, Updates: ${plan6.updates.length}, Deletes: ${plan6.deletes.length}, Unchanged: ${plan6.unchanged}`,
-		);
-		assert(
-			plan6.creates.length === 2,
-			"Rebuild should create all 2 docs fresh",
-		);
-
-		const diff6 = await service.verifyManifest(
-			userId,
-			sandbox.sandboxId,
-			sandbox,
-			config,
-		);
-		assert(diff6.missingInSandbox.length === 0, "Clean after rebuild");
-		assert(diff6.orphanedInSandbox.length === 0, "Clean after rebuild");
-
-		// ── Summary ────────────────────────────────────────────────
-		const totalMs = now() - t0;
-		console.log("\n── All steps passed ──");
-		console.log(`  Total time: ${totalMs}ms`);
-		console.log(`  Sandbox: ${sandbox.sandboxId}`);
-		console.log(`  Log entries: ${logs.length}`);
+		console.log("\n\n=== All tests passed ===\n");
+		printTimingSummary();
 	} finally {
-		console.log("\nCleaning up sandbox...");
-		sandbox.kill().catch(() => {});
+		console.log(`\nCleaning up ${sandboxes.length} sandbox(es)...`);
+		await Promise.allSettled(sandboxes.map((sb) => sb.kill()));
+		console.log("Done.");
 	}
-};
+}
 
-await main();
+main().catch((err) => {
+	console.error("\nFAILED:", err);
+	process.exit(1);
+});
