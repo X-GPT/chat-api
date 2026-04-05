@@ -35,5 +35,6 @@ terraform output github_actions_role_arn
 ## Important
 
 - This stack uses a **local backend** — the `terraform.tfstate` file in this directory is critical
-- Do not delete or lose the state file
+- Do not delete or lose the state file — back it up securely (e.g., password manager, private S3 bucket)
+- Do not commit the state file to the repository — it contains AWS account IDs and resource ARNs
 - The OIDC provider is account-wide; if one already exists for `token.actions.githubusercontent.com`, import it: `terraform import aws_iam_openid_connect_provider.github <existing-arn>`
