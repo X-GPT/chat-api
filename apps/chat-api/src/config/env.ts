@@ -19,10 +19,6 @@ export const apiEnv = (() => {
 			Bun.env.E2B_API_KEY,
 			"E2B_API_KEY is required when SANDBOX_ENABLED=true",
 		);
-		invariant(
-			Bun.env.SANDBOX_SYNC_QUEUE_URL,
-			"SANDBOX_SYNC_QUEUE_URL is required when SANDBOX_ENABLED=true",
-		);
 	}
 
 	return {
@@ -38,7 +34,6 @@ export const apiEnv = (() => {
 		RAG_API_ORIGIN: Bun.env.RAG_API_ORIGIN || DEFAULT_RAG_API_ORIGIN,
 		LOG_LEVEL: Bun.env.LOG_LEVEL || "info",
 		E2B_TEMPLATE: Bun.env.E2B_TEMPLATE || "sandbox-template-dev",
-		SANDBOX_SYNC_QUEUE_URL: Bun.env.SANDBOX_SYNC_QUEUE_URL,
 	} as const;
 })();
 
