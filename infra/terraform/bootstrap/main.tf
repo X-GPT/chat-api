@@ -116,19 +116,28 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     resources = ["*"]
   }
 
-  # CloudWatch alarms management
+  # CloudWatch alarm mutations scoped to sandbox-sync alarms
   statement {
     sid    = "TerraformCloudWatchAlarms"
     effect = "Allow"
     actions = [
       "cloudwatch:PutMetricAlarm",
       "cloudwatch:DeleteAlarms",
-      "cloudwatch:DescribeAlarms",
-      "cloudwatch:ListTagsForResource",
       "cloudwatch:TagResource",
       "cloudwatch:UntagResource",
     ]
     resources = ["arn:aws:cloudwatch:${var.aws_region}:*:alarm:sandbox-sync-*"]
+  }
+
+  # CloudWatch read/list actions (cannot be scoped to alarm ARNs)
+  statement {
+    sid    = "TerraformCloudWatchRead"
+    effect = "Allow"
+    actions = [
+      "cloudwatch:DescribeAlarms",
+      "cloudwatch:ListTagsForResource",
+    ]
+    resources = ["*"]
   }
 }
 
