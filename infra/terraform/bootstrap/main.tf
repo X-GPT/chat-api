@@ -86,22 +86,34 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     ]
   }
 
-  # SQS management (for Terraform to create/modify/delete queues)
+  # SQS queue-level operations scoped to sandbox-sync queues
   statement {
     sid    = "TerraformSQSManage"
     effect = "Allow"
     actions = [
-      "sqs:CreateQueue",
       "sqs:DeleteQueue",
       "sqs:SetQueueAttributes",
       "sqs:GetQueueAttributes",
-      "sqs:GetQueueUrl",
       "sqs:TagQueue",
       "sqs:UntagQueue",
       "sqs:ListQueueTags",
-      "sqs:ListQueues",
     ]
     resources = ["arn:aws:sqs:${var.aws_region}:*:sandbox-sync-*"]
+  }
+
+  # SQS actions that require broad resource scope:
+  # - CreateQueue: queue doesn't exist yet, ARN can't be evaluated
+  # - GetQueueUrl: resolves name to URL, not scoped to ARN
+  # - ListQueues: service-level, no resource support
+  statement {
+    sid    = "TerraformSQSCreate"
+    effect = "Allow"
+    actions = [
+      "sqs:CreateQueue",
+      "sqs:GetQueueUrl",
+      "sqs:ListQueues",
+    ]
+    resources = ["*"]
   }
 
   # CloudWatch alarms management
