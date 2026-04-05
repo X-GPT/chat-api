@@ -1,3 +1,5 @@
+data "aws_caller_identity" "current" {}
+
 # ─── S3 State Bucket ───────────────────────────────────────────────
 
 resource "aws_s3_bucket" "terraform_state" {
@@ -96,7 +98,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
       "sqs:UntagQueue",
       "sqs:ListQueueTags",
     ]
-    resources = ["arn:aws:sqs:${var.aws_region}:*:sandbox-sync-*"]
+    resources = ["arn:aws:sqs:${var.aws_region}:${data.aws_caller_identity.current.account_id}:sandbox-sync-*"]
   }
 
   # SQS actions that require broad resource scope
@@ -121,7 +123,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
       "cloudwatch:TagResource",
       "cloudwatch:UntagResource",
     ]
-    resources = ["arn:aws:cloudwatch:${var.aws_region}:*:alarm:sandbox-sync-*"]
+    resources = ["arn:aws:cloudwatch:${var.aws_region}:${data.aws_caller_identity.current.account_id}:alarm:sandbox-sync-*"]
   }
 
   # CloudWatch read/list actions (cannot be scoped to alarm ARNs)
