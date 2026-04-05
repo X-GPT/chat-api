@@ -7,7 +7,7 @@ One-time local setup that creates foundational AWS resources for Terraform CI/CD
 - **S3 bucket** for Terraform remote state (versioned, encrypted, public access blocked)
 - **GitHub OIDC identity provider** for keyless authentication from GitHub Actions
 - **Write IAM role** (`github-actions-X-GPT-chat-api`) — main branch only, for `terraform apply`
-- **Read-only IAM role** (`github-actions-X-GPT-chat-api-readonly`) — all branches, for `terraform plan` on PRs
+- **Read-only IAM role** (`github-actions-X-GPT-chat-api-readonly`) — all branches + pull requests, for `terraform plan` on PRs (must use `-lock=false`)
 
 ## Prerequisites
 
