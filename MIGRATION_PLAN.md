@@ -170,12 +170,14 @@ Implement source-to-sandbox reconciliation:
 Define a stable on-disk file format for synced docs that includes source metadata (reuses Phase 1 YAML frontmatter format).
 
 Artifacts:
-- Types: `src/features/sandbox/sync-state.types.ts`
-- Repository interface: `src/features/sandbox/sync-state.repository.ts`
-- In-memory implementation: `src/features/sandbox/sync-state.repository.memory.ts`
+- Types: `src/features/sandbox-orchestration/sandbox-sync-types.ts`
+- State management: `src/features/sandbox-orchestration/sandbox-sync-state.ts`
+- Sync planner: `src/features/sandbox-orchestration/sandbox-sync-planner.ts`
+- Sync apply: `src/features/sandbox-orchestration/sandbox-sync-apply.ts`
+- Sync archive: `src/features/sandbox-orchestration/sandbox-sync-archive.ts`
+- Sync service: `src/features/sandbox-orchestration/sandbox-sync-service.ts`
 - Materialization: `src/features/sandbox/materialization.ts`
-- Manifest verification: `src/features/sandbox/sandbox-manifest.ts`
-- Sync service: `src/features/sandbox/sandbox-sync.service.ts`
+- Fetch summaries: `src/features/sandbox-orchestration/fetch-all-summaries.ts`
 
 Exit criteria:
 - sandbox content can be rebuilt from source
@@ -216,9 +218,11 @@ Exit criteria:
 - inline citations are emitted in a parseable stable format
 - keyword and exact-match queries behave as intended
 
-### Phase 4: `chat-api` integration — COMPLETE
+### Phase 4: `chat-api` integration — COMPLETE (inline sync)
 
 Replace current `rag-api` retrieval calls with sandbox orchestration, gated behind a feature flag.
+
+> **Note:** Phase 4 is complete as implemented — the sandbox path works end-to-end with inline sync on the request path (`sandbox-orchestration.ts` calls `ensureInitialSync()`/`runIncrementalSync()` before `runSandboxAgent()`). Moving sync off the request path to an async SQS-based worker is Phase 4b's responsibility. `SANDBOX_SYNC_QUEUE_URL` is not yet defined in `env.ts`; it will be added when the producer/consumer are built in Phase 4b.
 
 **Design decisions (2026-03-28):**
 
@@ -247,7 +251,7 @@ Exit criteria:
 - session resume preserves conversation context across queries
 - `SANDBOX_ENABLED=false` uses existing RAG path with zero change
 
-### Phase 4b: Sync service
+### Phase 4b: Sync infrastructure and service — IN PROGRESS
 
 Extract document sync into a separate service, decoupled from the chat request path.
 
@@ -261,6 +265,43 @@ Design constraints:
 - Sync must not be tied to any HTTP request lifecycle — runs independently
 - Multiple chat-api replicas must see the same synced sandbox state
 - E2B `sandbox.files.write()` accepts arrays, eliminating the N-round-trip concern
+
+**Design decisions (2026-04-04):**
+
+- **SQS FIFO for async sync**: An SQS FIFO queue decouples sync triggers from the chat request path. `MessageGroupId = userId` guarantees per-user ordering so concurrent sync requests for the same user are serialized by SQS. Explicit `MessageDeduplicationId` (not content-based) prevents duplicate sync jobs within the 5-minute dedup window.
+- **Terraform-managed infrastructure**: Two Terraform stacks introduced as the first IaC in the repo:
+  - `infra/terraform/bootstrap/` — S3 state bucket (`mymemo-terraform-state`), GitHub OIDC provider, GitHub Actions IAM role (`github-actions-X-GPT-chat-api`) with scoped permissions for Terraform CI
+  - `infra/terraform/sandbox-sync/` — SQS FIFO queues, CloudWatch alarms, IAM policy documents (producer/consumer)
+- **Queue configuration**: visibility timeout 600s (matches expected sync job duration), 1-day retention on main queue, 4-day retention on DLQ for debugging, max 5 receive attempts before DLQ
+- **CloudWatch alarms**: oldest message age (>5 min), message backlog (>100), DLQ messages (>=1). Alarm actions wired to SNS when a topic is provided.
+- **Producer/consumer split**: `chat-api` publishes sync jobs (producer). A separate Bun worker long-polls the queue (consumer) and calls existing `ensureInitialSync()`/`runIncrementalSync()` logic.
+
+Queue contract:
+- Producer sends: `MessageGroupId = userId`, `MessageDeduplicationId = userId:jobType:sourceManifestVersion`
+- Queue URL injected via `SANDBOX_SYNC_QUEUE_URL` env var
+- Consumer calls existing sync pipeline from `sandbox-orchestration/sandbox-sync-service.ts`
+
+Infrastructure status (2026-04-04):
+- Bootstrap stack applied: S3 bucket, OIDC provider (imported — already existed), IAM role created
+- Staging queue applied: `sandbox-sync-staging.fifo` + `sandbox-sync-dlq-staging.fifo` + 3 CloudWatch alarms
+- Production queue: ready to apply with `production.tfvars`
+- State stored remotely in `s3://mymemo-terraform-state/sandbox-sync/staging`
+
+Artifacts (infrastructure):
+- `infra/terraform/bootstrap/main.tf` — S3 bucket, OIDC provider, IAM role + policy
+- `infra/terraform/bootstrap/outputs.tf` — `state_bucket_name`, `oidc_provider_arn`, `github_actions_role_arn`
+- `infra/terraform/sandbox-sync/main.tf` — SQS FIFO queues + CloudWatch alarms
+- `infra/terraform/sandbox-sync/iam.tf` — producer/consumer IAM policy documents
+- `infra/terraform/sandbox-sync/outputs.tf` — `sandbox_sync_queue_url`, `sandbox_sync_queue_arn`, `sandbox_sync_dlq_url`, `sandbox_sync_dlq_arn`, `producer_policy_json`, `consumer_policy_json`
+- `infra/terraform/sandbox-sync/staging.tfvars` — staging environment values
+- `infra/terraform/sandbox-sync/production.tfvars` — production environment values
+
+Remaining work:
+- Add `SANDBOX_SYNC_QUEUE_URL` to `src/config/env.ts`
+- Build SQS producer in `chat-api` to publish sync jobs instead of inline sync
+- Build Bun consumer worker that long-polls the queue and calls existing sync logic
+- Apply production queue when staging is validated
+- Upgrade `InMemorySyncStateRepository` to DB-backed
 
 ### Phase 5: Production hardening
 

@@ -42,3 +42,8 @@ worker-local
 
 # Wrangler
 .wrangler
+
+# Terraform
+*.tfstate
+*.tfstate.*
+.terraform/
