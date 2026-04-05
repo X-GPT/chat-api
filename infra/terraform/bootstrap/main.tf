@@ -116,7 +116,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
       "cloudwatch:TagResource",
       "cloudwatch:UntagResource",
     ]
-    resources = ["*"]
+    resources = ["arn:aws:cloudwatch:${var.aws_region}:*:alarm:sandbox-sync-*"]
   }
 }
 
