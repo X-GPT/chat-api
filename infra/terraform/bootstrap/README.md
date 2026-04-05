@@ -6,7 +6,8 @@ One-time local setup that creates foundational AWS resources for Terraform CI/CD
 
 - **S3 bucket** for Terraform remote state (versioned, encrypted, public access blocked)
 - **GitHub OIDC identity provider** for keyless authentication from GitHub Actions
-- **IAM role** for GitHub Actions with scoped permissions (S3 state, SQS management, CloudWatch alarms)
+- **Write IAM role** (`github-actions-X-GPT-chat-api`) — main branch only, for `terraform apply`
+- **Read-only IAM role** (`github-actions-X-GPT-chat-api-readonly`) — all branches, for `terraform plan` on PRs
 
 ## Prerequisites
 
@@ -25,11 +26,12 @@ terraform apply
 
 ## After Apply
 
-1. Copy the `github_actions_role_arn` output value
-2. Add it as a GitHub Actions repository secret named `AWS_ROLE_ARN`
+1. Copy both role ARN outputs
+2. Add them as GitHub Actions repository secrets
 
 ```bash
-terraform output github_actions_role_arn
+terraform output github_actions_role_arn           # → secret AWS_ROLE_ARN
+terraform output github_actions_readonly_role_arn   # → secret AWS_READONLY_ROLE_ARN
 ```
 
 ## Important

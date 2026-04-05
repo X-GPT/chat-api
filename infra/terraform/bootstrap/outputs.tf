@@ -14,11 +14,21 @@ output "oidc_provider_arn" {
 }
 
 output "github_actions_role_arn" {
-  description = "IAM role ARN for GitHub Actions — add as GitHub Actions secret AWS_ROLE_ARN"
+  description = "Write role ARN (main branch, terraform apply) — add as GitHub Actions secret AWS_ROLE_ARN"
   value       = aws_iam_role.github_actions.arn
 }
 
 output "github_actions_role_name" {
-  description = "IAM role name for GitHub Actions"
+  description = "Write role name"
   value       = aws_iam_role.github_actions.name
+}
+
+output "github_actions_readonly_role_arn" {
+  description = "Read-only role ARN (all branches, terraform plan) — add as GitHub Actions secret AWS_READONLY_ROLE_ARN"
+  value       = aws_iam_role.github_actions_readonly.arn
+}
+
+output "github_actions_readonly_role_name" {
+  description = "Read-only role name"
+  value       = aws_iam_role.github_actions_readonly.name
 }

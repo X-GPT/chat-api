@@ -35,7 +35,7 @@ resource "aws_iam_openid_connect_provider" "github" {
   tags           = var.tags
 }
 
-# ─── GitHub Actions IAM Role ──────────────────────────────────────
+# ─── GitHub Actions Write Role (main branch only) ─────────────────
 
 data "aws_iam_policy_document" "github_actions_trust" {
   statement {
@@ -66,8 +66,6 @@ resource "aws_iam_role" "github_actions" {
   assume_role_policy = data.aws_iam_policy_document.github_actions_trust.json
   tags               = var.tags
 }
-
-# ─── GitHub Actions Permissions ────────────────────────────────────
 
 data "aws_iam_policy_document" "github_actions_permissions" {
   # S3 state bucket access
@@ -101,10 +99,7 @@ data "aws_iam_policy_document" "github_actions_permissions" {
     resources = ["arn:aws:sqs:${var.aws_region}:*:sandbox-sync-*"]
   }
 
-  # SQS actions that require broad resource scope:
-  # - CreateQueue: queue doesn't exist yet, ARN can't be evaluated
-  # - GetQueueUrl: resolves name to URL, not scoped to ARN
-  # - ListQueues: service-level, no resource support
+  # SQS actions that require broad resource scope
   statement {
     sid    = "TerraformSQSCreate"
     effect = "Allow"
@@ -145,4 +140,82 @@ resource "aws_iam_role_policy" "github_actions" {
   name   = "terraform-permissions"
   role   = aws_iam_role.github_actions.id
   policy = data.aws_iam_policy_document.github_actions_permissions.json
+}
+
+# ─── GitHub Actions Read-Only Role (all branches, for PR plans) ───
+
+data "aws_iam_policy_document" "github_actions_readonly_trust" {
+  statement {
+    effect  = "Allow"
+    actions = ["sts:AssumeRoleWithWebIdentity"]
+
+    principals {
+      type        = "Federated"
+      identifiers = [aws_iam_openid_connect_provider.github.arn]
+    }
+
+    condition {
+      test     = "StringEquals"
+      variable = "token.actions.githubusercontent.com:aud"
+      values   = ["sts.amazonaws.com"]
+    }
+
+    condition {
+      test     = "StringLike"
+      variable = "token.actions.githubusercontent.com:sub"
+      values   = ["repo:${var.github_org}/${var.github_repo}:ref:refs/heads/*"]
+    }
+  }
+}
+
+resource "aws_iam_role" "github_actions_readonly" {
+  name               = "github-actions-${var.github_org}-${var.github_repo}-readonly"
+  assume_role_policy = data.aws_iam_policy_document.github_actions_readonly_trust.json
+  tags               = var.tags
+}
+
+data "aws_iam_policy_document" "github_actions_readonly_permissions" {
+  # S3 state bucket read (terraform plan needs to read state)
+  statement {
+    sid    = "TerraformStateRead"
+    effect = "Allow"
+    actions = [
+      "s3:GetObject",
+      "s3:ListBucket",
+    ]
+    resources = [
+      aws_s3_bucket.terraform_state.arn,
+      "${aws_s3_bucket.terraform_state.arn}/*",
+    ]
+  }
+
+  # SQS read (terraform plan needs to refresh queue attributes)
+  statement {
+    sid    = "TerraformSQSRead"
+    effect = "Allow"
+    actions = [
+      "sqs:GetQueueAttributes",
+      "sqs:GetQueueUrl",
+      "sqs:ListQueues",
+      "sqs:ListQueueTags",
+    ]
+    resources = ["*"]
+  }
+
+  # CloudWatch read (terraform plan needs to refresh alarm state)
+  statement {
+    sid    = "TerraformCloudWatchRead"
+    effect = "Allow"
+    actions = [
+      "cloudwatch:DescribeAlarms",
+      "cloudwatch:ListTagsForResource",
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "github_actions_readonly" {
+  name   = "terraform-readonly-permissions"
+  role   = aws_iam_role.github_actions_readonly.id
+  policy = data.aws_iam_policy_document.github_actions_readonly_permissions.json
 }
