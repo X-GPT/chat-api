@@ -1,106 +1,159 @@
-# Migration Plan: Replace RAG Retrieval With Sandbox-Based Retrieval
+# Migration Plan: Per-User Sandbox Daemon with State Reconciliation
 
 ## Summary
 
-Replace the current `rag-api` retrieval path with a per-user E2B sandbox that runs the retrieval agent and local search tooling. Keep `chat-api` as the system of record for request handling, chat history/context loading, SSE streaming, and protected-service persistence. Only the retrieval and answer-generation step moves to the sandbox.
+Use one E2B sandbox per user and make the sandbox the execution owner for that user.
+
+- Postgres is the source of truth for current knowledge state.
+- Each user stores a `sandbox_id`.
+- The sandbox contains a Bun-powered Hono daemon started from the E2B template.
+- The daemon keeps an in-memory FIFO queue and processes one request at a time.
+- Before answering, the daemon reconciles Postgres file state into the sandbox filesystem.
+- The Claude agent runs only inside the sandbox and answers by scanning sandbox files with filesystem tools.
+- Chat turns are best-effort: if the sandbox dies mid-turn, the user resends.
+
+This version does not use revision ops. It uses current DB state plus precomputed file checksums.
 
 Phase 1 uses local retrieval only (`grep`, glob, file reads). Vector/semantic search is deferred to a later phase once the sandbox infrastructure, sync system, and agent integration are proven.
 
 Documents synced to the sandbox are text files derived from the protected/MySQL source. Some are Markdown-formatted and some are plain text or parser output. The system must not assume Markdown-only input.
 
-## Key Changes
+## Key Design
 
-### 1. Keep `chat-api` responsibilities; swap only retrieval + generation
+### 1. Postgres knowledge model
 
-`chat-api` continues to:
-- validate requests
-- load chat context and history
-- emit SSE events
-- persist final chat entities and refs
-- own citation persistence contract
+Store current file state only.
 
-Replace the current `search_knowledge` / `rag-api` path with a request to the user's sandbox.
+Per file row, keep:
 
-The sandbox is responsible for:
-- local file access
-- local retrieval (`grep`, glob, file reads; vector search added in a later phase)
-- answer generation
-- returning streamed answer text with inline stable citations
-
-### 2. Preserve the current citation contract
-
-Each synced sandbox document must carry source metadata at minimum:
-- `summaryId`
-- `type`
-- stable sandbox path
-
-The sandbox response must include:
-- streamed answer text
-- inline citation markers in the answer text using stable source identifiers
-
-`chat-api` remains responsible for:
-- parsing inline citation markers from the final answer text
-- converting parsed citations into the current refs format
-- fetching protected summaries as needed
-- persisting `refsContent`
-
-The primary citation contract should remain inline citations in the answer text, not a separately model-authored citation object. This avoids drift between the generated answer and a second structured citation payload.
-
-Do not rely on sandbox file paths alone as the citation contract.
-
-### 3. Add a durable sync system between source data and sandbox filesystem
-
-Treat protected/MySQL documents as the source of truth.
-
-Treat the sandbox filesystem as a materialized cache.
-
-Add a sync-state store owned by `chat-api` behind a `SyncStateRepository` interface (database engine — MySQL or Postgres — to be finalized later). Fields equivalent to:
 - `user_id`
+- `path`
+- `content`
+- `checksum`
+- `updated_at`
+- optional logical metadata needed by the app
+
+Per user, keep:
+
+- `state_version` — incremented on every committed knowledge change
+
+Runtime metadata per user:
+
 - `sandbox_id`
-- `summary_id`
-- `type`
-- `expected_path`
-- `content_checksum`
-- `source_updated_at`
-- `last_synced_at`
-- `sync_status`
+- `agent_session_id`
+- `synced_version`
+- `sandbox_status`
+- `last_seen_at`
 
-On each sync cycle, derive:
-- files to create/update
-- files to delete
-- unchanged files
+Rules:
 
-Sync logic must detect more than `updated_at` changes:
-- deletions
-- content checksum mismatches
-- collection/scope changes
-- sandbox recreation
-- stale or orphaned sandbox files
+- every app write updates current file state in Postgres
+- every app write recomputes checksum for changed files
+- every successful write transaction increments `state_version`
+- `state_version` is the sync trigger; checksum is the diff signal
 
-### 4. Add sandbox drift detection and repair
+### 2. Sandbox lifecycle and daemon
 
-Do not trust the sync-state table as proof that the sandbox is correct.
+Bake the daemon into the E2B template.
 
-Use this model:
-- source tables = desired state
-- sync-state table = last known applied state
-- sandbox manifest/check = observed state
+Template behavior:
 
-Require reconciliation in these cases:
-- new sandbox
-- resumed sandbox
-- sandbox execution failure
-- periodic verification window
+- install Bun, app code, and dependencies
+- E2B template start command: `bun run /app/daemon.ts`
+- E2B template ready command: `curl -fsS http://127.0.0.1:3000/health`
 
-Verification should compare expected files against sandbox files and repair drift by re-syncing and re-indexing affected files.
+Runtime behavior:
 
-### 5. Introduce sandbox lookup and isolation
+- API loads `sandbox_id` for the user
+- if sandbox is valid, reconnect to it
+- if sandbox is missing/unhealthy, create a new sandbox from template and update `sandbox_id`
+- API never starts the daemon during request handling
 
-Use E2B sandbox metadata to store `userId`.
+### 3. In-sandbox daemon behavior
 
-Maintain `userId -> sandbox` lookup in application-owned state so multiple API replicas can resolve the same sandbox consistently.
+Run a Hono server inside the sandbox as the only executor for that user.
 
-Multiple concurrent queries for the same user must not race file sync and indexing; serialize sync/index work per sandbox.
+Endpoints:
+
+- `GET /health`
+- `POST /enqueue`
+- `GET /current`
+- optional `POST /cancel`
+
+Behavior:
+
+- keep an in-memory FIFO queue
+- allow exactly one active request at a time
+- for each request:
+    1. reconcile sandbox files to latest required DB state
+    2. run Claude Agent SDK
+    3. stream output
+    4. persist updated `agent_session_id`
+    5. update `synced_version` after successful reconciliation
+
+Important rule: only the daemon may run Claude or mutate sandbox-local runtime state.
+
+### 4. State reconciliation flow
+
+The daemon syncs by comparing authoritative DB state with sandbox-local synced state.
+
+Inputs:
+
+- user `state_version` from Postgres
+- file manifest from Postgres: `path → checksum`
+- sandbox local manifest file (`.sync-manifest.json`): `path → checksum`
+
+Flow for each chat request:
+
+1. API includes the user's current `state_version` as `required_version`.
+2. Daemon reads `synced_version`.
+3. If `synced_version >= required_version`, skip reconciliation.
+4. Otherwise fetch the full DB manifest and changed file contents as needed.
+5. Compare DB manifest with sandbox local manifest.
+6. Apply:
+    - create/update files whose checksum differs or are missing
+    - delete files present locally but absent in DB manifest
+7. Write the new local manifest in sandbox.
+8. Persist `synced_version = required_version` in Postgres.
+9. Run Claude only after reconciliation completes.
+
+Rules:
+
+- do not compare DB `updated_at` directly with filesystem mtimes
+- use checksum as the content identity signal
+- canonical sandbox root: `/workspace/data`
+
+### 5. Streaming path
+
+Use the API as a synchronous stream proxy.
+
+Flow:
+
+1. client sends chat request to main API
+2. API resolves sandbox and daemon URL
+3. API forwards request to daemon `POST /enqueue`
+4. daemon waits in local FIFO
+5. once active, daemon returns a streaming HTTP response
+6. API relays the stream to the client over SSE
+7. when daemon completes, API closes client stream
+
+Daemon-to-API event format: NDJSON with `started`, `text_delta`, `completed`, `failed`.
+
+Uses E2B sandbox public URL support via `sandbox.getHost(port)`.
+
+### 6. Failure policy
+
+Keep v1 best-effort and simple.
+
+Rules:
+
+- if client disconnects, the stream is lost
+- if sandbox crashes mid-turn, the request is lost and user resends
+- if daemon health check fails, API recreates sandbox from template
+- on new sandbox creation, daemon rebuilds local files by reconciling from Postgres state
+- if `agent_session_id` is invalid, create a new agent session in the same sandbox
+
+No durable external queue for chat turns in v1.
 
 ## Prototype Gate: `qmd` in E2B — REJECTED
 
@@ -222,7 +275,7 @@ Exit criteria:
 
 Replace current `rag-api` retrieval calls with sandbox orchestration, gated behind a feature flag.
 
-> **Note:** Phase 4 is complete as implemented — the sandbox path works end-to-end with inline sync on the request path (`sandbox-orchestration.ts` calls `ensureInitialSync()`/`runIncrementalSync()` before `runSandboxAgent()`). Moving sync off the request path to an async SQS-based worker is Phase 4b's responsibility. `SANDBOX_SYNC_QUEUE_URL` is not yet defined in `env.ts`; it will be added when the producer/consumer are built in Phase 4b.
+> **Note:** Phase 4 is complete as implemented — the sandbox path works end-to-end with inline sync on the request path (`sandbox-orchestration.ts` calls `ensureInitialSync()`/`runIncrementalSync()` before `runSandboxAgent()`). Phase 4b replaces this with a per-user sandbox daemon that owns sync and agent execution.
 
 **Design decisions (2026-03-28):**
 
@@ -251,72 +304,55 @@ Exit criteria:
 - session resume preserves conversation context across queries
 - `SANDBOX_ENABLED=false` uses existing RAG path with zero change
 
-### Phase 4b: Sync infrastructure and service — IN PROGRESS
+### Phase 4b: Per-user sandbox daemon with state reconciliation — IN PROGRESS
 
-Extract document sync into a separate service, decoupled from the chat request path.
+Replace chat-api-orchestrated sandbox execution with a per-user daemon that owns the full lifecycle: state reconciliation, agent execution, and streaming.
 
-Responsibilities:
-- Keep sandbox filesystems up-to-date with source data (protected/MySQL)
-- React to document CRUD events or run on a periodic schedule
-- Use `SandboxSyncService` from Phase 2 with `sandbox.files.write(files: WriteEntry[])` for batch writes (one API call for all files)
-- Own sync state persistence (upgrade `InMemorySyncStateRepository` to DB-backed)
+#### Superseded: SQS approach
 
-Design constraints:
-- Sync must not be tied to any HTTP request lifecycle — runs independently
-- Multiple chat-api replicas must see the same synced sandbox state
-- E2B `sandbox.files.write()` accepts arrays, eliminating the N-round-trip concern
+SQS FIFO infrastructure was deployed to staging and production (queues, DLQs, CloudWatch alarms, Terraform CI/CD) as a candidate for decoupling sync from the request path. This approach has been superseded by the in-sandbox daemon pattern, which moves sync responsibility into the sandbox itself.
 
-**Design decisions (2026-04-04):**
+Infrastructure artifacts remain in the repo:
+- `infra/terraform/bootstrap/` — S3 state bucket, GitHub OIDC provider, IAM roles
+- `infra/terraform/sandbox-sync/` — SQS FIFO queues, CloudWatch alarms, IAM policies
+- `.github/workflows/terraform-sandbox-sync.yml` — Terraform CI/CD
 
-- **SQS FIFO for async sync**: An SQS FIFO queue decouples sync triggers from the chat request path. `MessageGroupId = userId` guarantees per-user ordering so concurrent sync requests for the same user are serialized by SQS. Explicit `MessageDeduplicationId` (not content-based) prevents duplicate sync jobs within the 5-minute dedup window.
-- **Terraform-managed infrastructure**: Two Terraform stacks introduced as the first IaC in the repo:
-  - `infra/terraform/bootstrap/` — S3 state bucket (`mymemo-terraform-state`), GitHub OIDC provider, GitHub Actions IAM role (`github-actions-X-GPT-chat-api`) with scoped permissions for Terraform CI
-  - `infra/terraform/sandbox-sync/` — SQS FIFO queues, CloudWatch alarms, IAM policy documents (producer/consumer)
-- **Queue configuration**: visibility timeout 600s (matches expected sync job duration), 1-day retention on main queue, 4-day retention on DLQ for debugging, max 5 receive attempts before DLQ
-- **CloudWatch alarms**: oldest message age (>5 min), message backlog (>100), DLQ messages (>=1). Alarm actions wired to SNS when a topic is provided.
-- **Producer/consumer split**: `chat-api` publishes sync jobs (producer). A separate Bun worker long-polls the queue (consumer) and calls existing `ensureInitialSync()`/`runIncrementalSync()` logic.
+#### Design decisions (2026-04-06):
 
-Queue contract:
-- Producer sends: `MessageGroupId = userId`, `MessageDeduplicationId = userId:jobType:sourceManifestVersion`
-- Queue URL injected via `SANDBOX_SYNC_QUEUE_URL` env var
-- Consumer calls existing sync pipeline from `sandbox-orchestration/sandbox-sync-service.ts`
+- **Bun-powered Hono daemon (no PM2)**: The daemon runs directly via `bun run /app/daemon.ts`. Bun is consistent with chat-api's runtime, provides native TypeScript execution, and avoids PM2 overhead. E2B template start/ready commands handle lifecycle; crash recovery is handled at the sandbox level (API recreates the sandbox).
+- **Postgres knowledge model**: Replaces the in-memory `SyncStateRepository` with Postgres as the durable source of truth. Per-file rows with `checksum` enable content-identity-based diffing. Per-user `state_version` is the sync trigger — incremented on every committed knowledge change.
+- **Daemon-side reconciliation**: The daemon compares its local `.sync-manifest.json` against the DB manifest before each agent turn. This eliminates the need for chat-api to orchestrate sync — the daemon is self-healing.
+- **In-memory FIFO queue**: The daemon serializes requests per user with an in-memory queue. No distributed locking needed — each user has exactly one sandbox with one daemon.
+- **Streaming via `sandbox.getHost(port)`**: The API acts as a synchronous stream proxy, forwarding to the daemon's `POST /enqueue` endpoint and relaying NDJSON events as SSE.
 
-Infrastructure status (2026-04-04):
-- Bootstrap stack applied: S3 bucket, OIDC provider (imported — already existed), IAM role created
-- Staging queue applied: `sandbox-sync-staging.fifo` + `sandbox-sync-dlq-staging.fifo` + 3 CloudWatch alarms
-- Production queue: ready to apply with `production.tfvars`
-- State stored remotely in `s3://mymemo-terraform-state/sandbox-sync/staging`
-
-Artifacts (infrastructure):
-- `infra/terraform/bootstrap/main.tf` — S3 bucket, OIDC provider, IAM role + policy
-- `infra/terraform/bootstrap/outputs.tf` — `state_bucket_name`, `oidc_provider_arn`, `github_actions_role_arn`
-- `infra/terraform/sandbox-sync/main.tf` — SQS FIFO queues + CloudWatch alarms
-- `infra/terraform/sandbox-sync/iam.tf` — producer/consumer IAM policy documents
-- `infra/terraform/sandbox-sync/outputs.tf` — `sandbox_sync_queue_url`, `sandbox_sync_queue_arn`, `sandbox_sync_dlq_url`, `sandbox_sync_dlq_arn`, `producer_policy_json`, `consumer_policy_json`
-- `infra/terraform/sandbox-sync/staging.tfvars` — staging environment values
-- `infra/terraform/sandbox-sync/production.tfvars` — production environment values
+Artifacts (to build):
+- E2B template update: `sandbox-template/template.ts` (Bun + Hono daemon, deps)
+- Daemon source: `/app/daemon.ts` (Hono server, FIFO queue, reconciliation, agent runner)
+- Postgres schema: knowledge files table (`user_id`, `path`, `content`, `checksum`, `updated_at`), user runtime metadata (`sandbox_id`, `agent_session_id`, `synced_version`, `sandbox_status`, `state_version`)
+- API-side forwarding: replace `sandbox-orchestration.ts` inline sync+agent with daemon proxy (`getOrCreateUserSandbox`, `forwardChatToSandbox`)
 
 Remaining work:
-- Add `SANDBOX_SYNC_QUEUE_URL` to `src/config/env.ts`
-- Build SQS producer in `chat-api` to publish sync jobs instead of inline sync
-- Build Bun consumer worker that long-polls the queue and calls existing sync logic
-- Apply production queue when staging is validated
-- Upgrade `InMemorySyncStateRepository` to DB-backed
+- Postgres schema migration
+- Daemon implementation (Hono server, reconciliation logic, agent runner integration)
+- E2B template rebuild with Bun + daemon
+- API integration to forward chat requests to daemon instead of running inline sync + agent
+- Wire `sandbox.getHost(port)` streaming path
+- Update `env.ts` with Postgres connection config
 
 ### Phase 5: Production hardening
 
 Add:
-- sandbox lifecycle management (TTL, pause/resume, cleanup)
-- distributed sync locking per sandbox
-- retries and failure recovery
-- metrics for sync, query, and sandbox health
+- sandbox lifecycle management (TTL, pause/resume, cleanup of idle sandboxes)
+- daemon health monitoring (periodic `/health` checks, sandbox recreation on failure)
+- distributed locking deferred (daemon FIFO handles per-user serialization)
+- metrics: reconciliation latency, daemon uptime, sandbox health, request queue depth
 
 Validate concurrency and cost with representative load.
 
 Exit criteria:
-- concurrent requests do not corrupt sync state
 - warm and cold latency are within acceptable limits
 - operational alerts and dashboards exist
+- sandbox recreation and state rebuild work reliably under load
 
 ### Phase 6: Vector search integration
 
@@ -338,49 +374,53 @@ Exit criteria:
 - latency is within acceptable limits
 - integration does not regress local retrieval or citation contracts
 
-## Public Interfaces / Contract Changes
+## Public Interfaces / Internal Contracts
 
-Replace the internal retrieval backend contract from `rag-api search response` to `sandbox answer response`.
+Core API-side functions:
 
-New sandbox response contract should include:
-- streamed `answerText`
-- inline citation markers in a stable parseable format compatible with the existing refs extraction flow
-- optional retrieval/debug metadata for logs only
+- `getOrCreateUserSandbox(userId)` — resolve or create sandbox, return sandbox instance
+- `getSandboxDaemonUrl(sandboxId, port)` — get daemon URL via `sandbox.getHost(port)`
+- `forwardChatToSandbox(userId, request)` — proxy chat request to daemon and relay stream
 
-No client-facing API or SSE schema changes should be required unless existing event flow proves insufficient.
+Core daemon-side functions:
+
+- `reconcileSandboxState(userId, requiredVersion)` — sync sandbox files to DB state
+- `loadDbManifest(userId)` — fetch file manifest from Postgres
+- `loadChangedFiles(userId, paths)` — fetch content for changed files
+- `loadLocalManifest()` / `writeLocalManifest(manifest)` — read/write `.sync-manifest.json`
+- `runAgentTurn(agentSessionId?, prompt)` — run Claude Agent SDK and stream output
+
+Daemon request contract:
+
+- `POST /enqueue`
+    - input: `request_id`, `user_id`, `required_version`, `message`, optional conversation context
+    - output: streaming NDJSON (`started`, `text_delta`, `completed`, `failed`)
+
+No client-facing API or SSE schema changes required. `chat-api` remains the owner of chat persistence and citation persistence.
 
 ## Test Plan
 
-Prototype tests:
-- `grep`/glob search over mixed text inputs in E2B
-- pause/resume file persistence
-- cold start timing
-- citation round-trip through existing parser
-
-Sync tests:
-- initial full sync
-- update existing doc
-- delete doc
-- collection/scope change
-- sandbox drift recovery
-- sandbox recreation rebuild
-
-Integration tests:
-- end-to-end chat request through sandbox
-- inline citations parsed and converted into existing refs flow
-- SSE streaming preserved
-- concurrent requests for one user do not race sync/index
-- multiple users remain isolated
+Critical scenarios:
+- same user, two requests: daemon processes them strictly in order
+- different users: separate sandboxes run concurrently
+- daemon starts automatically in new sandbox from template
+- API can reach daemon via sandbox host URL
+- checksum-based reconciliation updates only changed files
+- deleted DB files are removed from sandbox
+- sandbox recreation rebuilds state correctly from Postgres
+- agent session can be recreated without losing sandbox filesystem state
+- failed mid-turn request does not corrupt Postgres knowledge state
 
 Regression tests:
 - chat history loading unchanged
 - protected-service persistence unchanged
 - citations still resolve to protected summaries
 
-## Assumptions
+## Assumptions and Defaults
 
-- protected/MySQL source remains the canonical document source.
-- synced sandbox documents are text files; some are Markdown and some are plain text/parser output.
-- `chat-api` remains the owner of chat persistence and citation persistence.
-- inline stable citations in the answer text are the default contract.
-- MySQL-backed sync state is the recommended default for durability and cross-replica coordination.
+- Best-effort chat execution is acceptable; failed in-flight turns can be resent manually.
+- Bun is the daemon runtime (no PM2). The daemon is started by the template, not bootstrapped during request handling.
+- Postgres stores durable current knowledge state and successful chat history, but not a durable pending chat-job queue in v1.
+- File checksums are computed at write time in the app and stored in Postgres.
+- Synced sandbox documents are text files; some are Markdown and some are plain text/parser output.
+- Inline stable citations in the answer text are the default citation contract.
