@@ -21,7 +21,10 @@ export const apiEnv = (() => {
 		);
 	}
 
+	const databaseUrl = Bun.env.DATABASE_URL || null;
+
 	return {
+		DATABASE_URL: databaseUrl,
 		OPENAI_API_KEY: Bun.env.OPENAI_API_KEY,
 		ANTHROPIC_API_KEY: Bun.env.ANTHROPIC_API_KEY,
 		PROTECTED_API_ORIGIN:

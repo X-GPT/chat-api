@@ -1,9 +1,10 @@
 import { afterEach, describe, expect, it, spyOn } from "bun:test";
+import type { SyncLogger } from "@/features/sandbox";
 import { fetchSummariesManifest } from "./manifest";
 
-const silentLogger = {
-	info(_obj: Record<string, unknown>) {},
-	error(_obj: Record<string, unknown>) {},
+const silentLogger: SyncLogger = {
+	info() {},
+	error() {},
 };
 
 function mockFetchResponse(body: unknown, status = 200) {
@@ -17,8 +18,9 @@ function mockFetchResponse(body: unknown, status = 200) {
 
 describe("fetchSummariesManifest", () => {
 	afterEach(() => {
-		// Restore original fetch after each test
-		(globalThis.fetch as any)?.mockRestore?.();
+		(
+			globalThis.fetch as unknown as { mockRestore?: () => void }
+		)?.mockRestore?.();
 	});
 
 	it("returns manifest entries on successful response", async () => {
@@ -32,7 +34,7 @@ describe("fetchSummariesManifest", () => {
 			"member-1",
 			"partner-1",
 			{},
-			silentLogger as any,
+			silentLogger,
 		);
 
 		expect(result).toHaveLength(2);
@@ -44,7 +46,7 @@ describe("fetchSummariesManifest", () => {
 		mockFetchResponse({ code: 200, msg: "ok" });
 
 		await expect(
-			fetchSummariesManifest("member-1", "partner-1", {}, silentLogger as any),
+			fetchSummariesManifest("member-1", "partner-1", {}, silentLogger),
 		).rejects.toThrow("Manifest response missing data field");
 	});
 
@@ -54,7 +56,7 @@ describe("fetchSummariesManifest", () => {
 		);
 
 		await expect(
-			fetchSummariesManifest("member-1", "partner-1", {}, silentLogger as any),
+			fetchSummariesManifest("member-1", "partner-1", {}, silentLogger),
 		).rejects.toThrow("Failed to fetch manifest: 404");
 	});
 
@@ -62,7 +64,7 @@ describe("fetchSummariesManifest", () => {
 		mockFetchResponse({ invalid: true });
 
 		await expect(
-			fetchSummariesManifest("member-1", "partner-1", {}, silentLogger as any),
+			fetchSummariesManifest("member-1", "partner-1", {}, silentLogger),
 		).rejects.toThrow("Invalid manifest response structure");
 	});
 
@@ -70,7 +72,7 @@ describe("fetchSummariesManifest", () => {
 		mockFetchResponse({ code: 500, msg: "Internal error", data: [] });
 
 		await expect(
-			fetchSummariesManifest("member-1", "partner-1", {}, silentLogger as any),
+			fetchSummariesManifest("member-1", "partner-1", {}, silentLogger),
 		).rejects.toThrow("Failed to fetch manifest: Internal error");
 	});
 });

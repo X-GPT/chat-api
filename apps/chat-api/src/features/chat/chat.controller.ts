@@ -1,4 +1,4 @@
-import { apiEnv, isSandboxEnabled, type ChatMessagesScope } from "@/config/env";
+import { type ChatMessagesScope, isSandboxEnabled } from "@/config/env";
 import { runSandboxChat } from "@/features/sandbox-orchestration";
 import {
 	fetchProtectedChatContext,

@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from "bun:test";
+import {
+	afterEach,
+	beforeEach,
+	describe,
+	expect,
+	it,
+	mock,
+	spyOn,
+} from "bun:test";
 import * as envModule from "@/config/env";
 
 Bun.env.OPENAI_API_KEY = Bun.env.OPENAI_API_KEY ?? "test-openai-key";
@@ -41,9 +49,9 @@ describe("complete sandbox behavior", () => {
 	});
 
 	it("uses sandbox chat when sync completes", async () => {
-		spyOn(chatApiModule, "fetchProtectedChatId").mockResolvedValueOnce(
-			"chat-id",
-		).mockResolvedValueOnce("refs-id");
+		spyOn(chatApiModule, "fetchProtectedChatId")
+			.mockResolvedValueOnce("chat-id")
+			.mockResolvedValueOnce("refs-id");
 		spyOn(chatApiModule, "fetchProtectedChatContext").mockResolvedValue({
 			chatKey: "chat-1",
 			chatData: {
@@ -56,9 +64,11 @@ describe("complete sandbox behavior", () => {
 		spyOn(chatApiModule, "fetchProtectedChatMessages").mockResolvedValue([]);
 		spyOn(summariesModule, "fetchProtectedSummaries").mockResolvedValue([]);
 
-		const spySandbox = spyOn(sandboxModule, "runSandboxChat").mockResolvedValue({
-			status: "completed",
-		});
+		const spySandbox = spyOn(sandboxModule, "runSandboxChat").mockResolvedValue(
+			{
+				status: "completed",
+			},
+		);
 		const spyRunMyMemo = spyOn(mymemoModule, "runMyMemo").mockResolvedValue(
 			undefined,
 		);
@@ -75,8 +85,8 @@ describe("complete sandbox behavior", () => {
 				memberAuthToken: "token-123",
 				memberCode: "user-1",
 			},
-			sender as any,
-			silentLogger as any,
+			sender as unknown as import("./chat.streaming").MymemoEventSender,
+			silentLogger as unknown as import("./chat.logger").ChatLogger,
 		);
 
 		expect(spySandbox).toHaveBeenCalled();

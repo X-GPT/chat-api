@@ -1,10 +1,61 @@
+import { readdirSync, readFileSync, statSync } from "node:fs";
+import { join, relative, resolve } from "node:path";
 import { Sandbox } from "e2b";
 import { apiEnv } from "@/config/env";
 import type { SyncLogger } from "@/features/sandbox";
-import { getDocsRoot } from "@/features/sandbox";
 import { SandboxCreationError } from "./errors";
 
-export const WORKSPACE_ROOT = "/workspace/sandbox-prototype";
+export const WORKSPACE_ROOT = "/workspace";
+const DAEMON_PORT = 8080;
+const DAEMON_STARTUP_TIMEOUT_MS = 15_000;
+const DAEMON_HEALTH_CHECK_INTERVAL_MS = 500;
+
+let cachedDaemonVersion = "";
+
+function getDaemonVersion(): string {
+	if (!cachedDaemonVersion) {
+		try {
+			const pkg = JSON.parse(
+				readFileSync(
+					resolve(
+						import.meta.dirname,
+						"../../../../sandbox-daemon/package.json",
+					),
+					"utf-8",
+				),
+			);
+			cachedDaemonVersion = String(pkg.version ?? "0.0.0");
+		} catch {
+			cachedDaemonVersion = "0.0.0";
+		}
+	}
+	return cachedDaemonVersion;
+}
+
+const DAEMON_SKIP = new Set(["node_modules", ".git", "biome.json"]);
+const DAEMON_EXTENSIONS = new Set([".ts", ".json", ".lock"]);
+
+/**
+ * Recursively collect deployable files from the daemon directory.
+ * Skips node_modules, test files, and config files not needed at runtime.
+ */
+function collectDaemonFiles(dir: string, base = dir): string[] {
+	const results: string[] = [];
+	for (const entry of readdirSync(dir)) {
+		if (DAEMON_SKIP.has(entry)) continue;
+		const fullPath = join(dir, entry);
+		const relPath = relative(base, fullPath);
+		if (statSync(fullPath).isDirectory()) {
+			results.push(...collectDaemonFiles(fullPath, base));
+		} else if (
+			DAEMON_EXTENSIONS.has(relPath.slice(relPath.lastIndexOf("."))) &&
+			!relPath.endsWith(".test.ts")
+		) {
+			results.push(relPath);
+		}
+	}
+	return results;
+}
 
 export class SandboxManager {
 	// Cache sandboxId per user to avoid Sandbox.list() API call on every request.
@@ -12,6 +63,8 @@ export class SandboxManager {
 	private sandboxIdCache = new Map<string, string>();
 	// Dedup concurrent getOrCreateSandbox calls for the same user.
 	private inFlight = new Map<string, Promise<Sandbox>>();
+	// Track sandboxes with a healthy daemon to skip per-request health checks.
+	private daemonReady = new Set<string>();
 
 	async getOrCreateSandbox(
 		userId: string,
@@ -99,6 +152,7 @@ export class SandboxManager {
 		logger: SyncLogger,
 	): Promise<void> {
 		this.sandboxIdCache.delete(userId);
+		this.daemonReady.delete(sandbox.sandboxId);
 		try {
 			await sandbox.kill();
 			logger.info({
@@ -116,11 +170,162 @@ export class SandboxManager {
 		}
 	}
 
-	getDocsRoot(userId: string): string {
-		return getDocsRoot({ workspaceRoot: WORKSPACE_ROOT, userId });
-	}
-
 	getCachedSandboxId(userId: string): string | undefined {
 		return this.sandboxIdCache.get(userId);
+	}
+
+	/**
+	 * Ensure the sandbox daemon is running and up-to-date.
+	 * Returns the daemon URL.
+	 */
+	async ensureSandboxDaemon(
+		userId: string,
+		sandbox: Sandbox,
+		logger: SyncLogger,
+	): Promise<string> {
+		const daemonUrl = this.getDaemonUrl(sandbox);
+
+		// Fast-path: skip health check if we already verified this sandbox
+		if (this.daemonReady.has(sandbox.sandboxId)) {
+			return daemonUrl;
+		}
+
+		// Health check to verify daemon state
+		try {
+			const health = await this.checkDaemonHealth(daemonUrl);
+			if (health && health.version === getDaemonVersion()) {
+				this.daemonReady.add(sandbox.sandboxId);
+				return daemonUrl;
+			}
+
+			if (health) {
+				logger.info({
+					msg: "Daemon version mismatch, restarting",
+					currentVersion: health.version,
+					expectedVersion: getDaemonVersion(),
+				});
+				await this.restartDaemon(sandbox, logger);
+				this.daemonReady.add(sandbox.sandboxId);
+				return daemonUrl;
+			}
+		} catch {
+			// Daemon not running, deploy it
+		}
+
+		logger.info({
+			msg: "Deploying sandbox daemon",
+			userId,
+			sandboxId: sandbox.sandboxId,
+		});
+
+		await this.deployDaemonBundle(sandbox, logger);
+		this.daemonReady.add(sandbox.sandboxId);
+		return daemonUrl;
+	}
+
+	getDaemonUrl(sandbox: Sandbox): string {
+		return `https://${sandbox.getHost(DAEMON_PORT)}`;
+	}
+
+	private async checkDaemonHealth(
+		daemonUrl: string,
+	): Promise<{ status: string; version: string; uptime: number } | null> {
+		try {
+			const response = await fetch(`${daemonUrl}/health`, {
+				signal: AbortSignal.timeout(3_000),
+			});
+			if (!response.ok) return null;
+			const body = (await response.json()) as {
+				status: string;
+				version: string;
+				uptime: number;
+			};
+			return body;
+		} catch {
+			return null;
+		}
+	}
+
+	private async deployDaemonBundle(
+		sandbox: Sandbox,
+		logger: SyncLogger,
+	): Promise<void> {
+		const daemonDir = resolve(
+			import.meta.dirname,
+			"../../../../sandbox-daemon",
+		);
+
+		// Collect all deployable files from the daemon directory
+		const files = collectDaemonFiles(daemonDir);
+
+		const writeEntries = files.map((file) => ({
+			path: `/workspace/sandbox-daemon/${file}`,
+			data: readFileSync(resolve(daemonDir, file), "utf-8"),
+		}));
+
+		await sandbox.files.write(writeEntries);
+
+		// Install dependencies
+		const installResult = await sandbox.commands.run(
+			"cd /workspace/sandbox-daemon && bun install",
+			{ timeoutMs: 60_000 },
+		);
+
+		if (installResult.exitCode !== 0) {
+			throw new Error(
+				`Daemon dependency install failed: ${installResult.stderr}`,
+			);
+		}
+
+		// Start daemon in background
+		await this.startDaemonProcess(sandbox, logger);
+	}
+
+	private async restartDaemon(
+		sandbox: Sandbox,
+		logger: SyncLogger,
+	): Promise<void> {
+		// Kill existing daemon
+		await sandbox.commands.run("pkill -f 'bun.*sandbox-daemon' || true", {
+			timeoutMs: 5_000,
+		});
+
+		// Re-deploy with updated files
+		await this.deployDaemonBundle(sandbox, logger);
+	}
+
+	private async startDaemonProcess(
+		sandbox: Sandbox,
+		logger: SyncLogger,
+	): Promise<void> {
+		// Start daemon as a background process using E2B's background option
+		await sandbox.commands.run(
+			"cd /workspace/sandbox-daemon && bun run index.ts",
+			{
+				background: true,
+				envs: { ANTHROPIC_API_KEY: apiEnv.ANTHROPIC_API_KEY },
+				onStderr: (data) => {
+					logger.error({ msg: "Daemon stderr", data });
+				},
+			},
+		);
+
+		// Wait for health check
+		const daemonUrl = this.getDaemonUrl(sandbox);
+		const deadline = Date.now() + DAEMON_STARTUP_TIMEOUT_MS;
+
+		while (Date.now() < deadline) {
+			const health = await this.checkDaemonHealth(daemonUrl);
+			if (health) {
+				logger.info({
+					msg: "Sandbox daemon is ready",
+					version: health.version,
+				});
+				return;
+			}
+			await new Promise((r) => setTimeout(r, DAEMON_HEALTH_CHECK_INTERVAL_MS));
+		}
+
+		throw new Error("Daemon failed to start within timeout");
 	}
 }

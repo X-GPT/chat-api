@@ -1,10 +1,12 @@
 import { Template } from "e2b";
 
-const WORKSPACE_ROOT = "/workspace/sandbox-prototype";
+const WORKSPACE_ROOT = "/workspace";
 
 export const template = Template()
-	.fromNodeImage("lts")
+	.fromBunImage("1.3")
+	.aptInstall(["curl", "git", "ripgrep"])
 	.setWorkdir(WORKSPACE_ROOT)
-	.runCmd(`mkdir -p ${WORKSPACE_ROOT}/docs`)
-	.npmInstall("@anthropic-ai/claude-code", { g: true })
-	.npmInstall("@anthropic-ai/claude-agent-sdk");
+	.runCmd(`mkdir -p ${WORKSPACE_ROOT}/data`)
+	.bunInstall("@anthropic-ai/claude-code", { g: true })
+	.bunInstall("@anthropic-ai/claude-agent-sdk", { g: true })
+	.bunInstall("hono", { g: true });

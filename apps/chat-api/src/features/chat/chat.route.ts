@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { streamSSE } from "hono/streaming";
 import { validator as zValidator } from "hono-openapi";
 import type { Env as PinoEnv } from "hono-pino";
+import { ConversationBusyError } from "@/features/sandbox-orchestration";
 import { complete } from "./chat.controller";
 import { ChatLogger } from "./chat.logger";
 import { ChatRequest } from "./chat.schema";
@@ -70,6 +71,19 @@ app.post(
 						sender,
 						new ChatLogger(c.var.logger, memberCode, request.chatKey),
 					);
+				} catch (err) {
+					if (err instanceof ConversationBusyError) {
+						await sender.send({
+							id: crypto.randomUUID(),
+							message: {
+								type: "error",
+								message:
+									"Sandbox is busy processing another request. Please try again shortly.",
+							},
+						});
+						return;
+					}
+					throw err;
 				} finally {
 					// Always clear the interval when complete finishes
 					clearInterval(keepaliveInterval);
