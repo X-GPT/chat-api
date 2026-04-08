@@ -79,16 +79,21 @@ app.post("/turn", async (c) => {
 				if (scope_type === "document" && summary_id) {
 					const manifest = readLocalManifest(dataRoot);
 					const doc = manifest.find((e) => e.document_id === summary_id);
-					if (doc) {
-						ephemeralScope = createEphemeralDocumentScope(
-							dataRoot,
-							summary_id,
-							doc,
+					if (!doc) {
+						await s.write(
+							ndjsonLine({
+								type: "failed",
+								message: `Document ${summary_id} not found`,
+							}),
 						);
-						cwd = ephemeralScope;
-					} else {
-						cwd = resolveScopeCwd(dataRoot, "global");
+						return;
 					}
+					ephemeralScope = createEphemeralDocumentScope(
+						dataRoot,
+						summary_id,
+						doc,
+					);
+					cwd = ephemeralScope;
 				} else {
 					cwd = resolveScopeCwd(
 						dataRoot,

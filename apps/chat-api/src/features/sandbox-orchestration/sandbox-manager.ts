@@ -273,10 +273,11 @@ export class SandboxManager {
 		sandbox: Sandbox,
 		logger: SyncLogger,
 	): Promise<void> {
-		// Kill existing daemon
-		await sandbox.commands.run("pkill -f 'bun.*sandbox-daemon' || true", {
-			timeoutMs: 5_000,
-		});
+		// Kill whatever process owns port 8080 (process name may not match pkill pattern)
+		await sandbox.commands.run(
+			"kill $(lsof -ti :8080) 2>/dev/null || true",
+			{ timeoutMs: 5_000 },
+		);
 
 		// Re-deploy with updated files
 		await this.deployDaemonBundle(sandbox, logger);
