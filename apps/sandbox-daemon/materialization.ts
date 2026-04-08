@@ -57,6 +57,15 @@ export function getDataRoot(userId: string): string {
 	return `/workspace/data/${sanitizePathSegment(userId)}`;
 }
 
+/**
+ * Ensure the minimum directory structure exists for a user's data root.
+ * Idempotent — safe to call on every turn.
+ */
+export function ensureDataRoot(dataRoot: string): void {
+	mkdirSync(`${dataRoot}/scopes/global`, { recursive: true });
+	mkdirSync(`${dataRoot}/canonical`, { recursive: true });
+}
+
 export function buildCanonicalPath(
 	dataRoot: string,
 	doc: DocIdentifier,

@@ -3,6 +3,7 @@ import { stream } from "hono/streaming";
 import { runAgent } from "../agent";
 import {
 	createEphemeralDocumentScope,
+	ensureDataRoot,
 	getDataRoot,
 	removeEphemeralDocumentScope,
 	resolveScopeCwd,
@@ -67,6 +68,10 @@ app.post("/turn", async (c) => {
 			const dataRoot = getDataRoot(user_id);
 			let ephemeralScope: string | null = null;
 
+			// Release lock if the client disconnects before the turn finishes
+			const abortHandler = () => lock.release();
+			c.req.raw.signal.addEventListener("abort", abortHandler);
+
 			try {
 				await s.write(ndjsonLine({ type: "started", turn_id: request_id }));
 
@@ -74,6 +79,8 @@ app.post("/turn", async (c) => {
 					userId: user_id,
 					requiredVersion: required_version,
 				});
+
+				ensureDataRoot(dataRoot);
 
 				if (scope_type === "collection" && !collection_id) {
 					await s.write(
@@ -156,6 +163,7 @@ app.post("/turn", async (c) => {
 				const errorMessage = err instanceof Error ? err.message : String(err);
 				await s.write(ndjsonLine({ type: "failed", message: errorMessage }));
 			} finally {
+				c.req.raw.signal.removeEventListener("abort", abortHandler);
 				if (ephemeralScope && summary_id) {
 					removeEphemeralDocumentScope(dataRoot, summary_id);
 				}

@@ -54,12 +54,14 @@ export async function runSandboxChat(
 	// see no documents.
 
 	const attempt = async () => {
-		// 1. Get sandbox, runtime state, and session in parallel
-		const [sandbox, { state_version }, agentSessionId] = await Promise.all([
+		// 1. Get sandbox + runtime state in parallel
+		const [sandbox, { state_version }] = await Promise.all([
 			sandboxManager.getOrCreateSandbox(userId, logger),
 			getTurnContext(userId),
-			getSessionId(userId, chatKey),
 		]);
+
+		// Read session AFTER sandbox is resolved — creation clears stale sessions
+		const agentSessionId = await getSessionId(userId, chatKey);
 
 		// 2. Ensure daemon is running (depends on sandbox)
 		const daemonUrl = await sandboxManager.ensureSandboxDaemon(
