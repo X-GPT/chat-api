@@ -82,17 +82,32 @@ describe("materialization", () => {
 	});
 
 	describe("buildCanonicalPath", () => {
-		it("builds path with type and slug", () => {
-			const path = buildCanonicalPath("/data/u1", { type: 0, slug: "my-doc" });
-			expect(path).toBe("/data/u1/canonical/0/my-doc.md");
+		it("builds path with type and document_id", () => {
+			const path = buildCanonicalPath("/data/u1", {
+				type: 0,
+				document_id: "doc-123",
+			});
+			expect(path).toBe("/data/u1/canonical/0/doc-123.md");
 		});
 
-		it("sanitizes slug", () => {
+		it("sanitizes document_id", () => {
 			const path = buildCanonicalPath("/data/u1", {
 				type: 3,
-				slug: "my doc/title",
+				document_id: "my doc/id",
 			});
-			expect(path).toBe("/data/u1/canonical/3/my-doc-title.md");
+			expect(path).toBe("/data/u1/canonical/3/my-doc-id.md");
+		});
+
+		it("two docs with same slug but different IDs get distinct paths", () => {
+			const path1 = buildCanonicalPath("/data/u1", {
+				type: 0,
+				document_id: "id-1",
+			});
+			const path2 = buildCanonicalPath("/data/u1", {
+				type: 0,
+				document_id: "id-2",
+			});
+			expect(path1).not.toBe(path2);
 		});
 	});
 
@@ -126,7 +141,7 @@ describe("materialization", () => {
 		it("removeCanonicalFile is safe for nonexistent files", () => {
 			const dataRoot = join(testRoot, "remove-safe");
 			expect(() =>
-				removeCanonicalFile(dataRoot, { type: 0, slug: "nope" }),
+				removeCanonicalFile(dataRoot, { type: 0, document_id: "nope" }),
 			).not.toThrow();
 		});
 	});
@@ -147,17 +162,17 @@ describe("materialization", () => {
 			writeCanonicalFile(dataRoot, doc);
 			buildCollectionSymlink(dataRoot, doc, "col-A");
 
-			const linkPath = `${dataRoot}/collections/col-A/0/linked-doc.md`;
+			// Path uses document_id, not slug
+			const linkPath = `${dataRoot}/collections/col-A/0/456.md`;
 			expect(existsSync(linkPath)).toBe(true);
 
-			// Should be a symlink pointing to canonical
 			const target = readlinkSync(linkPath);
 			expect(target).toContain("canonical");
 		});
 	});
 
 	describe("buildCollectionIndex", () => {
-		it("writes a markdown index file", () => {
+		it("writes a markdown index file with document_id-based links", () => {
 			const dataRoot = join(testRoot, "index-test");
 
 			buildCollectionIndex(dataRoot, "col-X", [
@@ -170,8 +185,11 @@ describe("materialization", () => {
 
 			const content = readFileSync(indexPath, "utf-8");
 			expect(content).toContain("# Collection: col-X");
-			expect(content).toContain("doc-one");
-			expect(content).toContain("note-two");
+			// Display name is slug, link path uses document_id
+			expect(content).toContain("[doc-one]");
+			expect(content).toContain("/1.md");
+			expect(content).toContain("[note-two]");
+			expect(content).toContain("/2.md");
 		});
 	});
 
@@ -197,13 +215,11 @@ describe("materialization", () => {
 			mkdirSync(`${dataRoot}/indexes/collections`, { recursive: true });
 			mkdirSync(`${dataRoot}/collections/col-old`, { recursive: true });
 
-			// First build with col-old
 			buildScopeRoots(dataRoot, ["col-old"]);
 			expect(
 				existsSync(`${dataRoot}/scopes/collection-col-old`),
 			).toBe(true);
 
-			// Rebuild without col-old
 			buildScopeRoots(dataRoot, []);
 			expect(
 				existsSync(`${dataRoot}/scopes/collection-col-old`),

@@ -84,8 +84,8 @@ describe("reconcile", () => {
 		]);
 
 		// Verify files exist before reconcile
-		expect(existsSync(`${dataRoot}/canonical/0/my-doc.md`)).toBe(true);
-		expect(existsSync(`${dataRoot}/collections/col-A/0/my-doc.md`)).toBe(true);
+		expect(existsSync(`${dataRoot}/canonical/0/doc-1.md`)).toBe(true);
+		expect(existsSync(`${dataRoot}/collections/col-A/0/doc-1.md`)).toBe(true);
 
 		// Remote manifest returns empty → doc was deleted
 		mockQuery.mockResolvedValueOnce({ rows: [] });
@@ -98,10 +98,10 @@ describe("reconcile", () => {
 		expect(result).toBe(true);
 
 		// Canonical file should be removed
-		expect(existsSync(`${dataRoot}/canonical/0/my-doc.md`)).toBe(false);
+		expect(existsSync(`${dataRoot}/canonical/0/doc-1.md`)).toBe(false);
 
 		// Collection symlink should be removed
-		expect(existsSync(`${dataRoot}/collections/col-A/0/my-doc.md`)).toBe(false);
+		expect(existsSync(`${dataRoot}/collections/col-A/0/doc-1.md`)).toBe(false);
 	});
 
 	it("creates canonical files and collection symlinks for new docs", async () => {
@@ -140,10 +140,10 @@ describe("reconcile", () => {
 					});
 
 		expect(result).toBe(true);
-		expect(existsSync(`${dataRoot}/canonical/0/new-doc.md`)).toBe(true);
-		expect(existsSync(`${dataRoot}/collections/col-B/0/new-doc.md`)).toBe(true);
+		expect(existsSync(`${dataRoot}/canonical/0/doc-new.md`)).toBe(true);
+		expect(existsSync(`${dataRoot}/collections/col-B/0/doc-new.md`)).toBe(true);
 
-		const content = readFileSync(`${dataRoot}/canonical/0/new-doc.md`, "utf-8");
+		const content = readFileSync(`${dataRoot}/canonical/0/doc-new.md`, "utf-8");
 		expect(content).toContain("New document content");
 	});
 

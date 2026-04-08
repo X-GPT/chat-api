@@ -19,6 +19,10 @@ export const apiEnv = (() => {
 			Bun.env.E2B_API_KEY,
 			"E2B_API_KEY is required when SANDBOX_ENABLED=true",
 		);
+		invariant(
+			Bun.env.DATABASE_URL,
+			"DATABASE_URL is required when SANDBOX_ENABLED=true",
+		);
 	}
 
 	const databaseUrl = Bun.env.DATABASE_URL || null;

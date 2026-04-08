@@ -3,9 +3,9 @@
  *
  * Layout:
  *   /workspace/data/{userId}/
- *   ├── canonical/{type}/{slug}.md           # Primary file copies
- *   ├── collections/{collectionId}/{type}/{slug}.md  # Symlinks → canonical
- *   ├── indexes/collections/{collectionId}.md        # Collection index files
+ *   ├── canonical/{type}/{documentId}.md          # Primary file copies (keyed by document_id)
+ *   ├── collections/{collectionId}/{type}/{documentId}.md  # Symlinks → canonical
+ *   ├── indexes/collections/{collectionId}.md     # Collection index files
  *   └── scopes/
  *       ├── global/
  *       │   ├── docs -> ../../canonical
@@ -13,7 +13,7 @@
  *       ├── collection-{collectionId}/
  *       │   └── docs -> ../../collections/{collectionId}
  *       └── request-{summaryId}/
- *           └── doc.md -> ../../canonical/{type}/{slug}.md
+ *           └── doc.md -> ../../canonical/{type}/{documentId}.md
  */
 
 import { createHash } from "node:crypto";
@@ -37,7 +37,12 @@ export interface DocFile {
 	path_key: string;
 	content: string;
 	checksum: string;
-	collection_ids?: string[];
+}
+
+/** Identifies a document for filesystem operations. */
+export interface DocIdentifier {
+	document_id: string;
+	type: number;
 }
 
 export function sanitizePathSegment(value: string): string {
@@ -54,9 +59,9 @@ export function getDataRoot(userId: string): string {
 
 export function buildCanonicalPath(
 	dataRoot: string,
-	doc: { type: number; slug: string },
+	doc: DocIdentifier,
 ): string {
-	return `${dataRoot}/canonical/${doc.type}/${sanitizePathSegment(doc.slug)}.md`;
+	return `${dataRoot}/canonical/${doc.type}/${sanitizePathSegment(doc.document_id)}.md`;
 }
 
 /**
@@ -84,7 +89,7 @@ export function writeCanonicalFile(dataRoot: string, doc: DocFile): void {
  */
 export function removeCanonicalFile(
 	dataRoot: string,
-	doc: { type: number; slug: string },
+	doc: DocIdentifier,
 ): void {
 	const filePath = buildCanonicalPath(dataRoot, doc);
 	try {
@@ -95,14 +100,14 @@ export function removeCanonicalFile(
 }
 
 /**
- * Create a symlink in collections/{collectionId}/{type}/{slug}.md → canonical.
+ * Create a symlink in collections/{collectionId}/{type}/{documentId}.md → canonical.
  */
 export function buildCollectionSymlink(
 	dataRoot: string,
-	doc: { type: number; slug: string },
+	doc: DocIdentifier,
 	collectionId: string,
 ): void {
-	const linkPath = `${dataRoot}/collections/${sanitizePathSegment(collectionId)}/${doc.type}/${sanitizePathSegment(doc.slug)}.md`;
+	const linkPath = `${dataRoot}/collections/${sanitizePathSegment(collectionId)}/${doc.type}/${sanitizePathSegment(doc.document_id)}.md`;
 	const targetPath = buildCanonicalPath(dataRoot, doc);
 	const target = relative(dirname(linkPath), targetPath);
 
@@ -131,7 +136,7 @@ export function buildCollectionIndex(
 		"",
 		...docs.map(
 			(doc) =>
-				`- [${doc.slug}](../../collections/${sanitizePathSegment(collectionId)}/${doc.type}/${sanitizePathSegment(doc.slug)}.md)`,
+				`- [${doc.slug}](../../collections/${sanitizePathSegment(collectionId)}/${doc.type}/${sanitizePathSegment(doc.document_id)}.md)`,
 		),
 		"",
 	];
@@ -147,13 +152,11 @@ export function buildScopeRoots(
 	dataRoot: string,
 	collectionIds: string[],
 ): void {
-	// Global scope
 	const globalScope = `${dataRoot}/scopes/global`;
 	mkdirSync(globalScope, { recursive: true });
 	safeSymlink("../../canonical", `${globalScope}/docs`);
 	safeSymlink("../../indexes/collections", `${globalScope}/collections`);
 
-	// Collection scopes
 	for (const colId of collectionIds) {
 		const sanitized = sanitizePathSegment(colId);
 		const colScope = `${dataRoot}/scopes/collection-${sanitized}`;
@@ -161,7 +164,6 @@ export function buildScopeRoots(
 		safeSymlink(`../../collections/${sanitized}`, `${colScope}/docs`);
 	}
 
-	// Clean up stale collection scopes
 	const scopesDir = `${dataRoot}/scopes`;
 	if (existsSync(scopesDir)) {
 		const validScopeDirs = new Set([
@@ -182,7 +184,7 @@ export function buildScopeRoots(
 export function createEphemeralDocumentScope(
 	dataRoot: string,
 	summaryId: string,
-	doc: { type: number; slug: string },
+	doc: DocIdentifier,
 ): string {
 	const sanitizedId = sanitizePathSegment(summaryId);
 	const scopePath = `${dataRoot}/scopes/request-${sanitizedId}`;
@@ -235,26 +237,25 @@ function safeSymlink(target: string, linkPath: string): void {
 		if (existing === target) return;
 		unlinkSync(linkPath);
 	} catch {
-		// Either not a symlink or doesn't exist
 		try {
 			unlinkSync(linkPath);
 		} catch {
-			// Doesn't exist, fine
+			// Doesn't exist
 		}
 	}
 	symlinkSync(target, linkPath);
 }
 
 /**
- * Remove all collection symlinks and indexes for a specific document.
+ * Remove collection symlinks for a specific document.
  */
 export function removeCollectionEntries(
 	dataRoot: string,
-	doc: { type: number; slug: string },
+	doc: DocIdentifier,
 	collectionIds: string[],
 ): void {
 	for (const colId of collectionIds) {
-		const linkPath = `${dataRoot}/collections/${sanitizePathSegment(colId)}/${doc.type}/${sanitizePathSegment(doc.slug)}.md`;
+		const linkPath = `${dataRoot}/collections/${sanitizePathSegment(colId)}/${doc.type}/${sanitizePathSegment(doc.document_id)}.md`;
 		try {
 			unlinkSync(linkPath);
 		} catch {
