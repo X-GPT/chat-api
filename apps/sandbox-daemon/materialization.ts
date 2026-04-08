@@ -146,6 +146,21 @@ export function buildCollectionIndex(
 }
 
 /**
+ * Remove a collection index file (when the collection becomes empty).
+ */
+export function removeCollectionIndex(
+	dataRoot: string,
+	collectionId: string,
+): void {
+	const indexPath = `${dataRoot}/indexes/collections/${sanitizePathSegment(collectionId)}.md`;
+	try {
+		unlinkSync(indexPath);
+	} catch {
+		// May not exist
+	}
+}
+
+/**
  * Create/refresh scope symlink directories.
  */
 export function buildScopeRoots(

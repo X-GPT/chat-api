@@ -7,6 +7,7 @@ import {
 	getDataRoot,
 	removeCanonicalFile,
 	removeCollectionEntries,
+	removeCollectionIndex,
 	writeCanonicalFile,
 } from "./materialization";
 import {
@@ -194,7 +195,11 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	// Rebuild indexes for touched collections using pre-built index (O(1) lookup)
 	for (const colId of collectionsToRebuild) {
 		const docs = collectionDocsIndex.get(colId) ?? [];
-		buildCollectionIndex(dataRoot, colId, docs);
+		if (docs.length > 0) {
+			buildCollectionIndex(dataRoot, colId, docs);
+		} else {
+			removeCollectionIndex(dataRoot, colId);
+		}
 	}
 
 	buildScopeRoots(dataRoot, [...allCollectionIds]);

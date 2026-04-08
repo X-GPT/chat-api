@@ -270,8 +270,8 @@ export class SandboxManager {
 			);
 		}
 
-		// Start daemon in background
-		await this.startDaemonProcess(sandbox, logger);
+		// Start daemon and verify expected version
+		await this.startDaemonProcess(sandbox, logger, getDaemonVersion());
 	}
 
 	private async restartDaemon(
@@ -291,8 +291,8 @@ export class SandboxManager {
 	private async startDaemonProcess(
 		sandbox: Sandbox,
 		logger: SyncLogger,
+		expectedVersion?: string,
 	): Promise<void> {
-		// Start daemon as a background process, logging stdout+stderr to file for post-mortem
 		await sandbox.commands.run(
 			"cd /workspace/sandbox-daemon && bun run index.ts >> /workspace/daemon.log 2>&1",
 			{
@@ -304,13 +304,15 @@ export class SandboxManager {
 			},
 		);
 
-		// Wait for health check
 		const daemonUrl = this.getDaemonUrl(sandbox);
 		const deadline = Date.now() + DAEMON_STARTUP_TIMEOUT_MS;
 
 		while (Date.now() < deadline) {
 			const health = await this.checkDaemonHealth(daemonUrl);
-			if (health) {
+			if (
+				health &&
+				(!expectedVersion || health.version === expectedVersion)
+			) {
 				logger.info({
 					msg: "Sandbox daemon is ready",
 					version: health.version,

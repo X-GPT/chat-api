@@ -75,6 +75,25 @@ app.post("/turn", async (c) => {
 					requiredVersion: required_version,
 				});
 
+				if (scope_type === "collection" && !collection_id) {
+					await s.write(
+						ndjsonLine({
+							type: "failed",
+							message: "collection_id required for collection scope",
+						}),
+					);
+					return;
+				}
+				if (scope_type === "document" && !summary_id) {
+					await s.write(
+						ndjsonLine({
+							type: "failed",
+							message: "summary_id required for document scope",
+						}),
+					);
+					return;
+				}
+
 				let cwd: string;
 				if (scope_type === "document" && summary_id) {
 					const manifest = readLocalManifest(dataRoot);
