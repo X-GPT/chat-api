@@ -73,7 +73,7 @@ async function seedTestData() {
 		"SELECT state_version FROM user_sandbox_runtime WHERE user_id = $1",
 		[userId],
 	);
-	const stateVersion = result.rows[0]?.state_version ?? 0;
+	const stateVersion = Number(result.rows[0]?.state_version ?? 0);
 	console.log(`✓ Seeded 2 documents, state_version=${stateVersion}`);
 	assert.ok(stateVersion >= 2, "state_version should be >= 2 after 2 inserts");
 
@@ -148,11 +148,8 @@ async function testReconciliationAndTurn(stateVersion: number) {
 		required_version: stateVersion,
 		scope_type: "global",
 		message: "What is the capital of France?",
-		system_prompt: [
-			"You are a helpful assistant.",
-			"Search for and read .md files in your working directory to answer questions.",
-			"Use Grep and Read tools to find information.",
-		].join(" "),
+		system_prompt:
+			"You are a helpful assistant. Answer briefly using files in your working directory. Use Read tool.",
 	};
 
 	const res = await fetch(`${daemonUrl}/turn`, {
@@ -162,7 +159,7 @@ async function testReconciliationAndTurn(stateVersion: number) {
 		signal: AbortSignal.timeout(120_000),
 	});
 
-	assert.equal(res.status, 200, "Turn should return 200");
+	assert.equal(res.status, 200, `Turn should return 200, got ${res.status}`);
 	const text = await res.text();
 
 	const events = text
@@ -179,6 +176,9 @@ async function testReconciliationAndTurn(stateVersion: number) {
 
 	const types = events.map((e: { type: string }) => e.type);
 	console.log(`Event types: ${types.join(", ")}`);
+	if (!types.includes("completed") && !types.includes("text_delta")) {
+		console.log("⚠ Agent produced no output — daemon may have crashed (OOM)");
+	}
 
 	assert.ok(types.includes("started"), "Should have started event");
 
@@ -220,8 +220,18 @@ async function testReconciliationAndTurn(stateVersion: number) {
 	);
 }
 
+async function waitForIdle() {
+	for (let i = 0; i < 30; i++) {
+		const res = await fetch(`${daemonUrl}/current`);
+		const state = (await res.json()) as { busy: boolean };
+		if (!state.busy) return;
+		await new Promise((r) => setTimeout(r, 1_000));
+	}
+}
+
 async function testSyncSkip() {
 	console.log("\n=== Test 5: Sync Skip (same version) ===");
+	await waitForIdle();
 
 	// Second turn with same version should skip reconciliation
 	const start = performance.now();
