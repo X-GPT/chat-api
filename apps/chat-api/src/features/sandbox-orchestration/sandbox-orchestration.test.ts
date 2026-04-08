@@ -51,7 +51,7 @@ describe("runSandboxChat", () => {
 	let spyEnsureDaemon: ReturnType<typeof spyOn>;
 	let spyForwardTurn: ReturnType<typeof spyOn>;
 	let spyGetTurnContext: ReturnType<typeof spyOn>;
-	let spyUpsertRuntime: ReturnType<typeof spyOn>;
+	let spyUpsertSessionId: ReturnType<typeof spyOn>;
 
 	beforeEach(async () => {
 		Bun.env.OPENAI_API_KEY = "test-openai-key";
@@ -76,9 +76,10 @@ describe("runSandboxChat", () => {
 			runtimeModule,
 			"getTurnContext",
 		).mockResolvedValue({ state_version: 5, agent_session_id: "prev-session" });
-		spyUpsertRuntime = spyOn(runtimeModule, "upsertRuntime").mockResolvedValue(
-			undefined,
-		);
+		spyUpsertSessionId = spyOn(
+			runtimeModule,
+			"upsertSessionId",
+		).mockResolvedValue(undefined);
 	});
 
 	afterEach(() => {
@@ -86,7 +87,7 @@ describe("runSandboxChat", () => {
 		spyEnsureDaemon.mockRestore();
 		spyForwardTurn?.mockRestore();
 		spyGetTurnContext.mockRestore();
-		spyUpsertRuntime.mockRestore();
+		spyUpsertSessionId.mockRestore();
 		mock.restore();
 	});
 
@@ -128,9 +129,11 @@ describe("runSandboxChat", () => {
 
 		await runSandboxChat(makeOptions());
 
-		expect(spyUpsertRuntime).toHaveBeenCalledWith("user-1", {
-			agent_session_id: "new-session-123",
-		});
+		expect(spyUpsertSessionId).toHaveBeenCalledWith(
+			"user-1",
+			"chat-1",
+			"new-session-123",
+		);
 	});
 
 	it("does not persist session if none received", async () => {
@@ -141,7 +144,7 @@ describe("runSandboxChat", () => {
 
 		await runSandboxChat(makeOptions());
 
-		expect(spyUpsertRuntime).not.toHaveBeenCalled();
+		expect(spyUpsertSessionId).not.toHaveBeenCalled();
 	});
 
 	it("maps general scope to global", async () => {
@@ -195,7 +198,10 @@ describe("runSandboxChat", () => {
 	});
 
 	it("defaults to version 0 when no runtime exists", async () => {
-		spyGetTurnContext.mockResolvedValue(null);
+		spyGetTurnContext.mockResolvedValue({
+			state_version: 0,
+			agent_session_id: null,
+		});
 
 		spyForwardTurn = spyOn(
 			proxyModule,

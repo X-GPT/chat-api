@@ -97,6 +97,8 @@ app.post("/turn", async (c) => {
 					);
 				}
 
+				let turnFailed = false;
+
 				await runAgent(
 					{
 						userQuery: message,
@@ -115,6 +117,7 @@ app.post("/turn", async (c) => {
 							// Session ID persistence handled by the chat-api caller
 						},
 						onFailed: async (errorMessage) => {
+							turnFailed = true;
 							await s.write(
 								ndjsonLine({ type: "failed", message: errorMessage }),
 							);
@@ -122,7 +125,9 @@ app.post("/turn", async (c) => {
 					},
 				);
 
-				await s.write(ndjsonLine({ type: "completed" }));
+				if (!turnFailed) {
+					await s.write(ndjsonLine({ type: "completed" }));
+				}
 			} catch (err) {
 				const errorMessage = err instanceof Error ? err.message : String(err);
 				await s.write(ndjsonLine({ type: "failed", message: errorMessage }));

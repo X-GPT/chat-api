@@ -1,5 +1,5 @@
 import type { ChatMessagesScope } from "@/config/env";
-import { getTurnContext, upsertRuntime } from "@/db/user-runtime";
+import { getTurnContext, upsertSessionId } from "@/db/user-runtime";
 import type { ChatLogger } from "@/features/chat/chat.logger";
 import { sanitizePathSegment } from "@/features/sandbox";
 import { buildSandboxAgentPrompt } from "@/features/sandbox-agent";
@@ -41,16 +41,22 @@ export async function runSandboxChat(
 		scope,
 		collectionId,
 		summaryId,
+		chatKey,
 		onTextDelta,
 		onTextEnd,
 		logger,
 	} = options;
 
+	// Note: user_files table is populated by an external service.
+	// The daemon's reconcile() reads from user_files to sync documents
+	// to the sandbox filesystem. If user_files is empty, the agent will
+	// see no documents.
+
 	const attempt = async () => {
 		// 1. Get sandbox + lookup runtime in parallel (independent operations)
 		const [sandbox, turnContext] = await Promise.all([
 			sandboxManager.getOrCreateSandbox(userId, logger),
-			getTurnContext(userId),
+			getTurnContext(userId, chatKey),
 		]);
 
 		// 2. Ensure daemon is running (depends on sandbox)
@@ -60,8 +66,8 @@ export async function runSandboxChat(
 			logger,
 		);
 
-		const stateVersion = turnContext?.state_version ?? 0;
-		const agentSessionId = turnContext?.agent_session_id ?? null;
+		const stateVersion = turnContext.state_version;
+		const agentSessionId = turnContext.agent_session_id;
 
 		// 3. Build system prompt — path must match daemon's getDataRoot()
 		const docsRoot = `/workspace/data/${sanitizePathSegment(userId)}`;
@@ -99,11 +105,9 @@ export async function runSandboxChat(
 			},
 		});
 
-		// 6. Persist session ID to Postgres
+		// 6. Persist session ID scoped by chatKey
 		if (newSessionId) {
-			await upsertRuntime(userId, {
-				agent_session_id: newSessionId,
-			});
+			await upsertSessionId(userId, chatKey, newSessionId);
 		}
 
 		return { status: "completed" } as const;

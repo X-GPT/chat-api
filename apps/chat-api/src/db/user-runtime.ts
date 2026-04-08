@@ -29,7 +29,7 @@ export async function getRuntime(
 
 /**
  * Upsert sandbox runtime fields for a user.
- * Only provided fields are updated; null/undefined fields are left unchanged.
+ * Both INSERT and UPDATE paths include all supplied fields.
  */
 export async function upsertRuntime(
 	userId: string,
@@ -44,34 +44,33 @@ export async function upsertRuntime(
 		>
 	>,
 ): Promise<void> {
+	const insertCols = ["user_id"];
+	const insertVals = ["$1"];
 	const setClauses: string[] = ["last_seen_at = now()"];
 	const values: unknown[] = [userId];
 	let paramIndex = 2;
 
-	if (fields.sandbox_id !== undefined) {
-		setClauses.push(`sandbox_id = $${paramIndex++}`);
-		values.push(fields.sandbox_id);
-	}
-	if (fields.agent_session_id !== undefined) {
-		setClauses.push(`agent_session_id = $${paramIndex++}`);
-		values.push(fields.agent_session_id);
-	}
-	if (fields.synced_version !== undefined) {
-		setClauses.push(`synced_version = $${paramIndex++}`);
-		values.push(fields.synced_version);
-	}
-	if (fields.sandbox_status !== undefined) {
-		setClauses.push(`sandbox_status = $${paramIndex++}`);
-		values.push(fields.sandbox_status);
-	}
-	if (fields.daemon_version !== undefined) {
-		setClauses.push(`daemon_version = $${paramIndex++}`);
-		values.push(fields.daemon_version);
+	const fieldMap: Array<[keyof typeof fields, string]> = [
+		["sandbox_id", "sandbox_id"],
+		["agent_session_id", "agent_session_id"],
+		["synced_version", "synced_version"],
+		["sandbox_status", "sandbox_status"],
+		["daemon_version", "daemon_version"],
+	];
+
+	for (const [key, col] of fieldMap) {
+		if (fields[key] !== undefined) {
+			insertCols.push(col);
+			insertVals.push(`$${paramIndex}`);
+			setClauses.push(`${col} = $${paramIndex}`);
+			values.push(fields[key]);
+			paramIndex++;
+		}
 	}
 
 	await query(
-		`INSERT INTO user_sandbox_runtime (user_id)
-		 VALUES ($1)
+		`INSERT INTO user_sandbox_runtime (${insertCols.join(", ")})
+		 VALUES (${insertVals.join(", ")})
 		 ON CONFLICT (user_id) DO UPDATE
 		 SET ${setClauses.join(", ")}`,
 		values,
@@ -79,15 +78,76 @@ export async function upsertRuntime(
 }
 
 /**
- * Get state_version and agent_session_id for a user (lightweight query for turn setup).
+ * Get state_version and the agent session ID for a specific chat.
+ * agent_session_id stores a JSON map of { chatKey: sessionId }.
  */
 export async function getTurnContext(
 	userId: string,
-): Promise<{ state_version: number; agent_session_id: string | null } | null> {
-	return queryOne<{ state_version: number; agent_session_id: string | null }>(
+	chatKey: string,
+): Promise<{ state_version: number; agent_session_id: string | null }> {
+	const row = await queryOne<{
+		state_version: number;
+		agent_session_id: string | null;
+	}>(
 		`SELECT state_version::int, agent_session_id
 		 FROM user_sandbox_runtime
 		 WHERE user_id = $1`,
 		[userId],
 	);
+
+	if (!row) {
+		return { state_version: 0, agent_session_id: null };
+	}
+
+	// Parse chatKey-scoped session from JSON map
+	let sessionId: string | null = null;
+	if (row.agent_session_id) {
+		try {
+			const sessions = JSON.parse(row.agent_session_id);
+			if (typeof sessions === "object" && sessions !== null) {
+				sessionId =
+					typeof sessions[chatKey] === "string"
+						? sessions[chatKey]
+						: null;
+			}
+		} catch {
+			// Legacy single-value format or corrupt — ignore
+		}
+	}
+
+	return { state_version: row.state_version, agent_session_id: sessionId };
+}
+
+/**
+ * Persist an agent session ID scoped by chatKey.
+ * Reads the existing JSON map, updates the entry, writes back.
+ */
+export async function upsertSessionId(
+	userId: string,
+	chatKey: string,
+	sessionId: string,
+): Promise<void> {
+	// Read current sessions map
+	const row = await queryOne<{ agent_session_id: string | null }>(
+		`SELECT agent_session_id FROM user_sandbox_runtime WHERE user_id = $1`,
+		[userId],
+	);
+
+	let sessions: Record<string, string> = {};
+	if (row?.agent_session_id) {
+		try {
+			const parsed = JSON.parse(row.agent_session_id);
+			if (typeof parsed === "object" && parsed !== null) {
+				sessions = parsed;
+			}
+		} catch {
+			// Legacy or corrupt — start fresh
+		}
+	}
+
+	sessions[chatKey] = sessionId;
+
+	await upsertRuntime(userId, {
+		agent_session_id: JSON.stringify(sessions),
+	});
 }
