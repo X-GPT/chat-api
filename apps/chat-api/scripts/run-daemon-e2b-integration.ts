@@ -139,6 +139,42 @@ async function testIdempotentDeploy() {
 	console.log(`✓ Idempotent deploy took ${elapsed.toFixed(0)}ms`);
 }
 
+async function dumpSandboxDiagnostics() {
+	console.log("\n--- Sandbox Diagnostics ---");
+	try {
+		const healthRes = await fetch(`${daemonUrl}/health`).catch(() => null);
+		console.log(`Daemon health: ${healthRes?.status ?? "unreachable"}`);
+	} catch {}
+	try {
+		const psResult = await sandbox.commands.run(
+			"ps aux --sort=-%mem 2>/dev/null | head -10 || ps aux | head -10",
+			{ timeoutMs: 5_000 },
+		);
+		console.log(`Processes:\n${psResult.stdout}`);
+	} catch {}
+	try {
+		const memResult = await sandbox.commands.run(
+			"cat /proc/meminfo 2>/dev/null | head -5",
+			{ timeoutMs: 5_000 },
+		);
+		console.log(`Memory:\n${memResult.stdout}`);
+	} catch {}
+	try {
+		const dmesgResult = await sandbox.commands.run(
+			"dmesg 2>/dev/null | grep -i -E 'oom|kill|out of memory' | tail -20 || echo '(no dmesg access)'",
+			{ timeoutMs: 5_000 },
+		);
+		console.log(`OOM logs: ${dmesgResult.stdout.trim()}`);
+	} catch {}
+	try {
+		const logContent = await sandbox.files.read("/workspace/daemon.log");
+		console.log(`Daemon logs:\n${logContent}`);
+	} catch {
+		console.log("Daemon logs: (no log file found)");
+	}
+	console.log("--- End Diagnostics ---\n");
+}
+
 async function testReconciliationAndTurn(stateVersion: number) {
 	console.log("\n=== Test 4: Reconciliation + Turn Execution ===");
 
@@ -152,12 +188,19 @@ async function testReconciliationAndTurn(stateVersion: number) {
 			"You are a helpful assistant. Answer briefly using files in your working directory. Use Read tool.",
 	};
 
-	const res = await fetch(`${daemonUrl}/turn`, {
-		method: "POST",
-		headers: { "Content-Type": "application/json" },
-		body: JSON.stringify(turnBody),
-		signal: AbortSignal.timeout(120_000),
-	});
+	let res: Response;
+	try {
+		res = await fetch(`${daemonUrl}/turn`, {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(turnBody),
+			signal: AbortSignal.timeout(120_000),
+		});
+	} catch (err) {
+		console.log(`Turn request failed: ${err instanceof Error ? err.message : err}`);
+		await dumpSandboxDiagnostics();
+		throw err;
+	}
 
 	assert.equal(res.status, 200, `Turn should return 200, got ${res.status}`);
 	const text = await res.text();
@@ -176,8 +219,11 @@ async function testReconciliationAndTurn(stateVersion: number) {
 
 	const types = events.map((e: { type: string }) => e.type);
 	console.log(`Event types: ${types.join(", ")}`);
+
 	if (!types.includes("completed") && !types.includes("text_delta")) {
-		console.log("⚠ Agent produced no output — daemon may have crashed (OOM)");
+		console.log("⚠ Agent produced no output");
+		console.log(`Raw response:\n${text}`);
+		await dumpSandboxDiagnostics();
 	}
 
 	assert.ok(types.includes("started"), "Should have started event");

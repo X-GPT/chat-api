@@ -59,76 +59,87 @@ app.post("/turn", async (c) => {
 		return c.json({ error: "Turn already in progress" }, 409);
 	}
 
-	return stream(c, async (s) => {
-		c.header("Content-Type", "application/x-ndjson");
+	return stream(
+		c,
+		async (s) => {
+			c.header("Content-Type", "application/x-ndjson");
 
-		const dataRoot = getDataRoot(user_id);
-		let ephemeralScope: string | null = null;
+			const dataRoot = getDataRoot(user_id);
+			let ephemeralScope: string | null = null;
 
-		try {
-			await s.write(ndjsonLine({ type: "started", turn_id: request_id }));
+			try {
+				await s.write(ndjsonLine({ type: "started", turn_id: request_id }));
 
-			await reconcile({
-				userId: user_id,
-				requiredVersion: required_version,
-			});
+				await reconcile({
+					userId: user_id,
+					requiredVersion: required_version,
+				});
 
-			let cwd: string;
-			if (scope_type === "document" && summary_id) {
-				const manifest = readLocalManifest(dataRoot);
-				const doc = manifest.find((e) => e.document_id === summary_id);
-				if (doc) {
-					ephemeralScope = createEphemeralDocumentScope(
-						dataRoot,
-						summary_id,
-						doc,
-					);
-					cwd = ephemeralScope;
+				let cwd: string;
+				if (scope_type === "document" && summary_id) {
+					const manifest = readLocalManifest(dataRoot);
+					const doc = manifest.find((e) => e.document_id === summary_id);
+					if (doc) {
+						ephemeralScope = createEphemeralDocumentScope(
+							dataRoot,
+							summary_id,
+							doc,
+						);
+						cwd = ephemeralScope;
+					} else {
+						cwd = resolveScopeCwd(dataRoot, "global");
+					}
 				} else {
-					cwd = resolveScopeCwd(dataRoot, "global");
+					cwd = resolveScopeCwd(
+						dataRoot,
+						scope_type,
+						collection_id ?? undefined,
+					);
 				}
-			} else {
-				cwd = resolveScopeCwd(dataRoot, scope_type, collection_id ?? undefined);
-			}
 
-			await runAgent(
-				{
-					userQuery: message,
-					systemPrompt: system_prompt,
-					cwd,
-					sessionId: agent_session_id,
-				},
-				{
-					onTextDelta: async (text) => {
-						await s.write(ndjsonLine({ type: "text_delta", text }));
+				await runAgent(
+					{
+						userQuery: message,
+						systemPrompt: system_prompt,
+						cwd,
+						sessionId: agent_session_id,
 					},
-					onSessionId: async (sessionId) => {
-						await s.write(
-							ndjsonLine({ type: "session_id", sessionId }),
-						);
+					{
+						onTextDelta: async (text) => {
+							await s.write(ndjsonLine({ type: "text_delta", text }));
+						},
+						onSessionId: async (sessionId) => {
+							await s.write(ndjsonLine({ type: "session_id", sessionId }));
+						},
+						onCompleted: async () => {
+							// Session ID persistence handled by the chat-api caller
+						},
+						onFailed: async (errorMessage) => {
+							await s.write(
+								ndjsonLine({ type: "failed", message: errorMessage }),
+							);
+						},
 					},
-					onCompleted: async () => {
-						// Session ID persistence handled by the chat-api caller
-					},
-					onFailed: async (errorMessage) => {
-						await s.write(
-							ndjsonLine({ type: "failed", message: errorMessage }),
-						);
-					},
-				},
-			);
+				);
 
-			await s.write(ndjsonLine({ type: "completed" }));
-		} catch (err) {
-			const errorMessage = err instanceof Error ? err.message : String(err);
-			await s.write(ndjsonLine({ type: "failed", message: errorMessage }));
-		} finally {
-			if (ephemeralScope && summary_id) {
-				removeEphemeralDocumentScope(dataRoot, summary_id);
+				await s.write(ndjsonLine({ type: "completed" }));
+			} catch (err) {
+				const errorMessage = err instanceof Error ? err.message : String(err);
+				await s.write(ndjsonLine({ type: "failed", message: errorMessage }));
+			} finally {
+				if (ephemeralScope && summary_id) {
+					removeEphemeralDocumentScope(dataRoot, summary_id);
+				}
+				lock.release();
 			}
+		},
+		async (err, stream) => {
+			const message = err instanceof Error ? err.message : String(err);
+			console.error("Stream error in /turn:", message);
+			await stream.write(ndjsonLine({ type: "failed", message }));
 			lock.release();
-		}
-	});
+		},
+	);
 });
 
 export default app;

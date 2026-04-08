@@ -286,17 +286,14 @@ export class SandboxManager {
 		sandbox: Sandbox,
 		logger: SyncLogger,
 	): Promise<void> {
-		// Start daemon as a background process using E2B's background option
+		// Start daemon as a background process, logging stdout+stderr to file for post-mortem
 		await sandbox.commands.run(
-			"cd /workspace/sandbox-daemon && bun run index.ts",
+			"cd /workspace/sandbox-daemon && bun run index.ts >> /workspace/daemon.log 2>&1",
 			{
 				background: true,
 				envs: {
 					ANTHROPIC_API_KEY: apiEnv.ANTHROPIC_API_KEY,
 					DATABASE_URL: apiEnv.DATABASE_URL as string,
-				},
-				onStderr: (data) => {
-					logger.error({ msg: "Daemon stderr", data });
 				},
 			},
 		);

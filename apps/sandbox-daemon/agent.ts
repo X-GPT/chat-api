@@ -47,42 +47,56 @@ export async function runAgent(
 		queryOptions.resume = sessionId;
 	}
 
-	const result = query({
-		prompt: userQuery,
-		options: queryOptions,
-	});
+	let result: ReturnType<typeof query>;
+	try {
+		result = query({
+			prompt: userQuery,
+			options: queryOptions,
+		});
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		await callbacks.onFailed(`Agent SDK query() failed: ${message}`);
+		return;
+	}
 
 	let emittedSessionId = false;
 
-	for await (const msg of result) {
-		const m = msg as Record<string, unknown>;
+	try {
+		for await (const msg of result) {
+			const m = msg as Record<string, unknown>;
 
-		if (!emittedSessionId && hasSessionId(m)) {
-			callbacks.onSessionId(m.session_id);
-			emittedSessionId = true;
-		}
-
-		if (m.type === "stream_event") {
-			const event = m.event as Record<string, unknown> | undefined;
-			const delta = event?.delta as Record<string, unknown> | undefined;
-			if (
-				event?.type === "content_block_delta" &&
-				delta?.type === "text_delta" &&
-				typeof delta?.text === "string"
-			) {
-				callbacks.onTextDelta(delta.text);
-			}
-		} else if (m.type === "result") {
 			if (!emittedSessionId && hasSessionId(m)) {
-				callbacks.onSessionId(m.session_id);
+				await callbacks.onSessionId(m.session_id);
 				emittedSessionId = true;
 			}
 
-			if (m.subtype === "success") {
-				callbacks.onCompleted();
-			} else {
-				callbacks.onFailed(`Agent ended with: ${m.subtype}`);
+			if (m.type === "stream_event") {
+				const event = m.event as Record<string, unknown> | undefined;
+				const delta = event?.delta as
+					| Record<string, unknown>
+					| undefined;
+				if (
+					event?.type === "content_block_delta" &&
+					delta?.type === "text_delta" &&
+					typeof delta?.text === "string"
+				) {
+					await callbacks.onTextDelta(delta.text);
+				}
+			} else if (m.type === "result") {
+				if (!emittedSessionId && hasSessionId(m)) {
+					await callbacks.onSessionId(m.session_id);
+					emittedSessionId = true;
+				}
+
+				if (m.subtype === "success") {
+					await callbacks.onCompleted();
+				} else {
+					await callbacks.onFailed(`Agent ended with: ${m.subtype}`);
+				}
 			}
 		}
+	} catch (err) {
+		const message = err instanceof Error ? err.message : String(err);
+		await callbacks.onFailed(`Agent stream error: ${message}`);
 	}
 }

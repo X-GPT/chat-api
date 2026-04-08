@@ -9,8 +9,17 @@ app.route("/", healthRoutes);
 app.route("/", currentRoutes);
 app.route("/", turnRoutes);
 
+app.onError((err, c) => {
+	console.error("Hono error:", err);
+	return c.json(
+		{ error: err instanceof Error ? err.message : String(err) },
+		500,
+	);
+});
+
 process.on("uncaughtException", (err) => {
 	console.error("Uncaught exception:", err);
+	// Do not exit — keep the daemon alive for health checks and future turns
 });
 process.on("unhandledRejection", (err) => {
 	console.error("Unhandled rejection:", err);
