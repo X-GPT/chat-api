@@ -255,7 +255,7 @@ export class SandboxManager {
 
 		// Install dependencies
 		const installResult = await sandbox.commands.run(
-			"cd /workspace/sandbox-daemon && bun install",
+			"cd /workspace/sandbox-daemon && bun install --production",
 			{ timeoutMs: 60_000 },
 		);
 

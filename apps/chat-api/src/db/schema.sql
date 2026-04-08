@@ -4,7 +4,7 @@ CREATE TABLE IF NOT EXISTS user_files (
   document_id   TEXT NOT NULL,
   type          INTEGER NOT NULL DEFAULT 0,
   slug          TEXT NOT NULL,
-  path_key      TEXT NOT NULL,
+  path_key      TEXT NOT NULL,  -- Comma-separated collection IDs this document belongs to
   content       TEXT NOT NULL,
   checksum      TEXT NOT NULL,
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
