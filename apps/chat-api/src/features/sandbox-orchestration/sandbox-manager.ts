@@ -2,6 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { Sandbox } from "e2b";
 import { apiEnv } from "@/config/env";
+import { clearUserSessions } from "@/db/user-sessions";
 import type { SyncLogger } from "@/features/sandbox";
 import { SandboxCreationError } from "./errors";
 
@@ -143,6 +144,8 @@ export class SandboxManager {
 			});
 
 			this.sandboxIdCache.set(userId, sandbox.sandboxId);
+			// Clear stale sessions from any previous sandbox
+			await clearUserSessions(userId).catch(() => {});
 			logger.info({
 				msg: "Sandbox created",
 				userId,
@@ -163,6 +166,8 @@ export class SandboxManager {
 		logger: SyncLogger,
 	): Promise<void> {
 		this.sandboxIdCache.delete(userId);
+		// Old sessions are invalid after sandbox destruction
+		await clearUserSessions(userId).catch(() => {});
 		try {
 			await sandbox.kill();
 			logger.info({

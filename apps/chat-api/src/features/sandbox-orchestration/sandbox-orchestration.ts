@@ -1,5 +1,6 @@
 import type { ChatMessagesScope } from "@/config/env";
-import { getTurnContext, upsertSessionId } from "@/db/user-runtime";
+import { getTurnContext } from "@/db/user-runtime";
+import { getSessionId, upsertSessionId } from "@/db/user-sessions";
 import type { ChatLogger } from "@/features/chat/chat.logger";
 import { sanitizePathSegment } from "@/features/sandbox";
 import { buildSandboxAgentPrompt } from "@/features/sandbox-agent";
@@ -53,10 +54,11 @@ export async function runSandboxChat(
 	// see no documents.
 
 	const attempt = async () => {
-		// 1. Get sandbox + lookup runtime in parallel (independent operations)
-		const [sandbox, turnContext] = await Promise.all([
+		// 1. Get sandbox, runtime state, and session in parallel
+		const [sandbox, { state_version }, agentSessionId] = await Promise.all([
 			sandboxManager.getOrCreateSandbox(userId, logger),
-			getTurnContext(userId, chatKey),
+			getTurnContext(userId),
+			getSessionId(userId, chatKey),
 		]);
 
 		// 2. Ensure daemon is running (depends on sandbox)
@@ -65,9 +67,6 @@ export async function runSandboxChat(
 			sandbox,
 			logger,
 		);
-
-		const stateVersion = turnContext.state_version;
-		const agentSessionId = turnContext.agent_session_id;
 
 		// 3. Build system prompt — path must match daemon's getDataRoot()
 		const docsRoot = `/workspace/data/${sanitizePathSegment(userId)}`;
@@ -83,7 +82,7 @@ export async function runSandboxChat(
 		const turnRequest: TurnRequest = {
 			request_id: crypto.randomUUID(),
 			user_id: userId,
-			required_version: stateVersion,
+			required_version: state_version,
 			scope_type: toSandboxScope(scope),
 			collection_id: collectionId ?? undefined,
 			summary_id: summaryId ?? undefined,
@@ -105,7 +104,7 @@ export async function runSandboxChat(
 			},
 		});
 
-		// 6. Persist session ID scoped by chatKey
+		// 6. Persist session ID for this chat
 		if (newSessionId) {
 			await upsertSessionId(userId, chatKey, newSessionId);
 		}

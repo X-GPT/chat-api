@@ -47,10 +47,12 @@ describe("runSandboxChat", () => {
 	let singletonModule: typeof import("./singleton");
 	let proxyModule: typeof import("./sandbox-proxy");
 	let runtimeModule: typeof import("@/db/user-runtime");
+	let sessionsModule: typeof import("@/db/user-sessions");
 	let spyGetOrCreate: ReturnType<typeof spyOn>;
 	let spyEnsureDaemon: ReturnType<typeof spyOn>;
 	let spyForwardTurn: ReturnType<typeof spyOn>;
 	let spyGetTurnContext: ReturnType<typeof spyOn>;
+	let spyGetSessionId: ReturnType<typeof spyOn>;
 	let spyUpsertSessionId: ReturnType<typeof spyOn>;
 
 	beforeEach(async () => {
@@ -61,6 +63,7 @@ describe("runSandboxChat", () => {
 		singletonModule = await import("./singleton");
 		proxyModule = await import("./sandbox-proxy");
 		runtimeModule = await import("@/db/user-runtime");
+		sessionsModule = await import("@/db/user-sessions");
 
 		const sandbox = createMockSandbox();
 		spyGetOrCreate = spyOn(
@@ -75,9 +78,13 @@ describe("runSandboxChat", () => {
 		spyGetTurnContext = spyOn(
 			runtimeModule,
 			"getTurnContext",
-		).mockResolvedValue({ state_version: 5, agent_session_id: "prev-session" });
+		).mockResolvedValue({ state_version: 5 });
+		spyGetSessionId = spyOn(
+			sessionsModule,
+			"getSessionId",
+		).mockResolvedValue("prev-session");
 		spyUpsertSessionId = spyOn(
-			runtimeModule,
+			sessionsModule,
 			"upsertSessionId",
 		).mockResolvedValue(undefined);
 	});
@@ -87,6 +94,7 @@ describe("runSandboxChat", () => {
 		spyEnsureDaemon.mockRestore();
 		spyForwardTurn?.mockRestore();
 		spyGetTurnContext.mockRestore();
+		spyGetSessionId.mockRestore();
 		spyUpsertSessionId.mockRestore();
 		mock.restore();
 	});
@@ -198,10 +206,8 @@ describe("runSandboxChat", () => {
 	});
 
 	it("defaults to version 0 when no runtime exists", async () => {
-		spyGetTurnContext.mockResolvedValue({
-			state_version: 0,
-			agent_session_id: null,
-		});
+		spyGetTurnContext.mockResolvedValue({ state_version: 0 });
+		spyGetSessionId.mockResolvedValue(null);
 
 		spyForwardTurn = spyOn(
 			proxyModule,
