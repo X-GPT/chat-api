@@ -10,7 +10,6 @@ export interface TurnRequest {
 	message: string;
 	agent_session_id?: string;
 	system_prompt: string;
-	db_connection_string: string;
 }
 
 interface ForwardOptions {

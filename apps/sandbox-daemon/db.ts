@@ -1,24 +1,17 @@
 import { Pool } from "pg";
 
 let pool: Pool | null = null;
-let currentConnectionString = "";
 
 /**
  * Get or create a shared Pool for the daemon.
- * Re-creates if the connection string changes.
+ * Uses DATABASE_URL from the process environment (set at daemon startup).
  */
-export function getPool(connectionString: string): Pool {
-	if (pool && currentConnectionString === connectionString) {
-		return pool;
-	}
-	if (pool) {
-		pool.end().catch(() => {});
-	}
+export function getPool(): Pool {
+	if (pool) return pool;
 	pool = new Pool({
-		connectionString,
+		connectionString: process.env.DATABASE_URL,
 		max: 3,
 		idleTimeoutMillis: 30_000,
 	});
-	currentConnectionString = connectionString;
 	return pool;
 }

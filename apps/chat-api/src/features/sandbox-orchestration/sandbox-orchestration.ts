@@ -1,5 +1,4 @@
 import type { ChatMessagesScope } from "@/config/env";
-import { apiEnv } from "@/config/env";
 import { getTurnContext, upsertRuntime } from "@/db/user-runtime";
 import type { ChatLogger } from "@/features/chat/chat.logger";
 import { sanitizePathSegment } from "@/features/sandbox";
@@ -64,7 +63,7 @@ export async function runSandboxChat(
 		const stateVersion = turnContext?.state_version ?? 0;
 		const agentSessionId = turnContext?.agent_session_id ?? null;
 
-		// 4. Build system prompt — path must match daemon's getDataRoot()
+		// 3. Build system prompt — path must match daemon's getDataRoot()
 		const docsRoot = `/workspace/data/${sanitizePathSegment(userId)}`;
 		const systemPrompt = buildSandboxAgentPrompt({
 			scope,
@@ -74,7 +73,7 @@ export async function runSandboxChat(
 			conversationContext: null,
 		});
 
-		// 5. Build turn request
+		// 4. Build turn request
 		const turnRequest: TurnRequest = {
 			request_id: crypto.randomUUID(),
 			user_id: userId,
@@ -85,10 +84,9 @@ export async function runSandboxChat(
 			message: query,
 			agent_session_id: agentSessionId ?? undefined,
 			system_prompt: systemPrompt,
-			db_connection_string: apiEnv.DATABASE_URL ?? "",
 		};
 
-		// 6. Forward to daemon with streaming
+		// 5. Forward to daemon with streaming
 		let newSessionId: string | null = null;
 
 		await forwardChatTurnToSandbox({
@@ -101,7 +99,7 @@ export async function runSandboxChat(
 			},
 		});
 
-		// 7. Persist session ID to Postgres
+		// 6. Persist session ID to Postgres
 		if (newSessionId) {
 			await upsertRuntime(userId, {
 				agent_session_id: newSessionId,

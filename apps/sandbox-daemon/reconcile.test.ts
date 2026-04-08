@@ -49,8 +49,7 @@ describe("reconcile", () => {
 		const result = await reconcile({
 			userId: "user-1",
 			requiredVersion: 5,
-			dbConnectionString: "unused",
-		});
+					});
 
 		expect(result).toBe(false);
 		expect(mockQuery).not.toHaveBeenCalled();
@@ -94,8 +93,7 @@ describe("reconcile", () => {
 		const result = await reconcile({
 			userId: "user-1",
 			requiredVersion: 1,
-			dbConnectionString: "unused",
-		});
+					});
 
 		expect(result).toBe(true);
 
@@ -139,8 +137,7 @@ describe("reconcile", () => {
 		const result = await reconcile({
 			userId: "user-1",
 			requiredVersion: 1,
-			dbConnectionString: "unused",
-		});
+					});
 
 		expect(result).toBe(true);
 		expect(existsSync(`${dataRoot}/canonical/0/new-doc.md`)).toBe(true);
@@ -159,8 +156,7 @@ describe("reconcile", () => {
 		await reconcile({
 			userId: "user-1",
 			requiredVersion: 42,
-			dbConnectionString: "unused",
-		});
+					});
 
 		expect(readSyncedVersion(dataRoot)).toBe(42);
 	});

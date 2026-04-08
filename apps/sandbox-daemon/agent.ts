@@ -13,10 +13,10 @@ export interface AgentRunOptions {
 }
 
 export interface AgentCallbacks {
-	onTextDelta: (text: string) => void;
-	onSessionId: (sessionId: string) => void;
-	onCompleted: () => void;
-	onFailed: (message: string) => void;
+	onTextDelta: (text: string) => void | Promise<void>;
+	onSessionId: (sessionId: string) => void | Promise<void>;
+	onCompleted: () => void | Promise<void>;
+	onFailed: (message: string) => void | Promise<void>;
 }
 
 function hasSessionId(

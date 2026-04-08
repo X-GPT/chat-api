@@ -32,6 +32,19 @@ function getDaemonVersion(): string {
 	return cachedDaemonVersion;
 }
 
+let cachedDaemonBundle: Array<{ path: string; data: string }> | null = null;
+
+function getDaemonBundle(): Array<{ path: string; data: string }> {
+	if (cachedDaemonBundle) return cachedDaemonBundle;
+	const daemonDir = resolve(import.meta.dirname, "../../../../sandbox-daemon");
+	const files = collectDaemonFiles(daemonDir);
+	cachedDaemonBundle = files.map((file) => ({
+		path: `/workspace/sandbox-daemon/${file}`,
+		data: readFileSync(resolve(daemonDir, file), "utf-8"),
+	}));
+	return cachedDaemonBundle;
+}
+
 const DAEMON_SKIP = new Set(["node_modules", ".git", "biome.json"]);
 const DAEMON_EXTENSIONS = new Set([".ts", ".json", ".lock"]);
 
@@ -238,20 +251,7 @@ export class SandboxManager {
 		sandbox: Sandbox,
 		logger: SyncLogger,
 	): Promise<void> {
-		const daemonDir = resolve(
-			import.meta.dirname,
-			"../../../../sandbox-daemon",
-		);
-
-		// Collect all deployable files from the daemon directory
-		const files = collectDaemonFiles(daemonDir);
-
-		const writeEntries = files.map((file) => ({
-			path: `/workspace/sandbox-daemon/${file}`,
-			data: readFileSync(resolve(daemonDir, file), "utf-8"),
-		}));
-
-		await sandbox.files.write(writeEntries);
+		await sandbox.files.write(getDaemonBundle());
 
 		// Install dependencies
 		const installResult = await sandbox.commands.run(
@@ -291,7 +291,10 @@ export class SandboxManager {
 			"cd /workspace/sandbox-daemon && bun run index.ts",
 			{
 				background: true,
-				envs: { ANTHROPIC_API_KEY: apiEnv.ANTHROPIC_API_KEY },
+				envs: {
+					ANTHROPIC_API_KEY: apiEnv.ANTHROPIC_API_KEY,
+					DATABASE_URL: apiEnv.DATABASE_URL ?? "",
+				},
 				onStderr: (data) => {
 					logger.error({ msg: "Daemon stderr", data });
 				},

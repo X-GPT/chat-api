@@ -153,7 +153,6 @@ async function testReconciliationAndTurn(stateVersion: number) {
 			"Search for and read .md files in your working directory to answer questions.",
 			"Use Grep and Read tools to find information.",
 		].join(" "),
-		db_connection_string: DATABASE_URL,
 	};
 
 	const res = await fetch(`${daemonUrl}/turn`, {
@@ -233,7 +232,6 @@ async function testSyncSkip() {
 		scope_type: "global",
 		message: "Say hello",
 		system_prompt: "You are helpful. Just say hello.",
-		db_connection_string: DATABASE_URL,
 	};
 
 	const res = await fetch(`${daemonUrl}/turn`, {
@@ -258,7 +256,6 @@ async function testConcurrentTurnRejection() {
 		scope_type: "global",
 		message: "Write a detailed essay about computing history.",
 		system_prompt: "You are helpful. Write a long response.",
-		db_connection_string: DATABASE_URL,
 	};
 
 	const longTurnPromise = fetch(`${daemonUrl}/turn`, {

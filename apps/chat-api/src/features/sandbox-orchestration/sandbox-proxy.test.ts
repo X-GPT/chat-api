@@ -15,7 +15,6 @@ function makeTurnRequest(overrides: Partial<TurnRequest> = {}): TurnRequest {
 		scope_type: "global",
 		message: "hello",
 		system_prompt: "you are helpful",
-		db_connection_string: "postgresql://localhost/test",
 		...overrides,
 	};
 }

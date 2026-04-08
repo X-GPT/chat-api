@@ -23,7 +23,6 @@ interface TurnRequest {
 	message: string;
 	agent_session_id?: string;
 	system_prompt: string;
-	db_connection_string: string;
 }
 
 function ndjsonLine(obj: Record<string, unknown>): string {
@@ -32,6 +31,11 @@ function ndjsonLine(obj: Record<string, unknown>): string {
 
 app.post("/turn", async (c) => {
 	const body = await c.req.json<TurnRequest>();
+
+	if (!body.request_id || !body.user_id || !body.message || !body.system_prompt) {
+		return c.json({ error: "Missing required fields" }, 400);
+	}
+
 	const {
 		request_id,
 		user_id,
@@ -42,7 +46,6 @@ app.post("/turn", async (c) => {
 		message,
 		agent_session_id,
 		system_prompt,
-		db_connection_string,
 	} = body;
 
 	const lock = acquireTurn(request_id);
@@ -62,7 +65,6 @@ app.post("/turn", async (c) => {
 			await reconcile({
 				userId: user_id,
 				requiredVersion: required_version,
-				dbConnectionString: db_connection_string,
 			});
 
 			let cwd: string;
@@ -95,7 +97,9 @@ app.post("/turn", async (c) => {
 						await s.write(ndjsonLine({ type: "text_delta", text }));
 					},
 					onSessionId: async (sessionId) => {
-						await s.write(ndjsonLine({ type: "session_id", sessionId }));
+						await s.write(
+							ndjsonLine({ type: "session_id", sessionId }),
+						);
 					},
 					onCompleted: async () => {
 						// Session ID persistence handled by the chat-api caller

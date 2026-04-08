@@ -20,7 +20,6 @@ import {
 interface ReconcileInput {
 	userId: string;
 	requiredVersion: number;
-	dbConnectionString: string;
 }
 
 interface ManifestRow {
@@ -48,7 +47,7 @@ function parseCollectionIds(pathKey: string): string[] {
  * Returns true if sync was performed, false if skipped.
  */
 export async function reconcile(input: ReconcileInput): Promise<boolean> {
-	const { userId, requiredVersion, dbConnectionString } = input;
+	const { userId, requiredVersion } = input;
 	const dataRoot = getDataRoot(userId);
 	const localVersion = readSyncedVersion(dataRoot);
 
@@ -56,7 +55,7 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 		return false;
 	}
 
-	const pool = getPool(dbConnectionString);
+	const pool = getPool();
 
 	const manifestResult = await pool.query<ManifestRow>(
 		`SELECT document_id, type, slug, path_key, checksum
