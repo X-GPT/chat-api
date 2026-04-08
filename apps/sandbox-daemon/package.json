@@ -11,5 +11,8 @@
 		"hono": "^4.10.1",
 		"@anthropic-ai/claude-agent-sdk": "latest",
 		"pg": "^8.20.0"
+	},
+	"devDependencies": {
+		"@types/pg": "^8.20.0"
 	}
 }

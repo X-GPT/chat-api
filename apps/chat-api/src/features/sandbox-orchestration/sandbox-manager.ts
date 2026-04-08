@@ -63,8 +63,6 @@ export class SandboxManager {
 	private sandboxIdCache = new Map<string, string>();
 	// Dedup concurrent getOrCreateSandbox calls for the same user.
 	private inFlight = new Map<string, Promise<Sandbox>>();
-	// Track sandboxes with a healthy daemon to skip per-request health checks.
-	private daemonReady = new Set<string>();
 
 	async getOrCreateSandbox(
 		userId: string,
@@ -152,7 +150,6 @@ export class SandboxManager {
 		logger: SyncLogger,
 	): Promise<void> {
 		this.sandboxIdCache.delete(userId);
-		this.daemonReady.delete(sandbox.sandboxId);
 		try {
 			await sandbox.kill();
 			logger.info({
@@ -185,16 +182,9 @@ export class SandboxManager {
 	): Promise<string> {
 		const daemonUrl = this.getDaemonUrl(sandbox);
 
-		// Fast-path: skip health check if we already verified this sandbox
-		if (this.daemonReady.has(sandbox.sandboxId)) {
-			return daemonUrl;
-		}
-
-		// Health check to verify daemon state
 		try {
 			const health = await this.checkDaemonHealth(daemonUrl);
 			if (health && health.version === getDaemonVersion()) {
-				this.daemonReady.add(sandbox.sandboxId);
 				return daemonUrl;
 			}
 
@@ -205,7 +195,6 @@ export class SandboxManager {
 					expectedVersion: getDaemonVersion(),
 				});
 				await this.restartDaemon(sandbox, logger);
-				this.daemonReady.add(sandbox.sandboxId);
 				return daemonUrl;
 			}
 		} catch {
@@ -219,7 +208,6 @@ export class SandboxManager {
 		});
 
 		await this.deployDaemonBundle(sandbox, logger);
-		this.daemonReady.add(sandbox.sandboxId);
 		return daemonUrl;
 	}
 

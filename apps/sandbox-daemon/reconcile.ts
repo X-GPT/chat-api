@@ -6,6 +6,7 @@ import {
 	type DocFile,
 	getDataRoot,
 	removeCanonicalFile,
+	removeCollectionEntries,
 	writeCanonicalFile,
 } from "./materialization";
 import {
@@ -111,7 +112,19 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 		changedFiles = contentResult.rows;
 	}
 
+	const deleteAffectedCollections = new Set<string>();
 	for (const entry of deletes) {
+		const collectionIds = parseCollectionIds(entry.path_key);
+		if (collectionIds.length > 0) {
+			removeCollectionEntries(
+				dataRoot,
+				{ type: entry.type, slug: entry.slug },
+				collectionIds,
+			);
+			for (const colId of collectionIds) {
+				deleteAffectedCollections.add(colId);
+			}
+		}
 		removeCanonicalFile(dataRoot, { type: entry.type, slug: entry.slug });
 	}
 
@@ -146,6 +159,20 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 
 	for (const [colId, docs] of collectionMap) {
 		buildCollectionIndex(dataRoot, colId, docs);
+	}
+
+	// Rebuild indexes for collections affected by deletes
+	for (const colId of deleteAffectedCollections) {
+		if (!collectionMap.has(colId)) {
+			const remainingDocs = remoteManifest
+				.filter((e) => parseCollectionIds(e.path_key).includes(colId))
+				.map((e) => ({
+					document_id: e.document_id,
+					type: e.type,
+					slug: e.slug,
+				}));
+			buildCollectionIndex(dataRoot, colId, remainingDocs);
+		}
 	}
 
 	buildScopeRoots(dataRoot, [...allCollectionIds]);
