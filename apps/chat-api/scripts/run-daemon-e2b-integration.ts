@@ -85,6 +85,9 @@ async function cleanupTestData() {
 	await pool.query("DELETE FROM user_sandbox_runtime WHERE user_id = $1", [
 		userId,
 	]);
+	await pool.query("DELETE FROM user_sandbox_sessions WHERE user_id = $1", [
+		userId,
+	]);
 }
 
 async function setup() {
