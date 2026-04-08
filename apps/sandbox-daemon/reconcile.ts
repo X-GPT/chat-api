@@ -42,7 +42,6 @@ function parseCollectionIds(pathKey: string): string[] {
 		.filter(Boolean);
 }
 
-/** Check if any tracked field changed (not just checksum). */
 function hasEntryChanged(
 	local: LocalManifestEntry,
 	remote: ManifestRow,
@@ -87,15 +86,35 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 		remoteManifest.map((entry) => [entry.document_id, entry]),
 	);
 
+	// Parse collection IDs once and build a collection → docs index
 	const allCollectionIds = new Set<string>();
+	const collectionDocsIndex = new Map<
+		string,
+		Array<{ document_id: string; type: number; slug: string }>
+	>();
+	const remoteCollectionIds = new Map<string, string[]>();
+
+	for (const entry of remoteManifest) {
+		const colIds = parseCollectionIds(entry.path_key);
+		remoteCollectionIds.set(entry.document_id, colIds);
+		for (const colId of colIds) {
+			allCollectionIds.add(colId);
+			if (!collectionDocsIndex.has(colId)) {
+				collectionDocsIndex.set(colId, []);
+			}
+			collectionDocsIndex.get(colId)?.push({
+				document_id: entry.document_id,
+				type: entry.type,
+				slug: entry.slug,
+			});
+		}
+	}
+
 	const creates: string[] = [];
 	const updates: string[] = [];
 	const deletes: LocalManifestEntry[] = [];
 
 	for (const entry of remoteManifest) {
-		for (const colId of parseCollectionIds(entry.path_key)) {
-			allCollectionIds.add(colId);
-		}
 		const local = localMap.get(entry.document_id);
 		if (!local) {
 			creates.push(entry.document_id);
@@ -123,28 +142,29 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 		changedFiles = contentResult.rows;
 	}
 
-	// Handle deletes — remove canonical files and collection symlinks
 	const collectionsToRebuild = new Set<string>();
+
+	// Handle deletes
 	for (const entry of deletes) {
-		const collectionIds = parseCollectionIds(entry.path_key);
-		if (collectionIds.length > 0) {
-			removeCollectionEntries(dataRoot, entry, collectionIds);
-			for (const colId of collectionIds) {
+		const colIds = parseCollectionIds(entry.path_key);
+		if (colIds.length > 0) {
+			removeCollectionEntries(dataRoot, entry, colIds);
+			for (const colId of colIds) {
 				collectionsToRebuild.add(colId);
 			}
 		}
 		removeCanonicalFile(dataRoot, entry);
 	}
 
-	// Handle creates/updates — clean up stale paths on rename, then write
+	// Handle creates/updates
 	for (const file of changedFiles) {
 		const local = localMap.get(file.document_id);
 		if (local) {
-			// If document_id or type changed, remove old canonical file
-			if (local.document_id !== file.document_id || local.type !== file.type) {
+			// If type changed, canonical path changed — remove old file
+			if (local.type !== file.type) {
 				removeCanonicalFile(dataRoot, local);
 			}
-			// Clean up old collection symlinks if path_key changed
+			// Clean up old collection symlinks
 			const oldColIds = parseCollectionIds(local.path_key);
 			if (oldColIds.length > 0) {
 				removeCollectionEntries(dataRoot, local, oldColIds);
@@ -164,22 +184,17 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 		};
 		writeCanonicalFile(dataRoot, doc);
 
-		for (const colId of parseCollectionIds(file.path_key)) {
+		const newColIds = remoteCollectionIds.get(file.document_id) ?? [];
+		for (const colId of newColIds) {
 			buildCollectionSymlink(dataRoot, doc, colId);
 			collectionsToRebuild.add(colId);
 		}
 	}
 
-	// Rebuild indexes for all touched collections using the full remote manifest
+	// Rebuild indexes for touched collections using pre-built index (O(1) lookup)
 	for (const colId of collectionsToRebuild) {
-		const allDocsInCollection = remoteManifest
-			.filter((e) => parseCollectionIds(e.path_key).includes(colId))
-			.map((e) => ({
-				document_id: e.document_id,
-				type: e.type,
-				slug: e.slug,
-			}));
-		buildCollectionIndex(dataRoot, colId, allDocsInCollection);
+		const docs = collectionDocsIndex.get(colId) ?? [];
+		buildCollectionIndex(dataRoot, colId, docs);
 	}
 
 	buildScopeRoots(dataRoot, [...allCollectionIds]);

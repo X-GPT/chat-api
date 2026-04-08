@@ -293,7 +293,7 @@ export class SandboxManager {
 				background: true,
 				envs: {
 					ANTHROPIC_API_KEY: apiEnv.ANTHROPIC_API_KEY,
-					DATABASE_URL: apiEnv.DATABASE_URL ?? "",
+					DATABASE_URL: apiEnv.DATABASE_URL as string,
 				},
 				onStderr: (data) => {
 					logger.error({ msg: "Daemon stderr", data });
