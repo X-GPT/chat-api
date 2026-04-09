@@ -55,7 +55,6 @@ describe("POST /turn integration", () => {
 		return {
 			request_id: `req-${reqCounter}-${Date.now()}`,
 			user_id: "user-1",
-			required_version: 0,
 			scope_type: "global",
 			message: "hello",
 			system_prompt: "you are helpful",

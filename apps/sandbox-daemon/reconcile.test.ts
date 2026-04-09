@@ -43,16 +43,17 @@ describe("reconcile", () => {
 		mock.restore();
 	});
 
-	it("skips sync when local version >= required version", async () => {
+	it("skips sync when local version >= DB version", async () => {
 		writeSyncedVersion(dataRoot, 5);
 
-		const result = await reconcile({
-			userId: "user-1",
-			requiredVersion: 5,
-					});
+		// DB returns state_version = 5 (same as local)
+		mockQuery.mockResolvedValueOnce({ rows: [{ state_version: "5" }] });
+
+		const result = await reconcile({ userId: "user-1" });
 
 		expect(result).toBe(false);
-		expect(mockQuery).not.toHaveBeenCalled();
+		// Only the version query should have been called, not the manifest query
+		expect(mockQuery).toHaveBeenCalledTimes(1);
 	});
 
 	it("removes collection symlinks and rebuilds indexes on delete", async () => {
@@ -87,13 +88,12 @@ describe("reconcile", () => {
 		expect(existsSync(`${dataRoot}/canonical/0/doc-1.md`)).toBe(true);
 		expect(existsSync(`${dataRoot}/collections/col-A/0/doc-1.md`)).toBe(true);
 
+		// DB version is 1 (higher than local 0) → triggers sync
+		mockQuery.mockResolvedValueOnce({ rows: [{ state_version: "1" }] });
 		// Remote manifest returns empty → doc was deleted
 		mockQuery.mockResolvedValueOnce({ rows: [] });
 
-		const result = await reconcile({
-			userId: "user-1",
-			requiredVersion: 1,
-					});
+		const result = await reconcile({ userId: "user-1" });
 
 		expect(result).toBe(true);
 
@@ -108,6 +108,8 @@ describe("reconcile", () => {
 		writeSyncedVersion(dataRoot, 0);
 		writeLocalManifest(dataRoot, []);
 
+		// Version query
+		mockQuery.mockResolvedValueOnce({ rows: [{ state_version: "1" }] });
 		// Manifest query: one new doc
 		mockQuery.mockResolvedValueOnce({
 			rows: [
@@ -134,10 +136,7 @@ describe("reconcile", () => {
 			],
 		});
 
-		const result = await reconcile({
-			userId: "user-1",
-			requiredVersion: 1,
-					});
+		const result = await reconcile({ userId: "user-1" });
 
 		expect(result).toBe(true);
 		expect(existsSync(`${dataRoot}/canonical/0/doc-new.md`)).toBe(true);
@@ -151,12 +150,12 @@ describe("reconcile", () => {
 		writeSyncedVersion(dataRoot, 0);
 		writeLocalManifest(dataRoot, []);
 
+		// DB version is 42
+		mockQuery.mockResolvedValueOnce({ rows: [{ state_version: "42" }] });
+		// Empty manifest
 		mockQuery.mockResolvedValueOnce({ rows: [] });
 
-		await reconcile({
-			userId: "user-1",
-			requiredVersion: 42,
-					});
+		await reconcile({ userId: "user-1" });
 
 		expect(readSyncedVersion(dataRoot)).toBe(42);
 	});

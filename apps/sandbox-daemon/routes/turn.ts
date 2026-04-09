@@ -1,3 +1,4 @@
+import { mkdirSync } from "node:fs";
 import { Hono } from "hono";
 import { stream } from "hono/streaming";
 import { runAgent } from "../agent";
@@ -17,7 +18,6 @@ const app = new Hono();
 interface TurnRequest {
 	request_id: string;
 	user_id: string;
-	required_version: number;
 	scope_type: "global" | "collection" | "document";
 	collection_id?: string;
 	summary_id?: string;
@@ -33,20 +33,13 @@ function ndjsonLine(obj: Record<string, unknown>): string {
 app.post("/turn", async (c) => {
 	const body = await c.req.json<TurnRequest>();
 
-	if (
-		!body.request_id ||
-		!body.user_id ||
-		!body.message ||
-		!body.system_prompt ||
-		typeof body.required_version !== "number"
-	) {
+	if (!body.request_id || !body.user_id || !body.message || !body.system_prompt) {
 		return c.json({ error: "Missing required fields" }, 400);
 	}
 
 	const {
 		request_id,
 		user_id,
-		required_version,
 		scope_type,
 		collection_id,
 		summary_id,
@@ -71,10 +64,7 @@ app.post("/turn", async (c) => {
 			try {
 				await s.write(ndjsonLine({ type: "started", turn_id: request_id }));
 
-				await reconcile({
-					userId: user_id,
-					requiredVersion: required_version,
-				});
+				await reconcile({ userId: user_id });
 
 				ensureDataRoot(dataRoot);
 
@@ -122,6 +112,8 @@ app.post("/turn", async (c) => {
 						scope_type,
 						collection_id ?? undefined,
 					);
+					// Ensure cwd exists (e.g. empty collection with no files)
+					mkdirSync(cwd, { recursive: true });
 				}
 
 				let turnFailed = false;

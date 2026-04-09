@@ -11,7 +11,6 @@ function makeTurnRequest(overrides: Partial<TurnRequest> = {}): TurnRequest {
 	return {
 		request_id: "req-1",
 		user_id: "user-1",
-		required_version: 1,
 		scope_type: "global",
 		message: "hello",
 		system_prompt: "you are helpful",

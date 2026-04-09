@@ -3,7 +3,6 @@ import { ConversationBusyError } from "./errors";
 export interface TurnRequest {
 	request_id: string;
 	user_id: string;
-	required_version: number;
 	scope_type: "global" | "collection" | "document";
 	collection_id?: string;
 	summary_id?: string;

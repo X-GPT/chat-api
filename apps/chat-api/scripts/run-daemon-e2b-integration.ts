@@ -178,13 +178,12 @@ async function dumpSandboxDiagnostics() {
 	console.log("--- End Diagnostics ---\n");
 }
 
-async function testReconciliationAndTurn(stateVersion: number) {
+async function testReconciliationAndTurn() {
 	console.log("\n=== Test 4: Reconciliation + Turn Execution ===");
 
 	const turnBody = {
 		request_id: `turn-${Date.now()}`,
 		user_id: userId,
-		required_version: stateVersion,
 		scope_type: "global",
 		message: "What is the capital of France?",
 		system_prompt:
@@ -287,7 +286,6 @@ async function testSyncSkip() {
 	const turnBody = {
 		request_id: `turn-skip-${Date.now()}`,
 		user_id: userId,
-		required_version: 0, // version 0 <= local synced version → skip
 		scope_type: "global",
 		message: "Say hello",
 		system_prompt: "You are helpful. Just say hello.",
@@ -311,7 +309,6 @@ async function testConcurrentTurnRejection() {
 	const longTurnBody = {
 		request_id: `turn-long-${Date.now()}`,
 		user_id: userId,
-		required_version: 0,
 		scope_type: "global",
 		message: "Write a detailed essay about computing history.",
 		system_prompt: "You are helpful. Write a long response.",
@@ -375,7 +372,6 @@ async function testCollectionScope() {
 	const { status, events } = await sendTurn({
 		request_id: `turn-col-${Date.now()}`,
 		user_id: userId,
-		required_version: 0,
 		scope_type: "collection",
 		collection_id: "col-test",
 		message: "What is the capital of France?",
@@ -399,7 +395,6 @@ async function testDocumentScope() {
 	const { status, events } = await sendTurn({
 		request_id: `turn-doc-${Date.now()}`,
 		user_id: userId,
-		required_version: 0,
 		scope_type: "document",
 		summary_id: "doc-2",
 		message: "What should I buy?",
@@ -423,7 +418,6 @@ async function testMissingScopeId() {
 	const { status, events } = await sendTurn({
 		request_id: `turn-no-col-${Date.now()}`,
 		user_id: userId,
-		required_version: 0,
 		scope_type: "collection",
 		// no collection_id
 		message: "hello",
@@ -446,7 +440,6 @@ async function testMissingDocument() {
 	const { status, events } = await sendTurn({
 		request_id: `turn-no-doc-${Date.now()}`,
 		user_id: userId,
-		required_version: 0,
 		scope_type: "document",
 		summary_id: "nonexistent-doc",
 		message: "hello",
@@ -482,12 +475,12 @@ async function cleanup() {
 
 async function main() {
 	try {
-		const stateVersion = await seedTestData();
+		await seedTestData();
 		await setup();
 		await testDaemonDeployment();
 		await testCurrentEndpoint();
 		await testIdempotentDeploy();
-		await testReconciliationAndTurn(stateVersion);
+		await testReconciliationAndTurn();
 		await testSyncSkip();
 		await testConcurrentTurnRejection();
 		await testCollectionScope();

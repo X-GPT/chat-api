@@ -71,17 +71,3 @@ export async function upsertRuntime(
 	);
 }
 
-/**
- * Get state_version for a user (lightweight query for turn setup).
- */
-export async function getTurnContext(
-	userId: string,
-): Promise<{ state_version: number }> {
-	const row = await queryOne<{ state_version: number }>(
-		`SELECT state_version::int
-		 FROM user_sandbox_runtime
-		 WHERE user_id = $1`,
-		[userId],
-	);
-	return { state_version: row?.state_version ?? 0 };
-}

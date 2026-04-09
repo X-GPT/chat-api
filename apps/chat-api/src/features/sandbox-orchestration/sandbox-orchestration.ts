@@ -1,5 +1,4 @@
 import type { ChatMessagesScope } from "@/config/env";
-import { getTurnContext } from "@/db/user-runtime";
 import { getSessionId, upsertSessionId } from "@/db/user-sessions";
 import type { ChatLogger } from "@/features/chat/chat.logger";
 import { sanitizePathSegment } from "@/features/sandbox";
@@ -49,16 +48,12 @@ export async function runSandboxChat(
 	} = options;
 
 	// Note: user_files table is populated by an external service.
-	// The daemon's reconcile() reads from user_files to sync documents
-	// to the sandbox filesystem. If user_files is empty, the agent will
-	// see no documents.
+	// The daemon's reconcile() reads from user_files and checks
+	// state_version directly from Postgres to sync documents.
 
 	const attempt = async () => {
-		// 1. Get sandbox + runtime state in parallel
-		const [sandbox, { state_version }] = await Promise.all([
-			sandboxManager.getOrCreateSandbox(userId, logger),
-			getTurnContext(userId),
-		]);
+		// 1. Get sandbox
+		const sandbox = await sandboxManager.getOrCreateSandbox(userId, logger);
 
 		// Read session AFTER sandbox is resolved — creation clears stale sessions
 		const agentSessionId = await getSessionId(userId, chatKey);
@@ -84,7 +79,6 @@ export async function runSandboxChat(
 		const turnRequest: TurnRequest = {
 			request_id: crypto.randomUUID(),
 			user_id: userId,
-			required_version: state_version,
 			scope_type: toSandboxScope(scope),
 			collection_id: collectionId ?? undefined,
 			summary_id: summaryId ?? undefined,

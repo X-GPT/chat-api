@@ -20,7 +20,6 @@ import {
 
 interface ReconcileInput {
 	userId: string;
-	requiredVersion: number;
 }
 
 interface ManifestRow {
@@ -60,15 +59,22 @@ function hasEntryChanged(
  * Returns true if sync was performed, false if skipped.
  */
 export async function reconcile(input: ReconcileInput): Promise<boolean> {
-	const { userId, requiredVersion } = input;
+	const { userId } = input;
 	const dataRoot = getDataRoot(userId);
 	const localVersion = readSyncedVersion(dataRoot);
 
-	if (localVersion >= requiredVersion) {
+	const pool = getPool();
+
+	// Read the authoritative version from Postgres (not from the request)
+	const versionResult = await pool.query<{ state_version: string }>(
+		"SELECT state_version FROM user_sandbox_runtime WHERE user_id = $1",
+		[userId],
+	);
+	const currentVersion = Number(versionResult.rows[0]?.state_version ?? 0);
+
+	if (localVersion >= currentVersion) {
 		return false;
 	}
-
-	const pool = getPool();
 
 	const manifestResult = await pool.query<ManifestRow>(
 		`SELECT document_id, type, slug, path_key, checksum
@@ -213,7 +219,7 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	}));
 
 	writeLocalManifest(dataRoot, newManifest);
-	writeSyncedVersion(dataRoot, requiredVersion);
+	writeSyncedVersion(dataRoot, currentVersion);
 
 	return true;
 }
