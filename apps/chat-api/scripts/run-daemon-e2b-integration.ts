@@ -14,6 +14,7 @@ import { Pool } from "pg";
 import type { Sandbox } from "e2b";
 import type { SyncLogger } from "@/features/sandbox";
 import { apiEnv } from "@/config/env";
+import { getRuntime } from "@/db/user-runtime";
 import {
 	SandboxManager,
 	WORKSPACE_ROOT,
@@ -456,6 +457,30 @@ async function testMissingDocument() {
 	console.log("✓ Missing document correctly rejected");
 }
 
+async function testSandboxIdPersistence() {
+	console.log("\n=== Test 11: Sandbox ID Persistence in Postgres ===");
+
+	const runtime = await getRuntime(userId);
+	const persistedId = runtime?.sandbox_id;
+	assert.ok(persistedId, "sandbox_id should be persisted in Postgres");
+	assert.equal(
+		persistedId,
+		sandbox.sandboxId,
+		"Persisted sandbox_id should match the active sandbox",
+	);
+	console.log(`✓ sandbox_id persisted: ${persistedId}`);
+
+	// A fresh SandboxManager (no in-memory state) should reconnect via Postgres
+	const freshManager = new SandboxManager();
+	const reconnected = await freshManager.getOrCreateSandbox(userId, logger);
+	assert.equal(
+		reconnected.sandboxId,
+		sandbox.sandboxId,
+		"Fresh manager should reconnect to the same sandbox via Postgres lookup",
+	);
+	console.log("✓ Fresh SandboxManager reconnected via Postgres (no Sandbox.list)");
+}
+
 async function cleanup() {
 	console.log("\n=== Cleanup ===");
 	try {
@@ -487,6 +512,7 @@ async function main() {
 		await testDocumentScope();
 		await testMissingScopeId();
 		await testMissingDocument();
+		await testSandboxIdPersistence();
 		console.log("\n✓ All E2B daemon integration tests passed");
 	} catch (err) {
 		console.error("\n✗ Test failed:", err);

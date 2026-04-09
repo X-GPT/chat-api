@@ -3,6 +3,7 @@ import { join, relative, resolve } from "node:path";
 import { Sandbox } from "e2b";
 import { apiEnv } from "@/config/env";
 import { clearUserSessions } from "@/db/user-sessions";
+import { getRuntime, upsertRuntime } from "@/db/user-runtime";
 import type { SyncLogger } from "@/features/sandbox";
 import { SandboxCreationError } from "./errors";
 
@@ -72,9 +73,6 @@ function collectDaemonFiles(dir: string, base = dir): string[] {
 }
 
 export class SandboxManager {
-	// Cache sandboxId per user to avoid Sandbox.list() API call on every request.
-	// Invalidated on connect failure or killSandbox.
-	private sandboxIdCache = new Map<string, string>();
 	// Dedup concurrent getOrCreateSandbox calls for the same user.
 	private inFlight = new Map<string, Promise<Sandbox>>();
 
@@ -96,41 +94,21 @@ export class SandboxManager {
 		userId: string,
 		logger: SyncLogger,
 	): Promise<Sandbox> {
-		const cachedId = this.sandboxIdCache.get(userId);
-		if (cachedId) {
-			try {
-				return await Sandbox.connect(cachedId);
-			} catch {
-				this.sandboxIdCache.delete(userId);
-			}
-		}
-
-		const paginator = Sandbox.list({
-			query: {
-				metadata: { userId },
-				state: ["running", "paused"],
-			},
-			limit: 1,
-		});
-
-		const existing = await paginator.nextItems();
-		const info = existing[0];
-		if (info) {
+		const runtime = await getRuntime(userId);
+		if (runtime?.sandbox_id) {
 			logger.info({
-				msg: "Reconnecting to existing sandbox",
+				msg: "Reconnecting to sandbox from Postgres",
 				userId,
-				sandboxId: info.sandboxId,
+				sandboxId: runtime.sandbox_id,
 			});
 
 			try {
-				this.sandboxIdCache.set(userId, info.sandboxId);
-				return await Sandbox.connect(info.sandboxId);
+				return await Sandbox.connect(runtime.sandbox_id);
 			} catch (err) {
-				this.sandboxIdCache.delete(userId);
 				logger.error({
-					msg: "Failed to reconnect, creating new sandbox",
+					msg: "Failed to reconnect from Postgres, creating new sandbox",
 					userId,
-					sandboxId: info.sandboxId,
+					sandboxId: runtime.sandbox_id,
 					error: err instanceof Error ? err.message : String(err),
 				});
 			}
@@ -143,9 +121,10 @@ export class SandboxManager {
 				metadata: { userId },
 			});
 
-			this.sandboxIdCache.set(userId, sandbox.sandboxId);
-			// Clear stale sessions from any previous sandbox
-			await clearUserSessions(userId).catch(() => {});
+			await Promise.all([
+				upsertRuntime(userId, { sandbox_id: sandbox.sandboxId }),
+				clearUserSessions(userId).catch(() => {}),
+			]);
 			logger.info({
 				msg: "Sandbox created",
 				userId,
@@ -165,9 +144,10 @@ export class SandboxManager {
 		sandbox: Sandbox,
 		logger: SyncLogger,
 	): Promise<void> {
-		this.sandboxIdCache.delete(userId);
-		// Old sessions are invalid after sandbox destruction
-		await clearUserSessions(userId).catch(() => {});
+		await Promise.all([
+			upsertRuntime(userId, { sandbox_id: null }).catch(() => {}),
+			clearUserSessions(userId).catch(() => {}),
+		]);
 		try {
 			await sandbox.kill();
 			logger.info({
@@ -183,10 +163,6 @@ export class SandboxManager {
 				error: err instanceof Error ? err.message : String(err),
 			});
 		}
-	}
-
-	getCachedSandboxId(userId: string): string | undefined {
-		return this.sandboxIdCache.get(userId);
 	}
 
 	/**
