@@ -144,17 +144,8 @@ export class SandboxManager {
 		sandbox: Sandbox,
 		logger: SyncLogger,
 	): Promise<void> {
-		await Promise.all([
-			upsertRuntime(userId, { sandbox_id: null }).catch(() => {}),
-			clearUserSessions(userId).catch(() => {}),
-		]);
 		try {
 			await sandbox.kill();
-			logger.info({
-				msg: "Sandbox killed",
-				userId,
-				sandboxId: sandbox.sandboxId,
-			});
 		} catch (err) {
 			logger.error({
 				msg: "Failed to kill sandbox",
@@ -162,7 +153,18 @@ export class SandboxManager {
 				sandboxId: sandbox.sandboxId,
 				error: err instanceof Error ? err.message : String(err),
 			});
+			return;
 		}
+
+		await Promise.all([
+			upsertRuntime(userId, { sandbox_id: null }).catch(() => {}),
+			clearUserSessions(userId).catch(() => {}),
+		]);
+		logger.info({
+			msg: "Sandbox killed",
+			userId,
+			sandboxId: sandbox.sandboxId,
+		});
 	}
 
 	/**
