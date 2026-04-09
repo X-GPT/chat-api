@@ -48,7 +48,7 @@ async function seedTestData() {
 			"doc-1",
 			0,
 			"france-capital",
-			"",
+			"col-test",
 			"The capital of France is Paris. It is known for the Eiffel Tower.",
 			"checksum-doc-1",
 		],
@@ -341,6 +341,128 @@ async function testConcurrentTurnRejection() {
 	await longTurnPromise;
 }
 
+function parseEvents(text: string): Array<Record<string, unknown>> {
+	return text
+		.split("\n")
+		.filter((line) => line.trim())
+		.map((line) => {
+			try {
+				return JSON.parse(line);
+			} catch {
+				return null;
+			}
+		})
+		.filter(Boolean);
+}
+
+async function sendTurn(
+	body: Record<string, unknown>,
+): Promise<{ status: number; events: Array<Record<string, unknown>> }> {
+	await waitForIdle();
+	const res = await fetch(`${daemonUrl}/turn`, {
+		method: "POST",
+		headers: { "Content-Type": "application/json" },
+		body: JSON.stringify(body),
+		signal: AbortSignal.timeout(120_000),
+	});
+	const text = await res.text();
+	return { status: res.status, events: parseEvents(text) };
+}
+
+async function testCollectionScope() {
+	console.log("\n=== Test 7: Collection Scope ===");
+
+	const { status, events } = await sendTurn({
+		request_id: `turn-col-${Date.now()}`,
+		user_id: userId,
+		required_version: 0,
+		scope_type: "collection",
+		collection_id: "col-test",
+		message: "What is the capital of France?",
+		system_prompt:
+			"You are a helpful assistant. Answer briefly using files in your working directory. Use Read tool.",
+	});
+
+	assert.equal(status, 200);
+	const types = events.map((e) => e.type);
+	console.log(`Event types: ${types.join(", ")}`);
+	assert.ok(
+		types.includes("completed") || types.includes("text_delta"),
+		"Collection scope turn should produce output",
+	);
+	console.log("✓ Collection scope turn completed");
+}
+
+async function testDocumentScope() {
+	console.log("\n=== Test 8: Document Scope ===");
+
+	const { status, events } = await sendTurn({
+		request_id: `turn-doc-${Date.now()}`,
+		user_id: userId,
+		required_version: 0,
+		scope_type: "document",
+		summary_id: "doc-2",
+		message: "What should I buy?",
+		system_prompt:
+			"You are a helpful assistant. Answer briefly using files in your working directory. Use Read tool.",
+	});
+
+	assert.equal(status, 200);
+	const types = events.map((e) => e.type);
+	console.log(`Event types: ${types.join(", ")}`);
+	assert.ok(
+		types.includes("completed") || types.includes("text_delta"),
+		"Document scope turn should produce output",
+	);
+	console.log("✓ Document scope turn completed");
+}
+
+async function testMissingScopeId() {
+	console.log("\n=== Test 9: Missing Scope ID ===");
+
+	const { status, events } = await sendTurn({
+		request_id: `turn-no-col-${Date.now()}`,
+		user_id: userId,
+		required_version: 0,
+		scope_type: "collection",
+		// no collection_id
+		message: "hello",
+		system_prompt: "hi",
+	});
+
+	assert.equal(status, 200);
+	const failedEvent = events.find((e) => e.type === "failed");
+	assert.ok(failedEvent, "Should have a failed event");
+	assert.ok(
+		String(failedEvent.message).includes("collection_id required"),
+		`Failed message should mention collection_id, got: ${failedEvent.message}`,
+	);
+	console.log("✓ Missing collection_id correctly rejected");
+}
+
+async function testMissingDocument() {
+	console.log("\n=== Test 10: Missing Document ===");
+
+	const { status, events } = await sendTurn({
+		request_id: `turn-no-doc-${Date.now()}`,
+		user_id: userId,
+		required_version: 0,
+		scope_type: "document",
+		summary_id: "nonexistent-doc",
+		message: "hello",
+		system_prompt: "hi",
+	});
+
+	assert.equal(status, 200);
+	const failedEvent = events.find((e) => e.type === "failed");
+	assert.ok(failedEvent, "Should have a failed event");
+	assert.ok(
+		String(failedEvent.message).includes("not found"),
+		`Failed message should mention not found, got: ${failedEvent.message}`,
+	);
+	console.log("✓ Missing document correctly rejected");
+}
+
 async function cleanup() {
 	console.log("\n=== Cleanup ===");
 	try {
@@ -368,6 +490,10 @@ async function main() {
 		await testReconciliationAndTurn(stateVersion);
 		await testSyncSkip();
 		await testConcurrentTurnRejection();
+		await testCollectionScope();
+		await testDocumentScope();
+		await testMissingScopeId();
+		await testMissingDocument();
 		console.log("\n✓ All E2B daemon integration tests passed");
 	} catch (err) {
 		console.error("\n✗ Test failed:", err);
