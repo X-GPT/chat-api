@@ -13,7 +13,7 @@ const SYSTEM_PROMPT = `You are MyMemo Document Assistant — an AI helping users
 
 ## Available Documents
 
-Documents are stored as \`.txt\` files in your working directory. Each file has YAML frontmatter with metadata:
+Documents are stored as \`.md\` files in your working directory. Each file has YAML frontmatter with metadata:
 
 \`\`\`
 ---
@@ -28,7 +28,7 @@ Document content here...
 
 ## Retrieval Strategy
 
-1. Use Grep to search for keywords in \`.txt\` files in your working directory.
+1. Use Grep to search for keywords in \`.md\` files in your working directory.
 2. Use Read to read the top 1-3 matching files in full.
 3. Synthesize an answer using ONLY the content from files you have read.
 4. If the first search returns no results, try alternative keywords or broader terms.

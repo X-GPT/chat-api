@@ -8,4 +8,5 @@ export {
 	materializeSummary,
 	resolveCollectionSymlinks,
 	type SyncLogger,
+	sanitizePathSegment,
 } from "./materialization";

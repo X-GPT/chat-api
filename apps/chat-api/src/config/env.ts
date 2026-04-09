@@ -19,9 +19,17 @@ export const apiEnv = (() => {
 			Bun.env.E2B_API_KEY,
 			"E2B_API_KEY is required when SANDBOX_ENABLED=true",
 		);
+		invariant(
+			Bun.env.DATABASE_URL,
+			"DATABASE_URL is required when SANDBOX_ENABLED=true",
+		);
 	}
 
+	const databaseUrl = Bun.env.DATABASE_URL || null;
+
 	return {
+		SANDBOX_ENABLED: sandboxEnabled,
+		DATABASE_URL: databaseUrl,
 		OPENAI_API_KEY: Bun.env.OPENAI_API_KEY,
 		ANTHROPIC_API_KEY: Bun.env.ANTHROPIC_API_KEY,
 		PROTECTED_API_ORIGIN:
@@ -38,7 +46,7 @@ export const apiEnv = (() => {
 })();
 
 export function isSandboxEnabled(): boolean {
-	return Bun.env.SANDBOX_ENABLED === "true";
+	return apiEnv.SANDBOX_ENABLED;
 }
 
 const sanitizePrefix = (value: string) => {

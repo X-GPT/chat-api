@@ -1,13 +1,19 @@
 import type { ChatMessagesScope } from "@/config/env";
-import { apiEnv } from "@/config/env";
+import { getSessionId, upsertSessionId } from "@/db/user-sessions";
 import type { ChatLogger } from "@/features/chat/chat.logger";
-import { runSandboxAgent } from "@/features/sandbox-agent";
+import { sanitizePathSegment } from "@/features/sandbox";
+import { buildSandboxAgentPrompt } from "@/features/sandbox-agent";
 import { SandboxCreationError } from "./errors";
-import {
-	ensureInitialSync,
-	runIncrementalSync,
-} from "./sandbox-sync-service";
-import { sandboxManager, sessionStore } from "./singleton";
+import { forwardChatTurnToSandbox, type TurnRequest } from "./sandbox-proxy";
+import { sandboxManager } from "./singleton";
+
+type SandboxScopeType = "global" | "collection" | "document";
+
+function toSandboxScope(scope: ChatMessagesScope): SandboxScopeType {
+	if (scope === "collection") return "collection";
+	if (scope === "document") return "document";
+	return "global";
+}
 
 export interface RunSandboxChatOptions {
 	userId: string;
@@ -36,59 +42,67 @@ export async function runSandboxChat(
 		collectionId,
 		summaryId,
 		chatKey,
-		memberCode,
-		partnerCode,
-		memberAuthToken,
 		onTextDelta,
 		onTextEnd,
 		logger,
 	} = options;
 
-	const syncOptions = { memberCode, partnerCode, memberAuthToken };
+	// Note: user_files table is populated by an external service.
+	// The daemon's reconcile() reads from user_files and checks
+	// state_version directly from Postgres to sync documents.
 
 	const attempt = async () => {
+		// 1. Get sandbox
 		const sandbox = await sandboxManager.getOrCreateSandbox(userId, logger);
-		const docsRoot = sandboxManager.getDocsRoot(userId);
 
-		await ensureInitialSync({
+		// Read session AFTER sandbox is resolved — creation clears stale sessions
+		const agentSessionId = await getSessionId(userId, chatKey);
+
+		// 2. Ensure daemon is running (depends on sandbox)
+		const daemonUrl = await sandboxManager.ensureSandboxDaemon(
 			userId,
 			sandbox,
-			options: syncOptions,
 			logger,
+		);
+
+		// 3. Build system prompt — path must match daemon's getDataRoot()
+		const docsRoot = `/workspace/data/${sanitizePathSegment(userId)}`;
+		const systemPrompt = buildSandboxAgentPrompt({
+			scope,
+			summaryId,
+			collectionId,
+			docsRoot,
+			conversationContext: null,
 		});
 
-		// Incremental sync — inline, blocking, every request
-		await runIncrementalSync({
-			userId,
-			sandbox,
-			options: syncOptions,
-			logger,
-		});
+		// 4. Build turn request
+		const turnRequest: TurnRequest = {
+			request_id: crypto.randomUUID(),
+			user_id: userId,
+			scope_type: toSandboxScope(scope),
+			collection_id: collectionId ?? undefined,
+			summary_id: summaryId ?? undefined,
+			message: query,
+			agent_session_id: agentSessionId ?? undefined,
+			system_prompt: systemPrompt,
+		};
 
-		// Proceed with agent
-		const sessionId = sessionStore.getSessionId(chatKey, userId);
-
+		// 5. Forward to daemon with streaming
 		let newSessionId: string | null = null;
 
-		await runSandboxAgent({
-			sandbox,
-			docsRoot,
-			anthropicApiKey: apiEnv.ANTHROPIC_API_KEY,
-			query,
-			scope,
-			collectionId,
-			summaryId,
-			sessionId,
+		await forwardChatTurnToSandbox({
+			daemonUrl,
+			turnRequest,
 			onTextDelta,
 			onTextEnd,
 			onSessionId: (id) => {
 				newSessionId = id;
 			},
-			logger,
 		});
 
+		// 6. Persist session ID for this chat
 		if (newSessionId) {
-			sessionStore.setSessionId(chatKey, newSessionId, userId);
+			await upsertSessionId(userId, chatKey, newSessionId);
 		}
 
 		return { status: "completed" } as const;
@@ -106,8 +120,6 @@ export async function runSandboxChat(
 			userId,
 			error: err.message,
 		});
-
-		sessionStore.removeUserSessions(userId);
 
 		try {
 			return await attempt();

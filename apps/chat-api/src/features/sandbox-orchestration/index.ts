@@ -1,4 +1,4 @@
-export { SandboxCreationError } from "./errors";
+export { ConversationBusyError, SandboxCreationError } from "./errors";
 export {
 	type RunSandboxChatOptions,
 	type RunSandboxChatResult,

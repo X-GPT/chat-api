@@ -1,0 +1,18 @@
+{
+	"name": "sandbox-daemon",
+	"version": "0.1.0",
+	"type": "module",
+	"scripts": {
+		"format": "biome format --write",
+		"lint": "biome lint --write",
+		"check": "biome check --write"
+	},
+	"dependencies": {
+		"hono": "^4.10.1",
+		"@anthropic-ai/claude-agent-sdk": "latest",
+		"pg": "^8.20.0"
+	},
+	"devDependencies": {
+		"@types/pg": "^8.20.0"
+	}
+}
