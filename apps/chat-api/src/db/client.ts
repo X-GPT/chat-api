@@ -1,50 +1,18 @@
-import { Pool, type PoolClient, type QueryResultRow } from "pg";
+import { createDb, type Database } from "@mymemo/db";
 import { apiEnv } from "@/config/env";
 
-let pool: Pool | null = null;
+let db: Database | null = null;
 
-export function getPool(): Pool {
-	if (!pool) {
-		pool = new Pool({
-			connectionString: apiEnv.DATABASE_URL ?? undefined,
-			max: 10,
-			idleTimeoutMillis: 30_000,
-			connectionTimeoutMillis: 5_000,
-		});
+export function getDb(): Database {
+	if (!db) {
+		db = createDb(apiEnv.DATABASE_URL as string, 10);
 	}
-	return pool;
+	return db;
 }
 
-export async function query<T extends QueryResultRow>(
-	text: string,
-	params?: unknown[],
-): Promise<T[]> {
-	const result = await getPool().query<T>(text, params);
-	return result.rows;
-}
-
-export async function queryOne<T extends QueryResultRow>(
-	text: string,
-	params?: unknown[],
-): Promise<T | null> {
-	const rows = await query<T>(text, params);
-	return rows[0] ?? null;
-}
-
-export async function withClient<T>(
-	fn: (client: PoolClient) => Promise<T>,
-): Promise<T> {
-	const client = await getPool().connect();
-	try {
-		return await fn(client);
-	} finally {
-		client.release();
-	}
-}
-
-export async function shutdownPool(): Promise<void> {
-	if (pool) {
-		await pool.end();
-		pool = null;
+export async function closeDb(): Promise<void> {
+	if (db) {
+		await db.close();
+		db = null;
 	}
 }

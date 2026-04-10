@@ -1,9 +1,8 @@
-import { readdirSync, readFileSync, statSync } from "node:fs";
-import { join, relative, resolve } from "node:path";
+import { resolve } from "node:path";
 import { Sandbox } from "e2b";
 import { apiEnv } from "@/config/env";
-import { clearUserSessions } from "@/db/user-sessions";
 import { getRuntime, upsertRuntime } from "@/db/user-runtime";
+import { clearUserSessions } from "@/db/user-sessions";
 import type { SyncLogger } from "@/features/sandbox";
 import { SandboxCreationError } from "./errors";
 
@@ -11,65 +10,50 @@ export const WORKSPACE_ROOT = "/workspace";
 const DAEMON_PORT = 8080;
 const DAEMON_STARTUP_TIMEOUT_MS = 15_000;
 const DAEMON_HEALTH_CHECK_INTERVAL_MS = 500;
+const DAEMON_BUNDLE_PATH = "/workspace/daemon.js";
 
-let cachedDaemonVersion = "";
-
-function getDaemonVersion(): string {
-	if (!cachedDaemonVersion) {
-		try {
-			const pkg = JSON.parse(
-				readFileSync(
-					resolve(
-						import.meta.dirname,
-						"../../../../sandbox-daemon/package.json",
-					),
-					"utf-8",
-				),
-			);
-			cachedDaemonVersion = String(pkg.version ?? "0.0.0");
-		} catch {
-			cachedDaemonVersion = "0.0.0";
-		}
-	}
-	return cachedDaemonVersion;
-}
-
-let cachedDaemonBundle: Array<{ path: string; data: string }> | null = null;
-
-function getDaemonBundle(): Array<{ path: string; data: string }> {
-	if (cachedDaemonBundle) return cachedDaemonBundle;
-	const daemonDir = resolve(import.meta.dirname, "../../../../sandbox-daemon");
-	const files = collectDaemonFiles(daemonDir);
-	cachedDaemonBundle = files.map((file) => ({
-		path: `/workspace/sandbox-daemon/${file}`,
-		data: readFileSync(resolve(daemonDir, file), "utf-8"),
-	}));
-	return cachedDaemonBundle;
-}
-
-const DAEMON_SKIP = new Set(["node_modules", ".git", "biome.json"]);
-const DAEMON_EXTENSIONS = new Set([".ts", ".json", ".lock"]);
+let bundlePromise: Promise<{ code: string; version: string }> | null = null;
 
 /**
- * Recursively collect deployable files from the daemon directory.
- * Skips node_modules, test files, and config files not needed at runtime.
+ * Build the daemon into a single JS bundle using Bun.build().
+ * Runs once at first request, cached for process lifetime.
+ * Caches the promise to prevent duplicate builds on concurrent cold-start calls.
  */
-function collectDaemonFiles(dir: string, base = dir): string[] {
-	const results: string[] = [];
-	for (const entry of readdirSync(dir)) {
-		if (DAEMON_SKIP.has(entry)) continue;
-		const fullPath = join(dir, entry);
-		const relPath = relative(base, fullPath);
-		if (statSync(fullPath).isDirectory()) {
-			results.push(...collectDaemonFiles(fullPath, base));
-		} else if (
-			DAEMON_EXTENSIONS.has(relPath.slice(relPath.lastIndexOf("."))) &&
-			!relPath.endsWith(".test.ts")
-		) {
-			results.push(relPath);
-		}
+function getDaemonBundle(): Promise<{ code: string; version: string }> {
+	if (!bundlePromise) {
+		bundlePromise = buildDaemonBundle().catch((err) => {
+			bundlePromise = null;
+			throw err;
+		});
 	}
-	return results;
+	return bundlePromise;
+}
+
+async function buildDaemonBundle(): Promise<{ code: string; version: string }> {
+	const entrypoint = resolve(
+		import.meta.dirname,
+		"../../../../sandbox-daemon/index.ts",
+	);
+	const result = await Bun.build({
+		entrypoints: [entrypoint],
+		target: "bun",
+		minify: true,
+	});
+	if (!result.success) {
+		throw new Error(
+			`Daemon build failed: ${result.logs.map((l) => l.message).join("\n")}`,
+		);
+	}
+	const output = result.outputs[0];
+	if (!output) {
+		throw new Error("Daemon build produced no output");
+	}
+	const code = await output.text();
+	const version = new Bun.CryptoHasher("sha256")
+		.update(code)
+		.digest("hex")
+		.slice(0, 12);
+	return { code, version };
 }
 
 export class SandboxManager {
@@ -178,9 +162,11 @@ export class SandboxManager {
 	): Promise<string> {
 		const daemonUrl = this.getDaemonUrl(sandbox);
 
+		const bundle = await getDaemonBundle();
+
 		try {
 			const health = await this.checkDaemonHealth(daemonUrl);
-			if (health && health.version === getDaemonVersion()) {
+			if (health && health.version === bundle.version) {
 				return daemonUrl;
 			}
 
@@ -188,9 +174,9 @@ export class SandboxManager {
 				logger.info({
 					msg: "Daemon version mismatch, restarting",
 					currentVersion: health.version,
-					expectedVersion: getDaemonVersion(),
+					expectedVersion: bundle.version,
 				});
-				await this.restartDaemon(sandbox, logger);
+				await this.restartDaemon(sandbox, logger, bundle);
 				return daemonUrl;
 			}
 		} catch {
@@ -203,7 +189,7 @@ export class SandboxManager {
 			sandboxId: sandbox.sandboxId,
 		});
 
-		await this.deployDaemonBundle(sandbox, logger);
+		await this.deployDaemonBundle(sandbox, logger, bundle);
 		return daemonUrl;
 	}
 
@@ -233,51 +219,42 @@ export class SandboxManager {
 	private async deployDaemonBundle(
 		sandbox: Sandbox,
 		logger: SyncLogger,
+		bundle: { code: string; version: string },
 	): Promise<void> {
-		await sandbox.files.write(getDaemonBundle());
+		await sandbox.files.write([
+			{ path: DAEMON_BUNDLE_PATH, data: bundle.code },
+		]);
 
-		// Install dependencies
-		const installResult = await sandbox.commands.run(
-			"cd /workspace/sandbox-daemon && bun install --production",
-			{ timeoutMs: 60_000 },
-		);
-
-		if (installResult.exitCode !== 0) {
-			throw new Error(
-				`Daemon dependency install failed: ${installResult.stderr}`,
-			);
-		}
-
-		// Start daemon and verify expected version
-		await this.startDaemonProcess(sandbox, logger, getDaemonVersion());
+		await this.startDaemonProcess(sandbox, logger, bundle.version);
 	}
 
 	private async restartDaemon(
 		sandbox: Sandbox,
 		logger: SyncLogger,
+		bundle: { code: string; version: string },
 	): Promise<void> {
 		// Kill whatever process owns port 8080 (process name may not match pkill pattern)
-		await sandbox.commands.run(
-			"kill $(lsof -ti :8080) 2>/dev/null || true",
-			{ timeoutMs: 5_000 },
-		);
+		await sandbox.commands.run("kill $(lsof -ti :8080) 2>/dev/null || true", {
+			timeoutMs: 5_000,
+		});
 
-		// Re-deploy with updated files
-		await this.deployDaemonBundle(sandbox, logger);
+		// Re-deploy with updated bundle
+		await this.deployDaemonBundle(sandbox, logger, bundle);
 	}
 
 	private async startDaemonProcess(
 		sandbox: Sandbox,
 		logger: SyncLogger,
-		expectedVersion?: string,
+		expectedVersion: string,
 	): Promise<void> {
 		await sandbox.commands.run(
-			"cd /workspace/sandbox-daemon && bun run index.ts >> /workspace/daemon.log 2>&1",
+			`bun ${DAEMON_BUNDLE_PATH} >> /workspace/daemon.log 2>&1`,
 			{
 				background: true,
 				envs: {
 					ANTHROPIC_API_KEY: apiEnv.ANTHROPIC_API_KEY,
 					DATABASE_URL: apiEnv.DATABASE_URL as string,
+					DAEMON_VERSION: expectedVersion,
 				},
 			},
 		);
@@ -287,10 +264,7 @@ export class SandboxManager {
 
 		while (Date.now() < deadline) {
 			const health = await this.checkDaemonHealth(daemonUrl);
-			if (
-				health &&
-				(!expectedVersion || health.version === expectedVersion)
-			) {
+			if (health && (!expectedVersion || health.version === expectedVersion)) {
 				logger.info({
 					msg: "Sandbox daemon is ready",
 					version: health.version,

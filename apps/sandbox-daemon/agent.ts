@@ -41,6 +41,8 @@ export async function runAgent(
 		permissionMode: "bypassPermissions",
 		includePartialMessages: true,
 		model: "claude-sonnet-4-6",
+		pathToClaudeCodeExecutable:
+			process.env.CLAUDE_CODE_PATH ?? "/usr/local/bin/claude",
 	};
 
 	if (sessionId) {
@@ -72,9 +74,7 @@ export async function runAgent(
 
 			if (m.type === "stream_event") {
 				const event = m.event as Record<string, unknown> | undefined;
-				const delta = event?.delta as
-					| Record<string, unknown>
-					| undefined;
+				const delta = event?.delta as Record<string, unknown> | undefined;
 				if (
 					event?.type === "content_block_delta" &&
 					delta?.type === "text_delta" &&

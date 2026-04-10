@@ -1,15 +1,14 @@
-import { describe, expect, it, beforeEach } from "bun:test";
-import { getPool } from "./db";
+import { beforeEach, describe, expect, it } from "bun:test";
+import { getDb } from "./db";
 
 describe("db", () => {
 	beforeEach(() => {
-		process.env.DATABASE_URL = "postgresql://localhost/test";
+		process.env.DATABASE_URL = "mysql://localhost/test";
 	});
 
-	it("returns the same pool on repeated calls", () => {
-		const pool1 = getPool();
-		const pool2 = getPool();
-		expect(pool1).toBe(pool2);
-		pool1.end();
+	it("returns the same instance on repeated calls", () => {
+		const db1 = getDb();
+		const db2 = getDb();
+		expect(db1).toBe(db2);
 	});
 });

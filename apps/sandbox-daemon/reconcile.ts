@@ -1,4 +1,3 @@
-import { getPool } from "./db";
 import {
 	buildCollectionIndex,
 	buildCollectionSymlink,
@@ -11,6 +10,12 @@ import {
 	writeCanonicalFile,
 } from "./materialization";
 import {
+	getFileContents,
+	getManifest,
+	getStateVersion,
+	type ManifestRow,
+} from "./queries";
+import {
 	type LocalManifestEntry,
 	readLocalManifest,
 	readSyncedVersion,
@@ -20,18 +25,6 @@ import {
 
 interface ReconcileInput {
 	userId: string;
-}
-
-interface ManifestRow {
-	document_id: string;
-	type: number;
-	slug: string;
-	path_key: string;
-	checksum: string;
-}
-
-interface FileContentRow extends ManifestRow {
-	content: string;
 }
 
 function parseCollectionIds(pathKey: string): string[] {
@@ -63,27 +56,13 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	const dataRoot = getDataRoot(userId);
 	const localVersion = readSyncedVersion(dataRoot);
 
-	const pool = getPool();
-
-	// Read the authoritative version from Postgres (not from the request)
-	const versionResult = await pool.query<{ state_version: string }>(
-		"SELECT state_version FROM user_sandbox_runtime WHERE user_id = $1",
-		[userId],
-	);
-	const currentVersion = Number(versionResult.rows[0]?.state_version ?? 0);
+	const currentVersion = await getStateVersion(userId);
 
 	if (localVersion >= currentVersion) {
 		return false;
 	}
 
-	const manifestResult = await pool.query<ManifestRow>(
-		`SELECT document_id, type, slug, path_key, checksum
-		 FROM user_files
-		 WHERE user_id = $1
-		 ORDER BY document_id`,
-		[userId],
-	);
-	const remoteManifest = manifestResult.rows;
+	const remoteManifest = await getManifest(userId);
 
 	const localManifest = readLocalManifest(dataRoot);
 	const localMap = new Map(
@@ -138,16 +117,7 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 
 	const changedIds = [...creates, ...updates];
 
-	let changedFiles: FileContentRow[] = [];
-	if (changedIds.length > 0) {
-		const contentResult = await pool.query<FileContentRow>(
-			`SELECT document_id, type, slug, path_key, content, checksum
-			 FROM user_files
-			 WHERE user_id = $1 AND document_id = ANY($2)`,
-			[userId, changedIds],
-		);
-		changedFiles = contentResult.rows;
-	}
+	const changedFiles = await getFileContents(userId, changedIds);
 
 	const collectionsToRebuild = new Set<string>();
 

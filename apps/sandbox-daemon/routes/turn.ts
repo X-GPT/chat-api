@@ -33,7 +33,12 @@ function ndjsonLine(obj: Record<string, unknown>): string {
 app.post("/turn", async (c) => {
 	const body = await c.req.json<TurnRequest>();
 
-	if (!body.request_id || !body.user_id || !body.message || !body.system_prompt) {
+	if (
+		!body.request_id ||
+		!body.user_id ||
+		!body.message ||
+		!body.system_prompt
+	) {
 		return c.json({ error: "Missing required fields" }, 400);
 	}
 

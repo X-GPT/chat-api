@@ -3,10 +3,10 @@ import { Template } from "e2b";
 const WORKSPACE_ROOT = "/workspace";
 
 export const template = Template()
-	.fromBunImage("1.3")
-	.aptInstall(["curl", "git", "ripgrep", "lsof", "zstd"])
+	.fromNodeImage("24")
+	.aptInstall(["curl", "git", "ripgrep", "lsof", "zstd", "unzip"])
+	.runCmd("curl -fsSL https://bun.sh/install | bash")
+	.runCmd("ln -s /home/user/.bun/bin/bun /usr/local/bin/bun", { user: "root" })
 	.setWorkdir(WORKSPACE_ROOT)
 	.runCmd(`mkdir -p ${WORKSPACE_ROOT}/data`)
-	.bunInstall("@anthropic-ai/claude-code", { g: true })
-	.bunInstall("@anthropic-ai/claude-agent-sdk", { g: true })
-	.bunInstall("hono", { g: true });
+	.npmInstall("@anthropic-ai/claude-code", { g: true });

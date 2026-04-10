@@ -1,7 +1,7 @@
-import { describe, expect, it, afterAll } from "bun:test";
+import { afterAll, describe, expect, it } from "bun:test";
 import { existsSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ensureParentDir } from "./fs-utils";
 
 describe("ensureParentDir", () => {

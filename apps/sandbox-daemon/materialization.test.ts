@@ -1,4 +1,4 @@
-import { describe, expect, it, afterAll } from "bun:test";
+import { afterAll, describe, expect, it } from "bun:test";
 import {
 	existsSync,
 	mkdirSync,
@@ -6,22 +6,22 @@ import {
 	readlinkSync,
 	rmSync,
 } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
-	sanitizePathSegment,
-	computeChecksum,
-	getDataRoot,
 	buildCanonicalPath,
-	writeCanonicalFile,
-	removeCanonicalFile,
-	buildCollectionSymlink,
 	buildCollectionIndex,
+	buildCollectionSymlink,
 	buildScopeRoots,
+	computeChecksum,
 	createEphemeralDocumentScope,
+	type DocFile,
+	getDataRoot,
+	removeCanonicalFile,
 	removeEphemeralDocumentScope,
 	resolveScopeCwd,
-	type DocFile,
+	sanitizePathSegment,
+	writeCanonicalFile,
 } from "./materialization";
 
 describe("materialization", () => {
@@ -204,9 +204,7 @@ describe("materialization", () => {
 
 			expect(existsSync(`${dataRoot}/scopes/global/docs`)).toBe(true);
 			expect(existsSync(`${dataRoot}/scopes/global/collections`)).toBe(true);
-			expect(existsSync(`${dataRoot}/scopes/collection-col-1/docs`)).toBe(
-				true,
-			);
+			expect(existsSync(`${dataRoot}/scopes/collection-col-1/docs`)).toBe(true);
 		});
 
 		it("cleans up stale collection scopes", () => {
@@ -216,14 +214,10 @@ describe("materialization", () => {
 			mkdirSync(`${dataRoot}/collections/col-old`, { recursive: true });
 
 			buildScopeRoots(dataRoot, ["col-old"]);
-			expect(
-				existsSync(`${dataRoot}/scopes/collection-col-old`),
-			).toBe(true);
+			expect(existsSync(`${dataRoot}/scopes/collection-col-old`)).toBe(true);
 
 			buildScopeRoots(dataRoot, []);
-			expect(
-				existsSync(`${dataRoot}/scopes/collection-col-old`),
-			).toBe(false);
+			expect(existsSync(`${dataRoot}/scopes/collection-col-old`)).toBe(false);
 			expect(existsSync(`${dataRoot}/scopes/global`)).toBe(true);
 		});
 	});
@@ -242,11 +236,7 @@ describe("materialization", () => {
 
 			writeCanonicalFile(dataRoot, doc);
 
-			const scopePath = createEphemeralDocumentScope(
-				dataRoot,
-				"789",
-				doc,
-			);
+			const scopePath = createEphemeralDocumentScope(dataRoot, "789", doc);
 			expect(existsSync(`${scopePath}/doc.md`)).toBe(true);
 
 			removeEphemeralDocumentScope(dataRoot, "789");

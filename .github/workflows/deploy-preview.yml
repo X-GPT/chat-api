@@ -161,8 +161,8 @@ jobs:
       - name: Build & Push Chat API image (with cache)
         uses: docker/build-push-action@v6
         with:
-          context: ./apps/chat-api
-          file: ./apps/chat-api/Dockerfile
+          context: .
+          file: apps/chat-api/Dockerfile
           push: true
           tags: |
             ${{ steps.meta.outputs.image_sha_tag }}

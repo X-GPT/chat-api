@@ -72,10 +72,9 @@ describe("runSandboxChat", () => {
 			"ensureSandboxDaemon",
 		).mockResolvedValue("http://daemon:8080");
 
-		spyGetSessionId = spyOn(
-			sessionsModule,
-			"getSessionId",
-		).mockResolvedValue("prev-session");
+		spyGetSessionId = spyOn(sessionsModule, "getSessionId").mockResolvedValue(
+			"prev-session",
+		);
 		spyUpsertSessionId = spyOn(
 			sessionsModule,
 			"upsertSessionId",
