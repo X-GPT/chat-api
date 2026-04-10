@@ -22,9 +22,6 @@ export interface RunSandboxChatOptions {
 	collectionId: string | null;
 	summaryId: string | null;
 	chatKey: string;
-	memberCode: string;
-	partnerCode: string;
-	memberAuthToken: string;
 	onTextDelta: (text: string) => void;
 	onTextEnd: () => Promise<void>;
 	logger: ChatLogger;
