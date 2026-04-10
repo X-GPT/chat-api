@@ -1,14 +1,18 @@
-import { describe, expect, it, afterAll, mock, beforeEach } from "bun:test";
+import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
 import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const testRoot = join(tmpdir(), `reconcile-test-${Date.now()}`);
 
-// Mock the db module to avoid needing a real Postgres
-const mockQuery = mock();
-mock.module("./db", () => ({
-	getPool: () => ({ query: mockQuery }),
+const mockGetStateVersion = mock();
+const mockGetManifest = mock();
+const mockGetFileContents = mock();
+
+mock.module("./queries", () => ({
+	getStateVersion: mockGetStateVersion,
+	getManifest: mockGetManifest,
+	getFileContents: mockGetFileContents,
 }));
 
 // Mock getDataRoot to use our test directory
@@ -20,20 +24,26 @@ mock.module("./materialization", () => {
 	};
 });
 
+import {
+	buildCollectionIndex,
+	buildCollectionSymlink,
+	type DocFile,
+	writeCanonicalFile,
+} from "./materialization";
 import { reconcile } from "./reconcile";
 import {
-	writeCanonicalFile,
-	buildCollectionSymlink,
-	buildCollectionIndex,
-	type DocFile,
-} from "./materialization";
-import { writeLocalManifest, writeSyncedVersion, readSyncedVersion } from "./state";
+	readSyncedVersion,
+	writeLocalManifest,
+	writeSyncedVersion,
+} from "./state";
 
 describe("reconcile", () => {
 	const dataRoot = join(testRoot, "data");
 
 	beforeEach(() => {
-		mockQuery.mockReset();
+		mockGetStateVersion.mockReset();
+		mockGetManifest.mockReset();
+		mockGetFileContents.mockReset();
 		rmSync(dataRoot, { recursive: true, force: true });
 		mkdirSync(dataRoot, { recursive: true });
 	});
@@ -46,20 +56,17 @@ describe("reconcile", () => {
 	it("skips sync when local version >= DB version", async () => {
 		writeSyncedVersion(dataRoot, 5);
 
-		// DB returns state_version = 5 (same as local)
-		mockQuery.mockResolvedValueOnce({ rows: [{ state_version: "5" }] });
+		mockGetStateVersion.mockResolvedValueOnce(5);
 
 		const result = await reconcile({ userId: "user-1" });
 
 		expect(result).toBe(false);
-		// Only the version query should have been called, not the manifest query
-		expect(mockQuery).toHaveBeenCalledTimes(1);
+		expect(mockGetManifest).not.toHaveBeenCalled();
 	});
 
 	it("removes collection symlinks and rebuilds indexes on delete", async () => {
 		writeSyncedVersion(dataRoot, 0);
 
-		// Set up existing files: one doc in collection "col-A"
 		const doc: DocFile = {
 			document_id: "doc-1",
 			type: 0,
@@ -84,23 +91,17 @@ describe("reconcile", () => {
 			},
 		]);
 
-		// Verify files exist before reconcile
 		expect(existsSync(`${dataRoot}/canonical/0/doc-1.md`)).toBe(true);
 		expect(existsSync(`${dataRoot}/collections/col-A/0/doc-1.md`)).toBe(true);
 
-		// DB version is 1 (higher than local 0) → triggers sync
-		mockQuery.mockResolvedValueOnce({ rows: [{ state_version: "1" }] });
-		// Remote manifest returns empty → doc was deleted
-		mockQuery.mockResolvedValueOnce({ rows: [] });
+		mockGetStateVersion.mockResolvedValueOnce(1);
+		mockGetManifest.mockResolvedValueOnce([]);
+		mockGetFileContents.mockResolvedValueOnce([]);
 
 		const result = await reconcile({ userId: "user-1" });
 
 		expect(result).toBe(true);
-
-		// Canonical file should be removed
 		expect(existsSync(`${dataRoot}/canonical/0/doc-1.md`)).toBe(false);
-
-		// Collection symlink should be removed
 		expect(existsSync(`${dataRoot}/collections/col-A/0/doc-1.md`)).toBe(false);
 	});
 
@@ -108,33 +109,26 @@ describe("reconcile", () => {
 		writeSyncedVersion(dataRoot, 0);
 		writeLocalManifest(dataRoot, []);
 
-		// Version query
-		mockQuery.mockResolvedValueOnce({ rows: [{ state_version: "1" }] });
-		// Manifest query: one new doc
-		mockQuery.mockResolvedValueOnce({
-			rows: [
-				{
-					document_id: "doc-new",
-					type: 0,
-					slug: "new-doc",
-					path_key: "col-B",
-					checksum: "bbb",
-				},
-			],
-		});
-		// Content query: full doc
-		mockQuery.mockResolvedValueOnce({
-			rows: [
-				{
-					document_id: "doc-new",
-					type: 0,
-					slug: "new-doc",
-					path_key: "col-B",
-					content: "New document content",
-					checksum: "bbb",
-				},
-			],
-		});
+		mockGetStateVersion.mockResolvedValueOnce(1);
+		mockGetManifest.mockResolvedValueOnce([
+			{
+				document_id: "doc-new",
+				type: 0,
+				slug: "new-doc",
+				path_key: "col-B",
+				checksum: "bbb",
+			},
+		]);
+		mockGetFileContents.mockResolvedValueOnce([
+			{
+				document_id: "doc-new",
+				type: 0,
+				slug: "new-doc",
+				path_key: "col-B",
+				content: "New document content",
+				checksum: "bbb",
+			},
+		]);
 
 		const result = await reconcile({ userId: "user-1" });
 
@@ -150,10 +144,9 @@ describe("reconcile", () => {
 		writeSyncedVersion(dataRoot, 0);
 		writeLocalManifest(dataRoot, []);
 
-		// DB version is 42
-		mockQuery.mockResolvedValueOnce({ rows: [{ state_version: "42" }] });
-		// Empty manifest
-		mockQuery.mockResolvedValueOnce({ rows: [] });
+		mockGetStateVersion.mockResolvedValueOnce(42);
+		mockGetManifest.mockResolvedValueOnce([]);
+		mockGetFileContents.mockResolvedValueOnce([]);
 
 		await reconcile({ userId: "user-1" });
 

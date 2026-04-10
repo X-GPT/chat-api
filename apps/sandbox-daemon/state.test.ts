@@ -1,13 +1,13 @@
-import { describe, expect, it, afterAll } from "bun:test";
+import { afterAll, describe, expect, it } from "bun:test";
 import { mkdirSync, rmSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
-	readLocalManifest,
-	writeLocalManifest,
-	readSyncedVersion,
-	writeSyncedVersion,
 	type LocalManifestEntry,
+	readLocalManifest,
+	readSyncedVersion,
+	writeLocalManifest,
+	writeSyncedVersion,
 } from "./state";
 
 describe("state", () => {

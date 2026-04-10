@@ -9,5 +9,6 @@
     "typescript": "^5.9.3"
   },
   "private": true,
-  "type": "module"
+  "type": "module",
+  "workspaces": ["apps/*", "packages/*"]
 }

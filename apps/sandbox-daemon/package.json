@@ -10,9 +10,8 @@
 	"dependencies": {
 		"hono": "^4.10.1",
 		"@anthropic-ai/claude-agent-sdk": "latest",
-		"pg": "^8.20.0"
-	},
-	"devDependencies": {
-		"@types/pg": "^8.20.0"
+		"@mymemo/db": "workspace:*",
+		"drizzle-orm": "^0.44.1",
+		"mysql2": "^3.14.1"
 	}
 }

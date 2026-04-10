@@ -1,0 +1,17 @@
+{
+	"name": "@mymemo/db",
+	"version": "0.1.0",
+	"type": "module",
+	"exports": {
+		".": "./index.ts",
+		"./schema": "./schema.ts",
+		"./client": "./client.ts"
+	},
+	"dependencies": {
+		"drizzle-orm": "^0.44.1",
+		"mysql2": "^3.14.1"
+	},
+	"devDependencies": {
+		"drizzle-kit": "^0.31.1"
+	}
+}

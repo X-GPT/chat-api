@@ -1,4 +1,6 @@
-import { query, queryOne } from "./client";
+import { userSandboxSessions } from "@mymemo/db";
+import { and, eq, sql } from "drizzle-orm";
+import { getDb } from "./client";
 
 /**
  * Get the agent session ID for a specific chat conversation.
@@ -7,13 +9,16 @@ export async function getSessionId(
 	userId: string,
 	chatKey: string,
 ): Promise<string | null> {
-	const row = await queryOne<{ session_id: string }>(
-		`SELECT session_id
-		 FROM user_sandbox_sessions
-		 WHERE user_id = $1 AND chat_key = $2`,
-		[userId, chatKey],
-	);
-	return row?.session_id ?? null;
+	const rows = await getDb()
+		.select({ sessionId: userSandboxSessions.sessionId })
+		.from(userSandboxSessions)
+		.where(
+			and(
+				eq(userSandboxSessions.userId, userId),
+				eq(userSandboxSessions.chatKey, chatKey),
+			),
+		);
+	return rows[0]?.sessionId ?? null;
 }
 
 /**
@@ -25,13 +30,12 @@ export async function upsertSessionId(
 	chatKey: string,
 	sessionId: string,
 ): Promise<void> {
-	await query(
-		`INSERT INTO user_sandbox_sessions (user_id, chat_key, session_id)
-		 VALUES ($1, $2, $3)
-		 ON CONFLICT (user_id, chat_key) DO UPDATE
-		 SET session_id = $3, updated_at = now()`,
-		[userId, chatKey, sessionId],
-	);
+	await getDb()
+		.insert(userSandboxSessions)
+		.values({ userId, chatKey, sessionId })
+		.onDuplicateKeyUpdate({
+			set: { sessionId, updatedAt: sql`NOW()` },
+		});
 }
 
 /**
@@ -39,8 +43,7 @@ export async function upsertSessionId(
  * Called when a sandbox is killed or recreated.
  */
 export async function clearUserSessions(userId: string): Promise<void> {
-	await query(
-		`DELETE FROM user_sandbox_sessions WHERE user_id = $1`,
-		[userId],
-	);
+	await getDb()
+		.delete(userSandboxSessions)
+		.where(eq(userSandboxSessions.userId, userId));
 }

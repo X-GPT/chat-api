@@ -10,21 +10,16 @@
  */
 
 import assert from "node:assert/strict";
-import { Pool } from "pg";
+import { userFiles, userSandboxRuntime, userSandboxSessions } from "@mymemo/db";
+import { eq } from "drizzle-orm";
 import type { Sandbox } from "e2b";
-import type { SyncLogger } from "@/features/sandbox";
-import { apiEnv } from "@/config/env";
+import { closeDb, getDb } from "@/db/client";
 import { getRuntime } from "@/db/user-runtime";
+import type { SyncLogger } from "@/features/sandbox";
 import {
 	SandboxManager,
 	WORKSPACE_ROOT,
 } from "@/features/sandbox-orchestration/sandbox-manager";
-
-const DATABASE_URL = apiEnv.DATABASE_URL;
-if (!DATABASE_URL) {
-	console.error("DATABASE_URL is required for this integration test");
-	process.exit(1);
-}
 
 const logger: SyncLogger = {
 	info: (obj) => console.log("[INFO]", JSON.stringify(obj)),
@@ -35,46 +30,40 @@ const userId = `e2b-test-${Date.now()}`;
 let sandbox: Sandbox;
 let daemonUrl: string;
 const sandboxManager = new SandboxManager();
-const pool = new Pool({ connectionString: DATABASE_URL });
+const db = getDb();
 
 async function seedTestData() {
-	console.log("=== Seeding test data in Postgres ===");
+	console.log("=== Seeding test data ===");
 
 	// Insert test files
-	await pool.query(
-		`INSERT INTO user_files (user_id, document_id, type, slug, path_key, content, checksum)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		[
+	await db.insert(userFiles).values([
+		{
 			userId,
-			"doc-1",
-			0,
-			"france-capital",
-			"col-test",
-			"The capital of France is Paris. It is known for the Eiffel Tower.",
-			"checksum-doc-1",
-		],
-	);
-
-	await pool.query(
-		`INSERT INTO user_files (user_id, document_id, type, slug, path_key, content, checksum)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		[
+			documentId: "doc-1",
+			type: 0,
+			slug: "france-capital",
+			pathKey: "col-test",
+			content:
+				"The capital of France is Paris. It is known for the Eiffel Tower.",
+			checksum: "checksum-doc-1",
+		},
+		{
 			userId,
-			"doc-2",
-			3,
-			"shopping-list",
-			"",
-			"Buy milk, eggs, and bread from the store.",
-			"checksum-doc-2",
-		],
-	);
+			documentId: "doc-2",
+			type: 3,
+			slug: "shopping-list",
+			pathKey: "",
+			content: "Buy milk, eggs, and bread from the store.",
+			checksum: "checksum-doc-2",
+		},
+	]);
 
 	// Verify state_version was bumped by the trigger
-	const result = await pool.query(
-		"SELECT state_version FROM user_sandbox_runtime WHERE user_id = $1",
-		[userId],
-	);
-	const stateVersion = Number(result.rows[0]?.state_version ?? 0);
+	const rows = await db
+		.select({ stateVersion: userSandboxRuntime.stateVersion })
+		.from(userSandboxRuntime)
+		.where(eq(userSandboxRuntime.userId, userId));
+	const stateVersion = rows[0]?.stateVersion ?? 0;
 	console.log(`✓ Seeded 2 documents, state_version=${stateVersion}`);
 	assert.ok(stateVersion >= 2, "state_version should be >= 2 after 2 inserts");
 
@@ -82,12 +71,12 @@ async function seedTestData() {
 }
 
 async function cleanupTestData() {
-	await pool.query("DELETE FROM user_files WHERE user_id = $1", [userId]);
-	await pool.query("DELETE FROM user_sandbox_runtime WHERE user_id = $1", [
-		userId,
-	]);
-	await pool.query("DELETE FROM user_sandbox_sessions WHERE user_id = $1", [
-		userId,
+	await Promise.all([
+		db.delete(userFiles).where(eq(userFiles.userId, userId)),
+		db.delete(userSandboxRuntime).where(eq(userSandboxRuntime.userId, userId)),
+		db
+			.delete(userSandboxSessions)
+			.where(eq(userSandboxSessions.userId, userId)),
 	]);
 }
 
@@ -200,7 +189,9 @@ async function testReconciliationAndTurn() {
 			signal: AbortSignal.timeout(120_000),
 		});
 	} catch (err) {
-		console.log(`Turn request failed: ${err instanceof Error ? err.message : err}`);
+		console.log(
+			`Turn request failed: ${err instanceof Error ? err.message : err}`,
+		);
 		await dumpSandboxDiagnostics();
 		throw err;
 	}
@@ -478,7 +469,9 @@ async function testSandboxIdPersistence() {
 		sandbox.sandboxId,
 		"Fresh manager should reconnect to the same sandbox via Postgres lookup",
 	);
-	console.log("✓ Fresh SandboxManager reconnected via Postgres (no Sandbox.list)");
+	console.log(
+		"✓ Fresh SandboxManager reconnected via Postgres (no Sandbox.list)",
+	);
 }
 
 async function cleanup() {
@@ -495,7 +488,7 @@ async function cleanup() {
 	} catch (err) {
 		console.error("Failed to kill sandbox:", err);
 	}
-	await pool.end();
+	await closeDb();
 }
 
 async function main() {
