@@ -71,8 +71,9 @@ async function seedTestData() {
 }
 
 async function cleanupTestData() {
+	// Delete files first — the DELETE trigger upserts into user_sandbox_runtime
+	await db.delete(userFiles).where(eq(userFiles.userId, userId));
 	await Promise.all([
-		db.delete(userFiles).where(eq(userFiles.userId, userId)),
 		db.delete(userSandboxRuntime).where(eq(userSandboxRuntime.userId, userId)),
 		db
 			.delete(userSandboxSessions)
