@@ -14,7 +14,6 @@ export interface LocalManifestEntry {
 }
 
 const MANIFEST_FILENAME = ".sync-manifest.json";
-const VERSION_FILENAME = ".synced-version";
 
 export function readLocalManifest(dataRoot: string): LocalManifestEntry[] {
 	const manifestPath = `${dataRoot}/${MANIFEST_FILENAME}`;
@@ -34,21 +33,4 @@ export function writeLocalManifest(
 	const manifestPath = `${dataRoot}/${MANIFEST_FILENAME}`;
 	ensureParentDir(manifestPath);
 	writeFileSync(manifestPath, JSON.stringify(entries), "utf-8");
-}
-
-export function readSyncedVersion(dataRoot: string): number {
-	const versionPath = `${dataRoot}/${VERSION_FILENAME}`;
-	try {
-		const raw = readFileSync(versionPath, "utf-8").trim();
-		const parsed = Number.parseInt(raw, 10);
-		return Number.isNaN(parsed) ? 0 : parsed;
-	} catch {
-		return 0;
-	}
-}
-
-export function writeSyncedVersion(dataRoot: string, version: number): void {
-	const versionPath = `${dataRoot}/${VERSION_FILENAME}`;
-	ensureParentDir(versionPath);
-	writeFileSync(versionPath, String(version), "utf-8");
 }

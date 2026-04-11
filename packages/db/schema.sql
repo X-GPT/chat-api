@@ -15,7 +15,6 @@ CREATE TABLE IF NOT EXISTS user_files (
 CREATE TABLE IF NOT EXISTS user_sandbox_runtime (
   user_id           VARCHAR(255) NOT NULL PRIMARY KEY,
   sandbox_id        VARCHAR(255),
-  state_version     BIGINT NOT NULL DEFAULT 0,
   last_seen_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -27,39 +26,3 @@ CREATE TABLE IF NOT EXISTS user_sandbox_sessions (
   updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (user_id, chat_key)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- Triggers: auto-increment state_version on user_files changes
-DELIMITER //
-
-DROP TRIGGER IF EXISTS user_files_after_insert //
-DROP TRIGGER IF EXISTS user_files_after_update //
-DROP TRIGGER IF EXISTS user_files_after_delete //
-
-CREATE TRIGGER user_files_after_insert
-AFTER INSERT ON user_files
-FOR EACH ROW
-BEGIN
-  INSERT INTO user_sandbox_runtime (user_id, state_version)
-  VALUES (NEW.user_id, 1)
-  ON DUPLICATE KEY UPDATE state_version = state_version + 1;
-END //
-
-CREATE TRIGGER user_files_after_update
-AFTER UPDATE ON user_files
-FOR EACH ROW
-BEGIN
-  INSERT INTO user_sandbox_runtime (user_id, state_version)
-  VALUES (NEW.user_id, 1)
-  ON DUPLICATE KEY UPDATE state_version = state_version + 1;
-END //
-
-CREATE TRIGGER user_files_after_delete
-AFTER DELETE ON user_files
-FOR EACH ROW
-BEGIN
-  INSERT INTO user_sandbox_runtime (user_id, state_version)
-  VALUES (OLD.user_id, 1)
-  ON DUPLICATE KEY UPDATE state_version = state_version + 1;
-END //
-
-DELIMITER ;

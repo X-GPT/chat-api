@@ -5,12 +5,10 @@ import { join } from "node:path";
 
 const testRoot = join(tmpdir(), `reconcile-test-${Date.now()}`);
 
-const mockGetStateVersion = mock();
 const mockGetManifest = mock();
 const mockGetFileContents = mock();
 
 mock.module("./queries", () => ({
-	getStateVersion: mockGetStateVersion,
 	getManifest: mockGetManifest,
 	getFileContents: mockGetFileContents,
 }));
@@ -31,17 +29,12 @@ import {
 	writeCanonicalFile,
 } from "./materialization";
 import { reconcile } from "./reconcile";
-import {
-	readSyncedVersion,
-	writeLocalManifest,
-	writeSyncedVersion,
-} from "./state";
+import { readLocalManifest, writeLocalManifest } from "./state";
 
 describe("reconcile", () => {
 	const dataRoot = join(testRoot, "data");
 
 	beforeEach(() => {
-		mockGetStateVersion.mockReset();
 		mockGetManifest.mockReset();
 		mockGetFileContents.mockReset();
 		rmSync(dataRoot, { recursive: true, force: true });
@@ -53,20 +46,24 @@ describe("reconcile", () => {
 		mock.restore();
 	});
 
-	it("skips sync when local version >= DB version", async () => {
-		writeSyncedVersion(dataRoot, 5);
-
-		mockGetStateVersion.mockResolvedValueOnce(5);
+	it("skips sync when local manifest equals remote manifest", async () => {
+		const entry = {
+			document_id: "doc-1",
+			type: 0,
+			slug: "my-doc",
+			path_key: "col-A",
+			checksum: "aaa",
+		};
+		writeLocalManifest(dataRoot, [entry]);
+		mockGetManifest.mockResolvedValueOnce([entry]);
 
 		const result = await reconcile({ userId: "user-1" });
 
 		expect(result).toBe(false);
-		expect(mockGetManifest).not.toHaveBeenCalled();
+		expect(mockGetFileContents).not.toHaveBeenCalled();
 	});
 
 	it("removes collection symlinks and rebuilds indexes on delete", async () => {
-		writeSyncedVersion(dataRoot, 0);
-
 		const doc: DocFile = {
 			document_id: "doc-1",
 			type: 0,
@@ -94,7 +91,6 @@ describe("reconcile", () => {
 		expect(existsSync(`${dataRoot}/canonical/0/doc-1.md`)).toBe(true);
 		expect(existsSync(`${dataRoot}/collections/col-A/0/doc-1.md`)).toBe(true);
 
-		mockGetStateVersion.mockResolvedValueOnce(1);
 		mockGetManifest.mockResolvedValueOnce([]);
 		mockGetFileContents.mockResolvedValueOnce([]);
 
@@ -106,10 +102,8 @@ describe("reconcile", () => {
 	});
 
 	it("creates canonical files and collection symlinks for new docs", async () => {
-		writeSyncedVersion(dataRoot, 0);
 		writeLocalManifest(dataRoot, []);
 
-		mockGetStateVersion.mockResolvedValueOnce(1);
 		mockGetManifest.mockResolvedValueOnce([
 			{
 				document_id: "doc-new",
@@ -140,16 +134,32 @@ describe("reconcile", () => {
 		expect(content).toContain("New document content");
 	});
 
-	it("updates synced version after sync", async () => {
-		writeSyncedVersion(dataRoot, 0);
+	it("rewrites local manifest after sync", async () => {
 		writeLocalManifest(dataRoot, []);
 
-		mockGetStateVersion.mockResolvedValueOnce(42);
-		mockGetManifest.mockResolvedValueOnce([]);
-		mockGetFileContents.mockResolvedValueOnce([]);
+		const remote = [
+			{
+				document_id: "doc-1",
+				type: 0,
+				slug: "d1",
+				path_key: "",
+				checksum: "c1",
+			},
+			{
+				document_id: "doc-2",
+				type: 3,
+				slug: "d2",
+				path_key: "col-X",
+				checksum: "c2",
+			},
+		];
+		mockGetManifest.mockResolvedValueOnce(remote);
+		mockGetFileContents.mockResolvedValueOnce(
+			remote.map((r) => ({ ...r, content: `content of ${r.document_id}` })),
+		);
 
 		await reconcile({ userId: "user-1" });
 
-		expect(readSyncedVersion(dataRoot)).toBe(42);
+		expect(readLocalManifest(dataRoot)).toEqual(remote);
 	});
 });

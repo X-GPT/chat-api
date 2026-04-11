@@ -1,4 +1,4 @@
-import { userFiles, userSandboxRuntime } from "@mymemo/db";
+import { userFiles } from "@mymemo/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "./db";
 
@@ -12,14 +12,6 @@ export interface ManifestRow {
 
 export interface FileContentRow extends ManifestRow {
 	content: string;
-}
-
-export async function getStateVersion(userId: string): Promise<number> {
-	const rows = await getDb()
-		.select({ state_version: userSandboxRuntime.stateVersion })
-		.from(userSandboxRuntime)
-		.where(eq(userSandboxRuntime.userId, userId));
-	return rows[0]?.state_version ?? 0;
 }
 
 export async function getManifest(userId: string): Promise<ManifestRow[]> {

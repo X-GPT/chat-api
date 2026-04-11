@@ -1,5 +1,4 @@
 import {
-	bigint,
 	int,
 	mediumtext,
 	mysqlTable,
@@ -29,9 +28,6 @@ export const userFiles = mysqlTable(
 export const userSandboxRuntime = mysqlTable("user_sandbox_runtime", {
 	userId: varchar("user_id", { length: 255 }).notNull().primaryKey(),
 	sandboxId: varchar("sandbox_id", { length: 255 }),
-	stateVersion: bigint("state_version", { mode: "number" })
-		.notNull()
-		.default(0),
 	lastSeenAt: timestamp("last_seen_at", { mode: "string" })
 		.notNull()
 		.defaultNow(),

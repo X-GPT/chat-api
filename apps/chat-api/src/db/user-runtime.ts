@@ -5,7 +5,6 @@ import { getDb } from "./client";
 export interface UserSandboxRuntime {
 	user_id: string;
 	sandbox_id: string | null;
-	state_version: number;
 	last_seen_at: string;
 }
 
@@ -19,7 +18,6 @@ export async function getRuntime(
 		.select({
 			user_id: userSandboxRuntime.userId,
 			sandbox_id: userSandboxRuntime.sandboxId,
-			state_version: userSandboxRuntime.stateVersion,
 			last_seen_at: userSandboxRuntime.lastSeenAt,
 		})
 		.from(userSandboxRuntime)
