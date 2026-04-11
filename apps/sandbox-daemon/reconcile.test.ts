@@ -134,6 +134,68 @@ describe("reconcile", () => {
 		expect(content).toContain("New document content");
 	});
 
+	it("updates canonical file when remote checksum changes", async () => {
+		const oldDoc: DocFile = {
+			document_id: "doc-1",
+			type: 0,
+			slug: "my-doc",
+			path_key: "",
+			content: "old content",
+			checksum: "old",
+		};
+		writeCanonicalFile(dataRoot, oldDoc);
+		writeLocalManifest(dataRoot, [
+			{
+				document_id: "doc-1",
+				type: 0,
+				slug: "my-doc",
+				path_key: "",
+				checksum: "old",
+			},
+		]);
+
+		mockGetManifest.mockResolvedValueOnce([
+			{
+				document_id: "doc-1",
+				type: 0,
+				slug: "my-doc",
+				path_key: "",
+				checksum: "new",
+			},
+		]);
+		mockGetFileContents.mockResolvedValueOnce([
+			{
+				document_id: "doc-1",
+				type: 0,
+				slug: "my-doc",
+				path_key: "",
+				content: "new content",
+				checksum: "new",
+			},
+		]);
+
+		const result = await reconcile({ userId: "user-1" });
+
+		expect(result).toBe(true);
+		expect(mockGetFileContents).toHaveBeenCalledTimes(1);
+
+		const onDisk = readFileSync(
+			`${dataRoot}/canonical/0/doc-1.md`,
+			"utf-8",
+		);
+		expect(onDisk).toContain("new content");
+
+		expect(readLocalManifest(dataRoot)).toEqual([
+			{
+				document_id: "doc-1",
+				type: 0,
+				slug: "my-doc",
+				path_key: "",
+				checksum: "new",
+			},
+		]);
+	});
+
 	it("rewrites local manifest after sync", async () => {
 		writeLocalManifest(dataRoot, []);
 

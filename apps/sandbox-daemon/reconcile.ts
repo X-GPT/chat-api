@@ -40,6 +40,8 @@ function hasEntryChanged(
 	);
 }
 
+// Assumes both sides are ordered by document_id. Enforced by
+// getManifest()'s ORDER BY and by writeLocalManifest at the tail of reconcile().
 function manifestsEqual(
 	local: LocalManifestEntry[],
 	remote: LocalManifestEntry[],
