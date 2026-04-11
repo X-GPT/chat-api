@@ -6,7 +6,6 @@ export interface UserSandboxRuntime {
 	user_id: string;
 	sandbox_id: string | null;
 	state_version: number;
-	synced_version: number;
 	last_seen_at: string;
 }
 
@@ -21,7 +20,6 @@ export async function getRuntime(
 			user_id: userSandboxRuntime.userId,
 			sandbox_id: userSandboxRuntime.sandboxId,
 			state_version: userSandboxRuntime.stateVersion,
-			synced_version: userSandboxRuntime.syncedVersion,
 			last_seen_at: userSandboxRuntime.lastSeenAt,
 		})
 		.from(userSandboxRuntime)
@@ -31,27 +29,22 @@ export async function getRuntime(
 
 /**
  * Upsert sandbox runtime fields for a user.
- * Both INSERT and UPDATE paths include all supplied fields.
  */
 export async function upsertRuntime(
 	userId: string,
-	fields: Partial<Pick<UserSandboxRuntime, "sandbox_id" | "synced_version">>,
+	fields: Partial<Pick<UserSandboxRuntime, "sandbox_id">>,
 ): Promise<void> {
 	await getDb()
 		.insert(userSandboxRuntime)
 		.values({
 			userId,
 			sandboxId: fields.sandbox_id ?? undefined,
-			syncedVersion: fields.synced_version ?? undefined,
 		})
 		.onDuplicateKeyUpdate({
 			set: {
 				lastSeenAt: sql`NOW()`,
 				...(fields.sandbox_id !== undefined && {
 					sandboxId: fields.sandbox_id,
-				}),
-				...(fields.synced_version !== undefined && {
-					syncedVersion: fields.synced_version,
 				}),
 			},
 		});

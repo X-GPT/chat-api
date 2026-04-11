@@ -16,7 +16,6 @@ CREATE TABLE IF NOT EXISTS user_sandbox_runtime (
   user_id           VARCHAR(255) NOT NULL PRIMARY KEY,
   sandbox_id        VARCHAR(255),
   state_version     BIGINT NOT NULL DEFAULT 0,
-  synced_version    BIGINT NOT NULL DEFAULT 0,
   last_seen_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
