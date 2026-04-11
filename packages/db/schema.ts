@@ -32,9 +32,6 @@ export const userSandboxRuntime = mysqlTable("user_sandbox_runtime", {
 	stateVersion: bigint("state_version", { mode: "number" })
 		.notNull()
 		.default(0),
-	syncedVersion: bigint("synced_version", { mode: "number" })
-		.notNull()
-		.default(0),
 	lastSeenAt: timestamp("last_seen_at", { mode: "string" })
 		.notNull()
 		.defaultNow(),
