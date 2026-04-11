@@ -3,7 +3,6 @@ CREATE TABLE IF NOT EXISTS user_files (
   user_id       VARCHAR(255) NOT NULL,
   document_id   VARCHAR(255) NOT NULL,
   type          INT NOT NULL DEFAULT 0,
-  slug          TEXT NOT NULL,
   path_key      TEXT NOT NULL,
   content       MEDIUMTEXT NOT NULL,
   checksum      VARCHAR(255) NOT NULL,

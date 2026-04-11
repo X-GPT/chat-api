@@ -33,7 +33,6 @@ import { ensureParentDir } from "./fs-utils";
 export interface DocFile {
 	document_id: string;
 	type: number;
-	slug: string;
 	path_key: string;
 	content: string;
 	checksum: string;
@@ -82,7 +81,6 @@ export function writeCanonicalFile(dataRoot: string, doc: DocFile): void {
 		"---",
 		`summaryId: ${doc.document_id}`,
 		`type: ${doc.type}`,
-		`title: ${JSON.stringify(doc.slug)}`,
 		"---",
 		"",
 		doc.content,
@@ -137,7 +135,7 @@ export function buildCollectionSymlink(
 export function buildCollectionIndex(
 	dataRoot: string,
 	collectionId: string,
-	docs: Array<{ document_id: string; type: number; slug: string }>,
+	docs: Array<{ document_id: string; type: number }>,
 ): void {
 	const indexPath = `${dataRoot}/indexes/collections/${sanitizePathSegment(collectionId)}.md`;
 	const lines = [
@@ -145,7 +143,7 @@ export function buildCollectionIndex(
 		"",
 		...docs.map(
 			(doc) =>
-				`- [${doc.slug}](../../collections/${sanitizePathSegment(collectionId)}/${doc.type}/${sanitizePathSegment(doc.document_id)}.md)`,
+				`- [${doc.document_id}](../../collections/${sanitizePathSegment(collectionId)}/${doc.type}/${sanitizePathSegment(doc.document_id)}.md)`,
 		),
 		"",
 	];

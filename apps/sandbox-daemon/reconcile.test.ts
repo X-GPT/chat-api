@@ -50,7 +50,6 @@ describe("reconcile", () => {
 		const entry = {
 			document_id: "doc-1",
 			type: 0,
-			slug: "my-doc",
 			path_key: "col-A",
 			checksum: "aaa",
 		};
@@ -67,7 +66,6 @@ describe("reconcile", () => {
 		const doc: DocFile = {
 			document_id: "doc-1",
 			type: 0,
-			slug: "my-doc",
 			path_key: "col-A",
 			content: "Hello world",
 			checksum: "aaa",
@@ -75,14 +73,13 @@ describe("reconcile", () => {
 		writeCanonicalFile(dataRoot, doc);
 		buildCollectionSymlink(dataRoot, doc, "col-A");
 		buildCollectionIndex(dataRoot, "col-A", [
-			{ document_id: "doc-1", type: 0, slug: "my-doc" },
+			{ document_id: "doc-1", type: 0 },
 		]);
 
 		writeLocalManifest(dataRoot, [
 			{
 				document_id: "doc-1",
 				type: 0,
-				slug: "my-doc",
 				path_key: "col-A",
 				checksum: "aaa",
 			},
@@ -108,7 +105,6 @@ describe("reconcile", () => {
 			{
 				document_id: "doc-new",
 				type: 0,
-				slug: "new-doc",
 				path_key: "col-B",
 				checksum: "bbb",
 			},
@@ -117,7 +113,6 @@ describe("reconcile", () => {
 			{
 				document_id: "doc-new",
 				type: 0,
-				slug: "new-doc",
 				path_key: "col-B",
 				content: "New document content",
 				checksum: "bbb",
@@ -138,7 +133,6 @@ describe("reconcile", () => {
 		const oldDoc: DocFile = {
 			document_id: "doc-1",
 			type: 0,
-			slug: "my-doc",
 			path_key: "",
 			content: "old content",
 			checksum: "old",
@@ -148,7 +142,6 @@ describe("reconcile", () => {
 			{
 				document_id: "doc-1",
 				type: 0,
-				slug: "my-doc",
 				path_key: "",
 				checksum: "old",
 			},
@@ -158,7 +151,6 @@ describe("reconcile", () => {
 			{
 				document_id: "doc-1",
 				type: 0,
-				slug: "my-doc",
 				path_key: "",
 				checksum: "new",
 			},
@@ -167,7 +159,6 @@ describe("reconcile", () => {
 			{
 				document_id: "doc-1",
 				type: 0,
-				slug: "my-doc",
 				path_key: "",
 				content: "new content",
 				checksum: "new",
@@ -189,7 +180,6 @@ describe("reconcile", () => {
 			{
 				document_id: "doc-1",
 				type: 0,
-				slug: "my-doc",
 				path_key: "",
 				checksum: "new",
 			},
@@ -203,14 +193,12 @@ describe("reconcile", () => {
 			{
 				document_id: "doc-1",
 				type: 0,
-				slug: "d1",
 				path_key: "",
 				checksum: "c1",
 			},
 			{
 				document_id: "doc-2",
 				type: 3,
-				slug: "d2",
 				path_key: "col-X",
 				checksum: "c2",
 			},

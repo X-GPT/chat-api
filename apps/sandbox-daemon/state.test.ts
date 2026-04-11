@@ -29,14 +29,12 @@ describe("state", () => {
 				{
 					document_id: "doc-1",
 					type: 0,
-					slug: "my-document",
 					path_key: "col-A",
 					checksum: "abc123",
 				},
 				{
 					document_id: "doc-2",
 					type: 3,
-					slug: "my-note",
 					path_key: "",
 					checksum: "def456",
 				},

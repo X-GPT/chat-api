@@ -98,7 +98,7 @@ describe("materialization", () => {
 			expect(path).toBe("/data/u1/canonical/3/my-doc-id.md");
 		});
 
-		it("two docs with same slug but different IDs get distinct paths", () => {
+		it("distinct document_ids produce distinct paths", () => {
 			const path1 = buildCanonicalPath("/data/u1", {
 				type: 0,
 				document_id: "id-1",
@@ -118,7 +118,6 @@ describe("materialization", () => {
 			const doc: DocFile = {
 				document_id: "123",
 				type: 0,
-				slug: "test-doc",
 				path_key: "",
 				content: "Hello world",
 				checksum: "abc",
@@ -153,7 +152,6 @@ describe("materialization", () => {
 			const doc: DocFile = {
 				document_id: "456",
 				type: 0,
-				slug: "linked-doc",
 				path_key: "",
 				content: "content",
 				checksum: "xyz",
@@ -162,7 +160,6 @@ describe("materialization", () => {
 			writeCanonicalFile(dataRoot, doc);
 			buildCollectionSymlink(dataRoot, doc, "col-A");
 
-			// Path uses document_id, not slug
 			const linkPath = `${dataRoot}/collections/col-A/0/456.md`;
 			expect(existsSync(linkPath)).toBe(true);
 
@@ -176,8 +173,8 @@ describe("materialization", () => {
 			const dataRoot = join(testRoot, "index-test");
 
 			buildCollectionIndex(dataRoot, "col-X", [
-				{ document_id: "1", type: 0, slug: "doc-one" },
-				{ document_id: "2", type: 3, slug: "note-two" },
+				{ document_id: "1", type: 0 },
+				{ document_id: "2", type: 3 },
 			]);
 
 			const indexPath = `${dataRoot}/indexes/collections/col-X.md`;
@@ -185,11 +182,8 @@ describe("materialization", () => {
 
 			const content = readFileSync(indexPath, "utf-8");
 			expect(content).toContain("# Collection: col-X");
-			// Display name is slug, link path uses document_id
-			expect(content).toContain("[doc-one]");
-			expect(content).toContain("/1.md");
-			expect(content).toContain("[note-two]");
-			expect(content).toContain("/2.md");
+			expect(content).toContain("[1](../../collections/col-X/0/1.md)");
+			expect(content).toContain("[2](../../collections/col-X/3/2.md)");
 		});
 	});
 
@@ -228,7 +222,6 @@ describe("materialization", () => {
 			const doc: DocFile = {
 				document_id: "789",
 				type: 0,
-				slug: "eph-doc",
 				path_key: "",
 				content: "ephemeral",
 				checksum: "eph",

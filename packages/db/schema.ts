@@ -14,7 +14,6 @@ export const userFiles = mysqlTable(
 		userId: varchar("user_id", { length: 255 }).notNull(),
 		documentId: varchar("document_id", { length: 255 }).notNull(),
 		type: int("type").notNull().default(0),
-		slug: text("slug").notNull(),
 		pathKey: text("path_key").notNull(),
 		content: mediumtext("content").notNull(),
 		checksum: varchar("checksum", { length: 255 }).notNull(),

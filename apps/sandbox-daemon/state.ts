@@ -8,7 +8,6 @@ import { ensureParentDir } from "./fs-utils";
 export interface LocalManifestEntry {
 	document_id: string;
 	type: number;
-	slug: string;
 	path_key: string;
 	checksum: string;
 }

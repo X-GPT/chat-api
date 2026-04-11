@@ -19,8 +19,6 @@ Documents are stored as \`.md\` files in your working directory. Each file has Y
 ---
 summaryId: 12345
 type: 0
-sourceKind: text
-title: "Document Title"
 ---
 
 Document content here...
