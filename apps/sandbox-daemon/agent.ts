@@ -19,12 +19,6 @@ export interface AgentCallbacks {
 	onFailed: (message: string) => void | Promise<void>;
 }
 
-function hasSessionId(
-	msg: Record<string, unknown>,
-): msg is Record<string, unknown> & { session_id: string } {
-	return typeof msg.session_id === "string";
-}
-
 /**
  * Run a Claude Agent SDK query and stream results through callbacks.
  */
@@ -65,33 +59,30 @@ export async function runAgent(
 
 	try {
 		for await (const msg of result) {
-			const m = msg as Record<string, unknown>;
-
-			if (!emittedSessionId && hasSessionId(m)) {
-				await callbacks.onSessionId(m.session_id);
+			if (!emittedSessionId && msg.type === "stream_event") {
+				await callbacks.onSessionId(msg.session_id);
 				emittedSessionId = true;
 			}
 
-			if (m.type === "stream_event") {
-				const event = m.event as Record<string, unknown> | undefined;
-				const delta = event?.delta as Record<string, unknown> | undefined;
-				if (
-					event?.type === "content_block_delta" &&
-					delta?.type === "text_delta" &&
-					typeof delta?.text === "string"
-				) {
-					await callbacks.onTextDelta(delta.text);
+			if (msg.type === "stream_event") {
+				const event = msg.event;
+
+				if (event.type === "content_block_delta") {
+					const delta = event.delta;
+					if (delta.type === "text_delta") {
+						await callbacks.onTextDelta(delta.text);
+					}
 				}
-			} else if (m.type === "result") {
-				if (!emittedSessionId && hasSessionId(m)) {
-					await callbacks.onSessionId(m.session_id);
+			} else if (msg.type === "result") {
+				if (!emittedSessionId) {
+					await callbacks.onSessionId(msg.session_id);
 					emittedSessionId = true;
 				}
 
-				if (m.subtype === "success") {
+				if (msg.subtype === "success") {
 					await callbacks.onCompleted();
 				} else {
-					await callbacks.onFailed(`Agent ended with: ${m.subtype}`);
+					await callbacks.onFailed(`Agent ended with: ${msg.subtype}`);
 				}
 			}
 		}
