@@ -1,20 +1,15 @@
 import { userFiles } from "@mymemo/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "./db";
+import type { LocalManifestEntry } from "./state";
 
-export interface ManifestRow {
-	document_id: string;
-	type: number;
-	slug: string;
-	path_key: string;
-	checksum: string;
-}
-
-export interface FileContentRow extends ManifestRow {
+export interface FileContentRow extends LocalManifestEntry {
 	content: string;
 }
 
-export async function getManifest(userId: string): Promise<ManifestRow[]> {
+export async function getManifest(
+	userId: string,
+): Promise<LocalManifestEntry[]> {
 	return getDb()
 		.select({
 			document_id: userFiles.documentId,

@@ -9,11 +9,7 @@ import {
 	removeCollectionIndex,
 	writeCanonicalFile,
 } from "./materialization";
-import {
-	getFileContents,
-	getManifest,
-	type ManifestRow,
-} from "./queries";
+import { getFileContents, getManifest } from "./queries";
 import {
 	type LocalManifestEntry,
 	readLocalManifest,
@@ -34,7 +30,7 @@ function parseCollectionIds(pathKey: string): string[] {
 
 function hasEntryChanged(
 	local: LocalManifestEntry,
-	remote: ManifestRow,
+	remote: LocalManifestEntry,
 ): boolean {
 	return (
 		local.checksum !== remote.checksum ||
@@ -46,19 +42,13 @@ function hasEntryChanged(
 
 function manifestsEqual(
 	local: LocalManifestEntry[],
-	remote: ManifestRow[],
+	remote: LocalManifestEntry[],
 ): boolean {
 	if (local.length !== remote.length) return false;
 	for (let i = 0; i < local.length; i++) {
 		const l = local[i]!;
 		const r = remote[i]!;
-		if (
-			l.document_id !== r.document_id ||
-			l.type !== r.type ||
-			l.slug !== r.slug ||
-			l.path_key !== r.path_key ||
-			l.checksum !== r.checksum
-		) {
+		if (l.document_id !== r.document_id || hasEntryChanged(l, r)) {
 			return false;
 		}
 	}
