@@ -14,7 +14,6 @@ export async function getManifest(
 		.select({
 			document_id: userFiles.documentId,
 			type: userFiles.type,
-			slug: userFiles.slug,
 			path_key: userFiles.pathKey,
 			checksum: userFiles.checksum,
 		})
@@ -32,7 +31,6 @@ export async function getFileContents(
 		.select({
 			document_id: userFiles.documentId,
 			type: userFiles.type,
-			slug: userFiles.slug,
 			path_key: userFiles.pathKey,
 			content: userFiles.content,
 			checksum: userFiles.checksum,

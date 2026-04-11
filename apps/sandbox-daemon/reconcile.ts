@@ -35,7 +35,6 @@ function hasEntryChanged(
 	return (
 		local.checksum !== remote.checksum ||
 		local.type !== remote.type ||
-		local.slug !== remote.slug ||
 		local.path_key !== remote.path_key
 	);
 }
@@ -83,7 +82,7 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	const allCollectionIds = new Set<string>();
 	const collectionDocsIndex = new Map<
 		string,
-		Array<{ document_id: string; type: number; slug: string }>
+		Array<{ document_id: string; type: number }>
 	>();
 	const remoteCollectionIds = new Map<string, string[]>();
 
@@ -98,7 +97,6 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 			collectionDocsIndex.get(colId)?.push({
 				document_id: entry.document_id,
 				type: entry.type,
-				slug: entry.slug,
 			});
 		}
 	}
@@ -161,7 +159,6 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 		const doc: DocFile = {
 			document_id: file.document_id,
 			type: file.type,
-			slug: file.slug,
 			path_key: file.path_key,
 			content: file.content,
 			checksum: file.checksum,
@@ -190,7 +187,6 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	const newManifest: LocalManifestEntry[] = remoteManifest.map((entry) => ({
 		document_id: entry.document_id,
 		type: entry.type,
-		slug: entry.slug,
 		path_key: entry.path_key,
 		checksum: entry.checksum,
 	}));

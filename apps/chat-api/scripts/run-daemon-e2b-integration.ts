@@ -40,7 +40,6 @@ async function seedTestData() {
 			userId,
 			documentId: "doc-1",
 			type: 0,
-			slug: "france-capital",
 			pathKey: "col-test",
 			content:
 				"The capital of France is Paris. It is known for the Eiffel Tower.",
@@ -50,7 +49,6 @@ async function seedTestData() {
 			userId,
 			documentId: "doc-2",
 			type: 3,
-			slug: "shopping-list",
 			pathKey: "",
 			content: "Buy milk, eggs, and bread from the store.",
 			checksum: "checksum-doc-2",
