@@ -1,28 +1,15 @@
-import { userFiles, userSandboxRuntime } from "@mymemo/db";
+import { userFiles } from "@mymemo/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "./db";
+import type { LocalManifestEntry } from "./state";
 
-export interface ManifestRow {
-	document_id: string;
-	type: number;
-	slug: string;
-	path_key: string;
-	checksum: string;
-}
-
-export interface FileContentRow extends ManifestRow {
+export interface FileContentRow extends LocalManifestEntry {
 	content: string;
 }
 
-export async function getStateVersion(userId: string): Promise<number> {
-	const rows = await getDb()
-		.select({ state_version: userSandboxRuntime.stateVersion })
-		.from(userSandboxRuntime)
-		.where(eq(userSandboxRuntime.userId, userId));
-	return rows[0]?.state_version ?? 0;
-}
-
-export async function getManifest(userId: string): Promise<ManifestRow[]> {
+export async function getManifest(
+	userId: string,
+): Promise<LocalManifestEntry[]> {
 	return getDb()
 		.select({
 			document_id: userFiles.documentId,

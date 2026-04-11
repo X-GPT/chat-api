@@ -44,9 +44,9 @@ export async function runSandboxChat(
 		logger,
 	} = options;
 
-	// Note: user_files table is populated by an external service.
-	// The daemon's reconcile() reads from user_files and checks
-	// state_version directly from Postgres to sync documents.
+	// Note: user_files is populated by an external service. The daemon's
+	// reconcile() diffs user_files against its local .sync-manifest.json
+	// on each turn to sync documents into the sandbox filesystem.
 
 	const attempt = async () => {
 		// 1. Get sandbox

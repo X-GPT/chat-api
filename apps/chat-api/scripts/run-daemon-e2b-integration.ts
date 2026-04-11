@@ -35,7 +35,6 @@ const db = getDb();
 async function seedTestData() {
 	console.log("=== Seeding test data ===");
 
-	// Insert test files
 	await db.insert(userFiles).values([
 		{
 			userId,
@@ -58,22 +57,12 @@ async function seedTestData() {
 		},
 	]);
 
-	// Verify state_version was bumped by the trigger
-	const rows = await db
-		.select({ stateVersion: userSandboxRuntime.stateVersion })
-		.from(userSandboxRuntime)
-		.where(eq(userSandboxRuntime.userId, userId));
-	const stateVersion = rows[0]?.stateVersion ?? 0;
-	console.log(`✓ Seeded 2 documents, state_version=${stateVersion}`);
-	assert.ok(stateVersion >= 2, "state_version should be >= 2 after 2 inserts");
-
-	return stateVersion;
+	console.log("✓ Seeded 2 documents");
 }
 
 async function cleanupTestData() {
-	// Delete files first — the DELETE trigger upserts into user_sandbox_runtime
-	await db.delete(userFiles).where(eq(userFiles.userId, userId));
 	await Promise.all([
+		db.delete(userFiles).where(eq(userFiles.userId, userId)),
 		db.delete(userSandboxRuntime).where(eq(userSandboxRuntime.userId, userId)),
 		db
 			.delete(userSandboxSessions)

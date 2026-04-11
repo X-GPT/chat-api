@@ -9,18 +9,11 @@ import {
 	removeCollectionIndex,
 	writeCanonicalFile,
 } from "./materialization";
-import {
-	getFileContents,
-	getManifest,
-	getStateVersion,
-	type ManifestRow,
-} from "./queries";
+import { getFileContents, getManifest } from "./queries";
 import {
 	type LocalManifestEntry,
 	readLocalManifest,
-	readSyncedVersion,
 	writeLocalManifest,
-	writeSyncedVersion,
 } from "./state";
 
 interface ReconcileInput {
@@ -37,7 +30,7 @@ function parseCollectionIds(pathKey: string): string[] {
 
 function hasEntryChanged(
 	local: LocalManifestEntry,
-	remote: ManifestRow,
+	remote: LocalManifestEntry,
 ): boolean {
 	return (
 		local.checksum !== remote.checksum ||
@@ -47,6 +40,23 @@ function hasEntryChanged(
 	);
 }
 
+// Assumes both sides are ordered by document_id. Enforced by
+// getManifest()'s ORDER BY and by writeLocalManifest at the tail of reconcile().
+function manifestsEqual(
+	local: LocalManifestEntry[],
+	remote: LocalManifestEntry[],
+): boolean {
+	if (local.length !== remote.length) return false;
+	for (let i = 0; i < local.length; i++) {
+		const l = local[i]!;
+		const r = remote[i]!;
+		if (l.document_id !== r.document_id || hasEntryChanged(l, r)) {
+			return false;
+		}
+	}
+	return true;
+}
+
 /**
  * Reconcile the local filesystem state with the database.
  * Returns true if sync was performed, false if skipped.
@@ -54,17 +64,14 @@ function hasEntryChanged(
 export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	const { userId } = input;
 	const dataRoot = getDataRoot(userId);
-	const localVersion = readSyncedVersion(dataRoot);
 
-	const currentVersion = await getStateVersion(userId);
+	const remoteManifest = await getManifest(userId);
+	const localManifest = readLocalManifest(dataRoot);
 
-	if (localVersion >= currentVersion) {
+	if (manifestsEqual(localManifest, remoteManifest)) {
 		return false;
 	}
 
-	const remoteManifest = await getManifest(userId);
-
-	const localManifest = readLocalManifest(dataRoot);
 	const localMap = new Map(
 		localManifest.map((entry) => [entry.document_id, entry]),
 	);
@@ -189,7 +196,6 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	}));
 
 	writeLocalManifest(dataRoot, newManifest);
-	writeSyncedVersion(dataRoot, currentVersion);
 
 	return true;
 }

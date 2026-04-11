@@ -5,9 +5,7 @@ import { join } from "node:path";
 import {
 	type LocalManifestEntry,
 	readLocalManifest,
-	readSyncedVersion,
 	writeLocalManifest,
-	writeSyncedVersion,
 } from "./state";
 
 describe("state", () => {
@@ -56,31 +54,6 @@ describe("state", () => {
 
 			const result = readLocalManifest(dataRoot);
 			expect(result).toEqual([]);
-		});
-	});
-
-	describe("synced version", () => {
-		it("returns 0 when no version file exists", () => {
-			const result = readSyncedVersion(join(testRoot, "no-version"));
-			expect(result).toBe(0);
-		});
-
-		it("round-trips version number", () => {
-			const dataRoot = join(testRoot, "version-roundtrip");
-			mkdirSync(dataRoot, { recursive: true });
-
-			writeSyncedVersion(dataRoot, 42);
-			const result = readSyncedVersion(dataRoot);
-			expect(result).toBe(42);
-		});
-
-		it("returns 0 for invalid version content", () => {
-			const dataRoot = join(testRoot, "version-invalid");
-			mkdirSync(dataRoot, { recursive: true });
-			Bun.write(join(dataRoot, ".synced-version"), "not-a-number");
-
-			const result = readSyncedVersion(dataRoot);
-			expect(result).toBe(0);
 		});
 	});
 });
