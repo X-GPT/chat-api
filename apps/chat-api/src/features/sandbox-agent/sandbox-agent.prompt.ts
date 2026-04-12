@@ -19,10 +19,14 @@ Documents are stored as \`.md\` files in your working directory. Each file has Y
 ---
 summaryId: 12345
 type: 0
+checksum: abc123
+collections: ["col-A", "col-B"]
 ---
 
 Document content here...
 \`\`\`
+
+The \`collections\` field lists the collection IDs a document belongs to. Use it to answer questions about collection membership.
 
 ## Retrieval Strategy
 

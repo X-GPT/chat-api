@@ -5,12 +5,12 @@ import { runAgent } from "../agent";
 import {
 	createEphemeralDocumentScope,
 	ensureDataRoot,
+	findCanonicalDoc,
 	getDataRoot,
 	removeEphemeralDocumentScope,
 	resolveScopeCwd,
 } from "../materialization";
 import { reconcile } from "../reconcile";
-import { readLocalManifest } from "../state";
 import { acquireTurn } from "../turn-lock";
 
 const app = new Hono();
@@ -94,8 +94,7 @@ app.post("/turn", async (c) => {
 
 				let cwd: string;
 				if (scope_type === "document" && summary_id) {
-					const manifest = readLocalManifest(dataRoot);
-					const doc = manifest.find((e) => e.document_id === summary_id);
+					const doc = findCanonicalDoc(dataRoot, summary_id);
 					if (!doc) {
 						await s.write(
 							ndjsonLine({

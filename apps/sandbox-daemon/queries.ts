@@ -1,7 +1,7 @@
 import { userFiles } from "@mymemo/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "./db";
-import type { LocalManifestEntry } from "./state";
+import { type LocalManifestEntry, parseCollectionIds } from "./materialization";
 
 export interface FileContentRow extends LocalManifestEntry {
 	content: string;
@@ -10,7 +10,7 @@ export interface FileContentRow extends LocalManifestEntry {
 export async function getManifest(
 	userId: string,
 ): Promise<LocalManifestEntry[]> {
-	return getDb()
+	const rows = await getDb()
 		.select({
 			document_id: userFiles.documentId,
 			type: userFiles.type,
@@ -20,6 +20,12 @@ export async function getManifest(
 		.from(userFiles)
 		.where(eq(userFiles.userId, userId))
 		.orderBy(userFiles.documentId);
+	return rows.map((row) => ({
+		document_id: row.document_id,
+		type: row.type,
+		checksum: row.checksum,
+		collections: parseCollectionIds(row.path_key),
+	}));
 }
 
 export async function getFileContents(
@@ -27,7 +33,7 @@ export async function getFileContents(
 	documentIds: string[],
 ): Promise<FileContentRow[]> {
 	if (documentIds.length === 0) return [];
-	return getDb()
+	const rows = await getDb()
 		.select({
 			document_id: userFiles.documentId,
 			type: userFiles.type,
@@ -42,4 +48,11 @@ export async function getFileContents(
 				inArray(userFiles.documentId, documentIds),
 			),
 		);
+	return rows.map((row) => ({
+		document_id: row.document_id,
+		type: row.type,
+		checksum: row.checksum,
+		collections: parseCollectionIds(row.path_key),
+		content: row.content,
+	}));
 }

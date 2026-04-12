@@ -1,31 +1,25 @@
 import {
-	buildCollectionIndex,
-	buildCollectionSymlink,
-	buildScopeRoots,
+	buildCollectionHardlink,
 	type DocFile,
+	deriveLocalManifest,
 	getDataRoot,
+	type LocalManifestEntry,
 	removeCanonicalFile,
 	removeCollectionEntries,
-	removeCollectionIndex,
 	writeCanonicalFile,
 } from "./materialization";
 import { getFileContents, getManifest } from "./queries";
-import {
-	type LocalManifestEntry,
-	readLocalManifest,
-	writeLocalManifest,
-} from "./state";
 
 interface ReconcileInput {
 	userId: string;
 }
 
-function parseCollectionIds(pathKey: string): string[] {
-	if (!pathKey) return [];
-	return pathKey
-		.split(",")
-		.map((id) => id.trim())
-		.filter(Boolean);
+function collectionsEqual(a: string[], b: string[]): boolean {
+	if (a.length !== b.length) return false;
+	for (let i = 0; i < a.length; i++) {
+		if (a[i] !== b[i]) return false;
+	}
+	return true;
 }
 
 function hasEntryChanged(
@@ -35,12 +29,12 @@ function hasEntryChanged(
 	return (
 		local.checksum !== remote.checksum ||
 		local.type !== remote.type ||
-		local.path_key !== remote.path_key
+		!collectionsEqual(local.collections, remote.collections)
 	);
 }
 
 // Assumes both sides are ordered by document_id. Enforced by
-// getManifest()'s ORDER BY and by writeLocalManifest at the tail of reconcile().
+// getManifest()'s ORDER BY and by deriveLocalManifest's sort.
 function manifestsEqual(
 	local: LocalManifestEntry[],
 	remote: LocalManifestEntry[],
@@ -65,7 +59,7 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	const dataRoot = getDataRoot(userId);
 
 	const remoteManifest = await getManifest(userId);
-	const localManifest = readLocalManifest(dataRoot);
+	const localManifest = await deriveLocalManifest(dataRoot);
 
 	if (manifestsEqual(localManifest, remoteManifest)) {
 		return false;
@@ -77,29 +71,6 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	const remoteMap = new Map(
 		remoteManifest.map((entry) => [entry.document_id, entry]),
 	);
-
-	// Parse collection IDs once and build a collection → docs index
-	const allCollectionIds = new Set<string>();
-	const collectionDocsIndex = new Map<
-		string,
-		Array<{ document_id: string; type: number }>
-	>();
-	const remoteCollectionIds = new Map<string, string[]>();
-
-	for (const entry of remoteManifest) {
-		const colIds = parseCollectionIds(entry.path_key);
-		remoteCollectionIds.set(entry.document_id, colIds);
-		for (const colId of colIds) {
-			allCollectionIds.add(colId);
-			if (!collectionDocsIndex.has(colId)) {
-				collectionDocsIndex.set(colId, []);
-			}
-			collectionDocsIndex.get(colId)?.push({
-				document_id: entry.document_id,
-				type: entry.type,
-			});
-		}
-	}
 
 	const creates: string[] = [];
 	const updates: string[] = [];
@@ -121,19 +92,12 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	}
 
 	const changedIds = [...creates, ...updates];
-
 	const changedFiles = await getFileContents(userId, changedIds);
-
-	const collectionsToRebuild = new Set<string>();
 
 	// Handle deletes
 	for (const entry of deletes) {
-		const colIds = parseCollectionIds(entry.path_key);
-		if (colIds.length > 0) {
-			removeCollectionEntries(dataRoot, entry, colIds);
-			for (const colId of colIds) {
-				collectionsToRebuild.add(colId);
-			}
+		if (entry.collections.length > 0) {
+			removeCollectionEntries(dataRoot, entry, entry.collections);
 		}
 		removeCanonicalFile(dataRoot, entry);
 	}
@@ -146,52 +110,25 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 			if (local.type !== file.type) {
 				removeCanonicalFile(dataRoot, local);
 			}
-			// Clean up old collection symlinks
-			const oldColIds = parseCollectionIds(local.path_key);
-			if (oldColIds.length > 0) {
-				removeCollectionEntries(dataRoot, local, oldColIds);
-				for (const colId of oldColIds) {
-					collectionsToRebuild.add(colId);
-				}
+			// Clean up old collection hardlinks
+			if (local.collections.length > 0) {
+				removeCollectionEntries(dataRoot, local, local.collections);
 			}
 		}
 
 		const doc: DocFile = {
 			document_id: file.document_id,
 			type: file.type,
-			path_key: file.path_key,
+			collections: file.collections,
 			content: file.content,
 			checksum: file.checksum,
 		};
 		writeCanonicalFile(dataRoot, doc);
 
-		const newColIds = remoteCollectionIds.get(file.document_id) ?? [];
-		for (const colId of newColIds) {
-			buildCollectionSymlink(dataRoot, doc, colId);
-			collectionsToRebuild.add(colId);
+		for (const colId of file.collections) {
+			buildCollectionHardlink(dataRoot, doc, colId);
 		}
 	}
-
-	// Rebuild indexes for touched collections using pre-built index (O(1) lookup)
-	for (const colId of collectionsToRebuild) {
-		const docs = collectionDocsIndex.get(colId) ?? [];
-		if (docs.length > 0) {
-			buildCollectionIndex(dataRoot, colId, docs);
-		} else {
-			removeCollectionIndex(dataRoot, colId);
-		}
-	}
-
-	buildScopeRoots(dataRoot, [...allCollectionIds]);
-
-	const newManifest: LocalManifestEntry[] = remoteManifest.map((entry) => ({
-		document_id: entry.document_id,
-		type: entry.type,
-		path_key: entry.path_key,
-		checksum: entry.checksum,
-	}));
-
-	writeLocalManifest(dataRoot, newManifest);
 
 	return true;
 }
