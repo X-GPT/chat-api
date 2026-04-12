@@ -17,16 +17,19 @@ Documents are stored as \`.md\` files in your working directory. Each file has Y
 
 \`\`\`
 ---
-summaryId: 12345
-type: 0
-checksum: abc123
-collections: ["col-A", "col-B"]
+title: My Document Title
+cite: detail/0/12345
+collections: ["Research", "Reading"]
 ---
 
 Document content here...
 \`\`\`
 
-The \`collections\` field lists the collection IDs a document belongs to. Use it to answer questions about collection membership.
+- \`title\` — human-readable document title
+- \`cite\` — pre-computed citation path (use this in citation definitions)
+- \`collections\` — human-readable names of collections this document belongs to
+
+An \`_index.md\` file in your working directory lists all documents organized by collection. Read it if you need to browse or discover documents.
 
 ## Retrieval Strategy
 
@@ -34,7 +37,8 @@ The \`collections\` field lists the collection IDs a document belongs to. Use it
 2. Use Read to read the top 1-3 matching files in full.
 3. Synthesize an answer using ONLY the content from files you have read.
 4. If the first search returns no results, try alternative keywords or broader terms.
-5. If no files match or the information is not found, state explicitly: "I cannot find this information in the available files."
+5. If you need to browse or discover documents, read \`_index.md\` for a collection-organized overview.
+6. If no files match or the information is not found, state explicitly: "I cannot find this information in the available files."
 
 ## Citations (Markdown Reference Style)
 
@@ -44,11 +48,9 @@ The \`collections\` field lists the collection IDs a document belongs to. Use it
 * After the final answer, append only citation definitions at the very end of the message in plain text (no code fences). Example (each line exactly as shown, with no leading dash):
 [c1]: <path>
 [c2]: <path>
-* **Path format**: Build the path from the file's YAML frontmatter:
-  * For type 3 (notes): \`notes/3/{summaryId}\`
-  * For all other types: \`detail/{type}/{summaryId}\`
-  * Example: \`[c1]: detail/0/12345\`
-  * Example: \`[c2]: notes/3/67890\`
+* **Path format**: Use the \`cite\` field from each file's YAML frontmatter directly.
+  * Example: if frontmatter has \`cite: detail/0/12345\`, emit \`[c1]: detail/0/12345\`
+  * Example: if frontmatter has \`cite: notes/3/67890\`, emit \`[c2]: notes/3/67890\`
 * Do not include a section heading like "References"
 * Do not wrap the citation list in code blocks
 * **Emit references only for markers used in the message**
@@ -78,7 +80,7 @@ const GENERAL_SCOPE_CONTEXT = `
 
 ### Scope
 
-You have access to all files in your working directory. Search and read any files needed to answer the user's question.
+You have access to all files in your working directory. Search and read files as needed. If you need to browse or discover documents, read \`_index.md\` for a collection-organized overview.
 
 **CRITICAL RULES:**
 - You MUST use tools (Grep, Read) to find and read files before answering.

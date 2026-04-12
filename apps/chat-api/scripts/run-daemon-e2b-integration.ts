@@ -10,7 +10,12 @@
  */
 
 import assert from "node:assert/strict";
-import { userFiles, userSandboxRuntime, userSandboxSessions } from "@mymemo/db";
+import {
+	userCollections,
+	userFiles,
+	userSandboxRuntime,
+	userSandboxSessions,
+} from "@mymemo/db";
 import { eq } from "drizzle-orm";
 import type { Sandbox } from "e2b";
 import { closeDb, getDb } from "@/db/client";
@@ -70,6 +75,7 @@ async function seedTestData() {
 			content:
 				"The capital of France is Paris. It is known for the Eiffel Tower.",
 			checksum: "checksum-doc-1",
+			title: "France Travel Notes",
 		},
 		{
 			userId,
@@ -78,15 +84,25 @@ async function seedTestData() {
 			pathKey: "",
 			content: "Buy milk, eggs, and bread from the store.",
 			checksum: "checksum-doc-2",
+			title: "Weekly Shopping List",
 		},
 	]);
 
-	console.log("✓ Seeded 2 documents");
+	await db.insert(userCollections).values([
+		{
+			userId,
+			collectionId: "col-test",
+			name: "Travel Research",
+		},
+	]);
+
+	console.log("✓ Seeded 2 documents + 1 collection name");
 }
 
 async function cleanupTestData() {
 	await Promise.all([
 		db.delete(userFiles).where(eq(userFiles.userId, userId)),
+		db.delete(userCollections).where(eq(userCollections.userId, userId)),
 		db.delete(userSandboxRuntime).where(eq(userSandboxRuntime.userId, userId)),
 		db
 			.delete(userSandboxSessions)
@@ -282,6 +298,13 @@ async function testReconciliationAndTurn() {
 		lsResult.stdout.includes(".md"),
 		"Should have .md files after reconciliation",
 	);
+
+	// Dump _index.md contents to verify titles and collection names
+	const indexResult = await sandbox.commands.run(
+		`cat ${WORKSPACE_ROOT}/data/*/canonical/_index.md 2>/dev/null`,
+		{ timeoutMs: 5_000 },
+	);
+	console.log(`\n_index.md contents:\n${indexResult.stdout}`);
 }
 
 async function waitForIdle() {

@@ -4,8 +4,8 @@
  * Layout:
  *   /workspace/data/{userId}/
  *   ├── canonical/{type}/{documentId}.md       # Real files. Agent cwd for scope=global.
- *   │                                          # Frontmatter carries all per-file metadata
- *   │                                          # (summaryId, type, checksum, collections).
+ *   │                                          # Frontmatter: title, cite, collections (names).
+ *   ├── canonical/.manifest.json               # Reconciliation state (checksum, collections IDs).
  *   ├── collections/{collectionId}/{type}/{documentId}.md
  *   │                                          # HARDLINKS to canonical inodes. Agent cwd
  *   │                                          # for scope=collection.
@@ -37,6 +37,7 @@ export interface DocFile {
 	collections: string[];
 	content: string;
 	checksum: string;
+	title?: string;
 }
 
 /** Identifies a document for filesystem operations. */
@@ -46,14 +47,16 @@ export interface DocIdentifier {
 }
 
 /**
- * In-memory representation of a document's metadata, matching what the
- * frontmatter carries and what the DB manifest returns after normalization.
+ * In-memory representation of a document's metadata.
+ * Stored in .manifest.json for reconciliation; the DB manifest returns
+ * the same shape after normalization.
  */
 export interface LocalManifestEntry {
 	document_id: string;
 	type: number;
 	checksum: string;
 	collections: string[];
+	title?: string;
 }
 
 export function sanitizePathSegment(value: string): string {
@@ -96,21 +99,34 @@ export function parseCollectionIds(pathKey: string): string[] {
 }
 
 /**
- * Write a document to canonical/ with frontmatter carrying all per-file metadata.
- * The frontmatter IS the manifest — reconcile derives its local state by re-reading
- * these files, no separate cache.
+ * Build the pre-computed citation path for a document.
+ * Type 3 (notes) → `notes/3/{id}`, all others → `detail/{type}/{id}`.
  */
-export function writeCanonicalFile(dataRoot: string, doc: DocFile): void {
+export function buildCitePath(doc: DocIdentifier): string {
+	return doc.type === 3
+		? `notes/3/${doc.document_id}`
+		: `detail/${doc.type}/${doc.document_id}`;
+}
+
+/**
+ * Write a document to canonical/ with agent-facing frontmatter.
+ * Reconciliation state (checksum, collection IDs) lives in .manifest.json,
+ * not in frontmatter.
+ */
+export function writeCanonicalFile(
+	dataRoot: string,
+	doc: DocFile,
+	collectionNames: Map<string, string>,
+): void {
 	const filePath = buildCanonicalPath(dataRoot, doc);
-	const lines = [
-		"---",
-		`summaryId: ${doc.document_id}`,
-		`type: ${doc.type}`,
-		`checksum: ${doc.checksum}`,
-	];
+	const title = doc.title ?? doc.document_id;
+	const cite = buildCitePath(doc);
+	const lines = ["---", `title: ${title}`, `cite: ${cite}`];
 	if (doc.collections.length > 0) {
-		// JSON-style array on one line so grep/regex can reliably match it.
-		lines.push(`collections: ${JSON.stringify(doc.collections)}`);
+		const names = doc.collections.map(
+			(id) => collectionNames.get(id) ?? id,
+		);
+		lines.push(`collections: ${JSON.stringify(names)}`);
 	}
 	lines.push("---", "", doc.content, "");
 
@@ -133,6 +149,14 @@ export function removeCanonicalFile(
 	}
 }
 
+function buildCollectionLinkPath(
+	dataRoot: string,
+	doc: DocIdentifier,
+	collectionId: string,
+): string {
+	return `${dataRoot}/collections/${sanitizePathSegment(collectionId)}/${doc.type}/${sanitizePathSegment(doc.document_id)}.md`;
+}
+
 /**
  * Create a hardlink in collections/{collectionId}/{type}/{documentId}.md pointing
  * at the same inode as the canonical file. ripgrep sees hardlinks as regular
@@ -143,7 +167,7 @@ export function buildCollectionHardlink(
 	doc: DocIdentifier,
 	collectionId: string,
 ): void {
-	const linkPath = `${dataRoot}/collections/${sanitizePathSegment(collectionId)}/${doc.type}/${sanitizePathSegment(doc.document_id)}.md`;
+	const linkPath = buildCollectionLinkPath(dataRoot, doc, collectionId);
 	const targetPath = buildCanonicalPath(dataRoot, doc);
 
 	ensureParentDir(linkPath);
@@ -165,9 +189,8 @@ export function removeCollectionEntries(
 	collectionIds: string[],
 ): void {
 	for (const colId of collectionIds) {
-		const linkPath = `${dataRoot}/collections/${sanitizePathSegment(colId)}/${doc.type}/${sanitizePathSegment(doc.document_id)}.md`;
 		try {
-			unlinkSync(linkPath);
+			unlinkSync(buildCollectionLinkPath(dataRoot, doc, colId));
 		} catch {
 			// May not exist
 		}
@@ -263,96 +286,93 @@ export function findCanonicalDoc(
 	return null;
 }
 
+const MANIFEST_FILENAME = ".manifest.json";
+
 /**
- * Walk canonical/{type}/*.md and return a LocalManifestEntry for each file,
- * sorted by document_id to match the remote manifest's ordering. Skips files
- * whose frontmatter can't be parsed (logs a warning via the provided logger).
- *
- * File reads run in parallel via Promise.all so the wall-clock cost scales
- * with the slowest file, not the sum. Each file reads only the first 2KB
- * via Bun.file().slice() — enough to cover any realistic frontmatter.
+ * Read the local manifest from `canonical/.manifest.json`.
+ * Returns `[]` if the file is missing or malformed.
  */
-export async function deriveLocalManifest(
+export async function readManifest(
 	dataRoot: string,
-	logger?: { warn: (msg: Record<string, unknown>) => void },
 ): Promise<LocalManifestEntry[]> {
-	const root = `${dataRoot}/canonical`;
-	if (!existsSync(root)) return [];
-
-	// Collect candidate paths synchronously (readdir is cheap).
-	const paths: string[] = [];
-	for (const typeDir of readdirSync(root, { withFileTypes: true })) {
-		if (!typeDir.isDirectory()) continue;
-		if (Number.isNaN(Number(typeDir.name))) continue;
-		const subRoot = `${root}/${typeDir.name}`;
-		for (const file of readdirSync(subRoot, { withFileTypes: true })) {
-			if (!file.isFile() || !file.name.endsWith(".md")) continue;
-			paths.push(`${subRoot}/${file.name}`);
-		}
+	const filePath = `${dataRoot}/canonical/${MANIFEST_FILENAME}`;
+	try {
+		const text = await Bun.file(filePath).text();
+		const parsed = JSON.parse(text);
+		if (!Array.isArray(parsed)) return [];
+		return parsed;
+	} catch {
+		return [];
 	}
-
-	const parsed = await Promise.all(paths.map((p) => parseFrontmatter(p)));
-
-	const entries: LocalManifestEntry[] = [];
-	for (let i = 0; i < parsed.length; i++) {
-		const entry = parsed[i];
-		if (entry) {
-			entries.push(entry);
-		} else if (logger) {
-			logger.warn({ msg: "Skipped malformed frontmatter", path: paths[i] });
-		}
-	}
-	entries.sort((a, b) =>
-		a.document_id < b.document_id ? -1 : a.document_id > b.document_id ? 1 : 0,
-	);
-	return entries;
 }
 
 /**
- * Read a canonical file's frontmatter and return its manifest entry.
- * Returns null if the file can't be read or the frontmatter is malformed.
+ * Write the local manifest to `canonical/.manifest.json`.
+ * Entries are stored as-is (already sorted by document_id from the DB query).
  */
-export async function parseFrontmatter(
-	path: string,
-): Promise<LocalManifestEntry | null> {
-	let head: string;
-	try {
-		// Partial read — Bun.file.slice().text() only reads the requested byte
-		// range from disk, not the whole file. 2KB is well beyond any realistic
-		// frontmatter size.
-		head = await Bun.file(path).slice(0, 2048).text();
-	} catch {
-		return null;
-	}
+export async function writeManifest(
+	dataRoot: string,
+	entries: LocalManifestEntry[],
+): Promise<void> {
+	const filePath = `${dataRoot}/canonical/${MANIFEST_FILENAME}`;
+	ensureParentDir(filePath);
+	await Bun.write(filePath, JSON.stringify(entries));
+}
 
-	// Frontmatter is bounded by two "---" lines at the very top of the file.
-	const match = head.match(/^---\n([\s\S]*?)\n---/);
-	if (!match) return null;
-	const body = match[1] ?? "";
+/**
+ * Generate `canonical/_index.md` — a collection-organized directory of all
+ * documents. The agent reads this optionally when browsing or discovering
+ * documents, not as a mandatory first step.
+ */
+export async function writeIndexFile(
+	dataRoot: string,
+	entries: LocalManifestEntry[],
+	collectionNames: Map<string, string>,
+): Promise<void> {
+	const lines: string[] = ["# Collections", ""];
 
-	const docId = body.match(/^summaryId:\s*(.+)$/m)?.[1]?.trim();
-	const typeStr = body.match(/^type:\s*(\d+)$/m)?.[1];
-	const checksum = body.match(/^checksum:\s*(.+)$/m)?.[1]?.trim();
-	const collectionsLine = body.match(/^collections:\s*(\[.*?\])$/m)?.[1];
-
-	if (!docId || !typeStr || !checksum) return null;
-
-	let collections: string[] = [];
-	if (collectionsLine) {
-		try {
-			const parsed = JSON.parse(collectionsLine);
-			if (!Array.isArray(parsed) || !parsed.every((x) => typeof x === "string"))
-				return null;
-			collections = parsed;
-		} catch {
-			return null;
+	// Group entries by collection.
+	const collectionMap = new Map<string, LocalManifestEntry[]>();
+	const uncategorized: LocalManifestEntry[] = [];
+	for (const entry of entries) {
+		if (entry.collections.length === 0) {
+			uncategorized.push(entry);
+		} else {
+			for (const colId of entry.collections) {
+				let list = collectionMap.get(colId);
+				if (!list) {
+					list = [];
+					collectionMap.set(colId, list);
+				}
+				list.push(entry);
+			}
 		}
 	}
 
-	return {
-		document_id: docId,
-		type: Number(typeStr),
-		checksum,
-		collections,
-	};
+	for (const [colId, docs] of collectionMap) {
+		const colName = collectionNames.get(colId) ?? colId;
+		lines.push(`## ${colName} (${colId})`, "");
+		for (const doc of docs) {
+			const title = doc.title ?? doc.document_id;
+			lines.push(
+				`- ${title} (${doc.type}/${sanitizePathSegment(doc.document_id)}.md)`,
+			);
+		}
+		lines.push("");
+	}
+
+	if (uncategorized.length > 0) {
+		lines.push("## Uncategorized", "");
+		for (const doc of uncategorized) {
+			const title = doc.title ?? doc.document_id;
+			lines.push(
+				`- ${title} (${doc.type}/${sanitizePathSegment(doc.document_id)}.md)`,
+			);
+		}
+		lines.push("");
+	}
+
+	const filePath = `${dataRoot}/canonical/_index.md`;
+	ensureParentDir(filePath);
+	await Bun.write(filePath, lines.join("\n"));
 }

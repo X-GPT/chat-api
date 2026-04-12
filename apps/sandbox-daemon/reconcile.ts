@@ -1,14 +1,17 @@
 import {
 	buildCollectionHardlink,
 	type DocFile,
-	deriveLocalManifest,
+	ensureDataRoot,
 	getDataRoot,
 	type LocalManifestEntry,
+	readManifest,
 	removeCanonicalFile,
 	removeCollectionEntries,
 	writeCanonicalFile,
+	writeIndexFile,
+	writeManifest,
 } from "./materialization";
-import { getFileContents, getManifest } from "./queries";
+import { getCollectionNames, getFileContents, getManifest } from "./queries";
 
 interface ReconcileInput {
 	userId: string;
@@ -34,7 +37,7 @@ function hasEntryChanged(
 }
 
 // Assumes both sides are ordered by document_id. Enforced by
-// getManifest()'s ORDER BY and by deriveLocalManifest's sort.
+// getManifest()'s ORDER BY and readManifest's stored order.
 function manifestsEqual(
 	local: LocalManifestEntry[],
 	remote: LocalManifestEntry[],
@@ -57,9 +60,17 @@ function manifestsEqual(
 export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	const { userId } = input;
 	const dataRoot = getDataRoot(userId);
+	ensureDataRoot(dataRoot);
 
-	const remoteManifest = await getManifest(userId);
-	const localManifest = await deriveLocalManifest(dataRoot);
+	const [remoteManifest, localManifest, collectionRows] = await Promise.all([
+		getManifest(userId),
+		readManifest(dataRoot),
+		getCollectionNames(userId),
+	]);
+
+	const collectionNamesMap = new Map(
+		collectionRows.map((r) => [r.collection_id, r.name]),
+	);
 
 	if (manifestsEqual(localManifest, remoteManifest)) {
 		return false;
@@ -106,11 +117,9 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	for (const file of changedFiles) {
 		const local = localMap.get(file.document_id);
 		if (local) {
-			// If type changed, canonical path changed — remove old file
 			if (local.type !== file.type) {
 				removeCanonicalFile(dataRoot, local);
 			}
-			// Clean up old collection hardlinks
 			if (local.collections.length > 0) {
 				removeCollectionEntries(dataRoot, local, local.collections);
 			}
@@ -122,13 +131,19 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 			collections: file.collections,
 			content: file.content,
 			checksum: file.checksum,
+			title: file.title,
 		};
-		writeCanonicalFile(dataRoot, doc);
+		writeCanonicalFile(dataRoot, doc, collectionNamesMap);
 
 		for (const colId of file.collections) {
 			buildCollectionHardlink(dataRoot, doc, colId);
 		}
 	}
+
+	await Promise.all([
+		writeManifest(dataRoot, remoteManifest),
+		writeIndexFile(dataRoot, remoteManifest, collectionNamesMap),
+	]);
 
 	return true;
 }
