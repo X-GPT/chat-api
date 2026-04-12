@@ -4,8 +4,8 @@ import { stream } from "hono/streaming";
 import { runAgent } from "../agent";
 import {
 	createEphemeralDocumentScope,
-	deriveLocalManifest,
 	ensureDataRoot,
+	findCanonicalDoc,
 	getDataRoot,
 	removeEphemeralDocumentScope,
 	resolveScopeCwd,
@@ -94,8 +94,7 @@ app.post("/turn", async (c) => {
 
 				let cwd: string;
 				if (scope_type === "document" && summary_id) {
-					const manifest = deriveLocalManifest(dataRoot);
-					const doc = manifest.find((e) => e.document_id === summary_id);
+					const doc = findCanonicalDoc(dataRoot, summary_id);
 					if (!doc) {
 						await s.write(
 							ndjsonLine({

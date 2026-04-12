@@ -239,6 +239,34 @@ export function resolveScopeCwd(
 }
 
 /**
+ * Find a canonical document by ID without parsing frontmatter. Scans
+ * canonical/{type}/ subdirectories for a filename matching document_id.
+ * Returns the DocIdentifier (document_id + type) or null if not found.
+ *
+ * O(#type_dirs) existsSync calls — much cheaper than deriveLocalManifest +
+ * find when the caller only needs one document (e.g. the document-scope
+ * turn handler).
+ */
+export function findCanonicalDoc(
+	dataRoot: string,
+	documentId: string,
+): DocIdentifier | null {
+	const root = `${dataRoot}/canonical`;
+	if (!existsSync(root)) return null;
+	const sanitized = sanitizePathSegment(documentId);
+	for (const typeDir of readdirSync(root, { withFileTypes: true })) {
+		if (!typeDir.isDirectory()) continue;
+		const type = Number(typeDir.name);
+		if (Number.isNaN(type)) continue;
+		const path = `${root}/${typeDir.name}/${sanitized}.md`;
+		if (existsSync(path)) {
+			return { document_id: documentId, type };
+		}
+	}
+	return null;
+}
+
+/**
  * Walk canonical/{type}/*.md and return a LocalManifestEntry for each file,
  * sorted by document_id to match the remote manifest's ordering. Skips files
  * whose frontmatter can't be parsed (logs a warning via the provided logger).
@@ -301,7 +329,7 @@ export function parseFrontmatter(path: string): LocalManifestEntry | null {
 	const docId = body.match(/^summaryId:\s*(.+)$/m)?.[1]?.trim();
 	const typeStr = body.match(/^type:\s*(\d+)$/m)?.[1];
 	const checksum = body.match(/^checksum:\s*(.+)$/m)?.[1]?.trim();
-	const collectionsLine = body.match(/^collections:\s*(\[.*\])$/m)?.[1];
+	const collectionsLine = body.match(/^collections:\s*(\[.*?\])$/m)?.[1];
 
 	if (!docId || !typeStr || !checksum) return null;
 

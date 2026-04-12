@@ -17,6 +17,7 @@ import {
 	createEphemeralDocumentScope,
 	type DocFile,
 	deriveLocalManifest,
+	findCanonicalDoc,
 	getDataRoot,
 	parseCollectionIds,
 	parseFrontmatter,
@@ -367,6 +368,68 @@ describe("materialization", () => {
 				"utf-8",
 			);
 			expect(parseFrontmatter(path)).toBeNull();
+		});
+	});
+
+	describe("findCanonicalDoc", () => {
+		it("returns null when canonical/ is missing", () => {
+			expect(
+				findCanonicalDoc(join(testRoot, "find-noroot"), "doc-1"),
+			).toBeNull();
+		});
+
+		it("returns null when the document isn't found", () => {
+			const dataRoot = join(testRoot, "find-missing");
+			writeCanonicalFile(dataRoot, {
+				document_id: "doc-1",
+				type: 0,
+				collections: [],
+				content: "x",
+				checksum: "c",
+			});
+			expect(findCanonicalDoc(dataRoot, "doc-2")).toBeNull();
+		});
+
+		it("finds a doc by id in its type directory", () => {
+			const dataRoot = join(testRoot, "find-hit");
+			writeCanonicalFile(dataRoot, {
+				document_id: "doc-1",
+				type: 0,
+				collections: [],
+				content: "x",
+				checksum: "c1",
+			});
+			writeCanonicalFile(dataRoot, {
+				document_id: "doc-2",
+				type: 3,
+				collections: [],
+				content: "y",
+				checksum: "c2",
+			});
+			expect(findCanonicalDoc(dataRoot, "doc-1")).toEqual({
+				document_id: "doc-1",
+				type: 0,
+			});
+			expect(findCanonicalDoc(dataRoot, "doc-2")).toEqual({
+				document_id: "doc-2",
+				type: 3,
+			});
+		});
+
+		it("sanitizes the document_id before matching", () => {
+			const dataRoot = join(testRoot, "find-sanitize");
+			writeCanonicalFile(dataRoot, {
+				document_id: "my doc/id",
+				type: 0,
+				collections: [],
+				content: "x",
+				checksum: "c",
+			});
+			// sanitizePathSegment turns "my doc/id" into "my-doc-id"
+			expect(findCanonicalDoc(dataRoot, "my doc/id")).toEqual({
+				document_id: "my doc/id",
+				type: 0,
+			});
 		});
 	});
 
