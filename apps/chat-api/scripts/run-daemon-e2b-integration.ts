@@ -16,6 +16,7 @@ import type { Sandbox } from "e2b";
 import { closeDb, getDb } from "@/db/client";
 import { getRuntime } from "@/db/user-runtime";
 import type { SyncLogger } from "@/features/sandbox";
+import { buildSandboxAgentPrompt } from "@/features/sandbox-agent";
 import {
 	SandboxManager,
 	WORKSPACE_ROOT,
@@ -31,6 +32,31 @@ let sandbox: Sandbox;
 let daemonUrl: string;
 const sandboxManager = new SandboxManager();
 const db = getDb();
+
+/**
+ * Build the same production system prompt the live daemon would send.
+ * Tests 4 / 7 / 8 use this so any prompt-level regression (citation format,
+ * retrieval strategy, rules) fails the integration test loudly.
+ */
+function prodPrompt(
+	scope: "general" | "collection" | "document",
+	opts: { summaryId?: string; collectionId?: string } = {},
+): string {
+	return buildSandboxAgentPrompt({
+		scope,
+		summaryId: opts.summaryId ?? null,
+		collectionId: opts.collectionId ?? null,
+		docsRoot: `${WORKSPACE_ROOT}/data/${userId}`,
+		conversationContext: null,
+	});
+}
+
+function extractFullText(events: Array<Record<string, unknown>>): string {
+	return events
+		.filter((e) => e.type === "text_delta")
+		.map((e) => String(e.text ?? ""))
+		.join("");
+}
 
 async function seedTestData() {
 	console.log("=== Seeding test data ===");
@@ -164,8 +190,7 @@ async function testReconciliationAndTurn() {
 		user_id: userId,
 		scope_type: "global",
 		message: "What is the capital of France?",
-		system_prompt:
-			"You are a helpful assistant. Answer briefly using files in your working directory. Use Read tool.",
+		system_prompt: prodPrompt("general"),
 	};
 
 	let res: Response;
@@ -209,16 +234,27 @@ async function testReconciliationAndTurn() {
 	}
 
 	assert.ok(types.includes("started"), "Should have started event");
+	assert.ok(types.includes("text_delta"), "Should have text_delta events");
 
-	if (types.includes("text_delta")) {
-		const fullText = events
-			.filter((e: { type: string }) => e.type === "text_delta")
-			.map((e: { text: string }) => e.text)
-			.join("");
-		console.log(
-			`✓ Agent response (${fullText.length} chars): "${fullText.slice(0, 120)}..."`,
-		);
-	}
+	const fullText = extractFullText(events);
+	console.log(
+		`✓ Agent response (${fullText.length} chars): "${fullText.slice(0, 200)}..."`,
+	);
+
+	// doc-1 (type 0) holds the France answer. With the production prompt,
+	// the agent must find it via Grep and cite it as `detail/0/doc-1` per
+	// sandbox-agent.prompt.ts citation rules. If either the filesystem layout
+	// OR the production prompt regresses, this assertion fails loudly.
+	assert.ok(
+		/Paris/i.test(fullText),
+		`Expected answer to mention Paris:\n${fullText.slice(0, 400)}`,
+	);
+	assert.match(
+		fullText,
+		/\[c\d+\]:\s*detail\/0\/doc-1/,
+		`Expected citation [cN]: detail/0/doc-1 in response:\n${fullText.slice(0, 400)}`,
+	);
+	console.log("✓ Response contains correct citation for detail/0/doc-1");
 
 	if (types.includes("session_id")) {
 		const sessionEvent = events.find(
@@ -355,18 +391,31 @@ async function testCollectionScope() {
 		scope_type: "collection",
 		collection_id: "col-test",
 		message: "What is the capital of France?",
-		system_prompt:
-			"You are a helpful assistant. Answer briefly using files in your working directory. Use Read tool.",
+		system_prompt: prodPrompt("collection", { collectionId: "col-test" }),
 	});
 
 	assert.equal(status, 200);
 	const types = events.map((e) => e.type);
 	console.log(`Event types: ${types.join(", ")}`);
-	assert.ok(
-		types.includes("completed") || types.includes("text_delta"),
-		"Collection scope turn should produce output",
+	assert.ok(types.includes("text_delta"), "Should have text_delta events");
+
+	const fullText = extractFullText(events);
+	console.log(
+		`✓ Agent response (${fullText.length} chars): "${fullText.slice(0, 200)}..."`,
 	);
-	console.log("✓ Collection scope turn completed");
+
+	// doc-1 is in col-test and holds the France answer. Production prompt
+	// citation for type 0 is detail/0/doc-1.
+	assert.ok(
+		/Paris/i.test(fullText),
+		`Expected collection-scope answer to mention Paris:\n${fullText.slice(0, 400)}`,
+	);
+	assert.match(
+		fullText,
+		/\[c\d+\]:\s*detail\/0\/doc-1/,
+		`Expected citation [cN]: detail/0/doc-1 in collection-scope response:\n${fullText.slice(0, 400)}`,
+	);
+	console.log("✓ Collection scope turn completed with correct citation");
 }
 
 async function testDocumentScope() {
@@ -378,18 +427,32 @@ async function testDocumentScope() {
 		scope_type: "document",
 		summary_id: "doc-2",
 		message: "What should I buy?",
-		system_prompt:
-			"You are a helpful assistant. Answer briefly using files in your working directory. Use Read tool.",
+		system_prompt: prodPrompt("document", { summaryId: "doc-2" }),
 	});
 
 	assert.equal(status, 200);
 	const types = events.map((e) => e.type);
 	console.log(`Event types: ${types.join(", ")}`);
-	assert.ok(
-		types.includes("completed") || types.includes("text_delta"),
-		"Document scope turn should produce output",
+	assert.ok(types.includes("text_delta"), "Should have text_delta events");
+
+	const fullText = extractFullText(events);
+	console.log(
+		`✓ Agent response (${fullText.length} chars): "${fullText.slice(0, 200)}..."`,
 	);
-	console.log("✓ Document scope turn completed");
+
+	// doc-2 (type 3) is the shopping list. Production prompt citation for
+	// type 3 is notes/3/{summaryId}. Answer should mention at least one of
+	// the items (milk/eggs/bread).
+	assert.ok(
+		/milk|eggs|bread/i.test(fullText),
+		`Expected document-scope answer to mention shopping items:\n${fullText.slice(0, 400)}`,
+	);
+	assert.match(
+		fullText,
+		/\[c\d+\]:\s*notes\/3\/doc-2/,
+		`Expected citation [cN]: notes/3/doc-2 in document-scope response:\n${fullText.slice(0, 400)}`,
+	);
+	console.log("✓ Document scope turn completed with correct citation");
 }
 
 async function testMissingScopeId() {
