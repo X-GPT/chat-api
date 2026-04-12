@@ -59,7 +59,7 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	const dataRoot = getDataRoot(userId);
 
 	const remoteManifest = await getManifest(userId);
-	const localManifest = deriveLocalManifest(dataRoot);
+	const localManifest = await deriveLocalManifest(dataRoot);
 
 	if (manifestsEqual(localManifest, remoteManifest)) {
 		return false;

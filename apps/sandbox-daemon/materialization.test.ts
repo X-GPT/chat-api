@@ -286,7 +286,7 @@ describe("materialization", () => {
 	});
 
 	describe("parseFrontmatter", () => {
-		it("parses a well-formed frontmatter", () => {
+		it("parses a well-formed frontmatter", async () => {
 			const dataRoot = join(testRoot, "parse-good");
 			const doc: DocFile = {
 				document_id: "doc-1",
@@ -298,7 +298,7 @@ describe("materialization", () => {
 			writeCanonicalFile(dataRoot, doc);
 			const path = buildCanonicalPath(dataRoot, doc);
 
-			const entry = parseFrontmatter(path);
+			const entry = await parseFrontmatter(path);
 			expect(entry).toEqual({
 				document_id: "doc-1",
 				type: 0,
@@ -307,7 +307,7 @@ describe("materialization", () => {
 			});
 		});
 
-		it("returns empty collections when the line is absent", () => {
+		it("returns empty collections when the line is absent", async () => {
 			const dataRoot = join(testRoot, "parse-nocols");
 			const doc: DocFile = {
 				document_id: "doc-2",
@@ -319,7 +319,7 @@ describe("materialization", () => {
 			writeCanonicalFile(dataRoot, doc);
 			const path = buildCanonicalPath(dataRoot, doc);
 
-			const entry = parseFrontmatter(path);
+			const entry = await parseFrontmatter(path);
 			expect(entry).toEqual({
 				document_id: "doc-2",
 				type: 3,
@@ -328,24 +328,24 @@ describe("materialization", () => {
 			});
 		});
 
-		it("returns null for a file without frontmatter", () => {
+		it("returns null for a file without frontmatter", async () => {
 			const dataRoot = join(testRoot, "parse-nofm");
 			mkdirSync(dataRoot, { recursive: true });
 			const path = join(dataRoot, "bad.md");
 			writeFileSync(path, "no frontmatter here\njust body\n", "utf-8");
-			expect(parseFrontmatter(path)).toBeNull();
+			expect(await parseFrontmatter(path)).toBeNull();
 		});
 
-		it("returns null when required fields are missing", () => {
+		it("returns null when required fields are missing", async () => {
 			const dataRoot = join(testRoot, "parse-incomplete");
 			mkdirSync(dataRoot, { recursive: true });
 			const path = join(dataRoot, "incomplete.md");
 			writeFileSync(path, "---\nsummaryId: x\ntype: 0\n---\n\nbody\n", "utf-8");
 			// Missing checksum — parser should reject
-			expect(parseFrontmatter(path)).toBeNull();
+			expect(await parseFrontmatter(path)).toBeNull();
 		});
 
-		it("returns null when collections JSON is malformed", () => {
+		it("returns null when collections JSON is malformed", async () => {
 			const dataRoot = join(testRoot, "parse-bad-cols");
 			mkdirSync(dataRoot, { recursive: true });
 			const path = join(dataRoot, "bad-cols.md");
@@ -355,10 +355,10 @@ describe("materialization", () => {
 				"---\nsummaryId: x\ntype: 0\nchecksum: c\ncollections: [bad]\n---\n\nbody\n",
 				"utf-8",
 			);
-			expect(parseFrontmatter(path)).toBeNull();
+			expect(await parseFrontmatter(path)).toBeNull();
 		});
 
-		it("returns null when collections JSON is an array of non-strings", () => {
+		it("returns null when collections JSON is an array of non-strings", async () => {
 			const dataRoot = join(testRoot, "parse-bad-cols-type");
 			mkdirSync(dataRoot, { recursive: true });
 			const path = join(dataRoot, "bad-cols-type.md");
@@ -367,7 +367,7 @@ describe("materialization", () => {
 				"---\nsummaryId: x\ntype: 0\nchecksum: c\ncollections: [1,2,3]\n---\n\nbody\n",
 				"utf-8",
 			);
-			expect(parseFrontmatter(path)).toBeNull();
+			expect(await parseFrontmatter(path)).toBeNull();
 		});
 	});
 
@@ -434,18 +434,18 @@ describe("materialization", () => {
 	});
 
 	describe("deriveLocalManifest", () => {
-		it("returns empty array when canonical/ is missing", () => {
+		it("returns empty array when canonical/ is missing", async () => {
 			const dataRoot = join(testRoot, "derive-empty-noroot");
-			expect(deriveLocalManifest(dataRoot)).toEqual([]);
+			expect(await deriveLocalManifest(dataRoot)).toEqual([]);
 		});
 
-		it("returns empty array when canonical/ exists but is empty", () => {
+		it("returns empty array when canonical/ exists but is empty", async () => {
 			const dataRoot = join(testRoot, "derive-empty-root");
 			mkdirSync(`${dataRoot}/canonical`, { recursive: true });
-			expect(deriveLocalManifest(dataRoot)).toEqual([]);
+			expect(await deriveLocalManifest(dataRoot)).toEqual([]);
 		});
 
-		it("returns entries sorted by document_id across type dirs", () => {
+		it("returns entries sorted by document_id across type dirs", async () => {
 			const dataRoot = join(testRoot, "derive-sorted");
 			writeCanonicalFile(dataRoot, {
 				document_id: "b-doc",
@@ -462,7 +462,7 @@ describe("materialization", () => {
 				checksum: "c2",
 			});
 
-			const entries = deriveLocalManifest(dataRoot);
+			const entries = await deriveLocalManifest(dataRoot);
 			expect(entries).toEqual([
 				{
 					document_id: "a-doc",
@@ -479,7 +479,7 @@ describe("materialization", () => {
 			]);
 		});
 
-		it("skips non-numeric type dirs", () => {
+		it("skips non-numeric type dirs", async () => {
 			const dataRoot = join(testRoot, "derive-non-numeric");
 			mkdirSync(`${dataRoot}/canonical/notanumber`, { recursive: true });
 			writeFileSync(
@@ -487,10 +487,10 @@ describe("materialization", () => {
 				"---\nsummaryId: ghost\ntype: 0\nchecksum: g\n---\n\n",
 				"utf-8",
 			);
-			expect(deriveLocalManifest(dataRoot)).toEqual([]);
+			expect(await deriveLocalManifest(dataRoot)).toEqual([]);
 		});
 
-		it("skips non-.md files", () => {
+		it("skips non-.md files", async () => {
 			const dataRoot = join(testRoot, "derive-non-md");
 			mkdirSync(`${dataRoot}/canonical/0`, { recursive: true });
 			writeFileSync(
@@ -498,10 +498,10 @@ describe("materialization", () => {
 				"---\nsummaryId: x\ntype: 0\nchecksum: c\n---\n\n",
 				"utf-8",
 			);
-			expect(deriveLocalManifest(dataRoot)).toEqual([]);
+			expect(await deriveLocalManifest(dataRoot)).toEqual([]);
 		});
 
-		it("skips files with malformed frontmatter and logs a warning", () => {
+		it("skips files with malformed frontmatter and logs a warning", async () => {
 			const dataRoot = join(testRoot, "derive-malformed");
 			mkdirSync(`${dataRoot}/canonical/0`, { recursive: true });
 			writeFileSync(
@@ -518,7 +518,7 @@ describe("materialization", () => {
 			});
 
 			const warnings: Array<Record<string, unknown>> = [];
-			const entries = deriveLocalManifest(dataRoot, {
+			const entries = await deriveLocalManifest(dataRoot, {
 				warn: (m) => {
 					warnings.push(m);
 				},

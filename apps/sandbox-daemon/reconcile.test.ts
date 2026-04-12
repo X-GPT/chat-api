@@ -189,6 +189,6 @@ describe("reconcile", () => {
 
 		await reconcile({ userId: "user-1" });
 
-		expect(deriveLocalManifest(dataRoot)).toEqual(remote);
+		expect(await deriveLocalManifest(dataRoot)).toEqual(remote);
 	});
 });

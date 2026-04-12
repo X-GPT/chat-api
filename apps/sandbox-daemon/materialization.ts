@@ -21,13 +21,10 @@
 
 import { createHash } from "node:crypto";
 import {
-	closeSync,
 	existsSync,
 	linkSync,
 	mkdirSync,
-	openSync,
 	readdirSync,
-	readSync,
 	rmSync,
 	unlinkSync,
 	writeFileSync,
@@ -270,29 +267,39 @@ export function findCanonicalDoc(
  * Walk canonical/{type}/*.md and return a LocalManifestEntry for each file,
  * sorted by document_id to match the remote manifest's ordering. Skips files
  * whose frontmatter can't be parsed (logs a warning via the provided logger).
+ *
+ * File reads run in parallel via Promise.all so the wall-clock cost scales
+ * with the slowest file, not the sum. Each file reads only the first 2KB
+ * via Bun.file().slice() — enough to cover any realistic frontmatter.
  */
-export function deriveLocalManifest(
+export async function deriveLocalManifest(
 	dataRoot: string,
 	logger?: { warn: (msg: Record<string, unknown>) => void },
-): LocalManifestEntry[] {
+): Promise<LocalManifestEntry[]> {
 	const root = `${dataRoot}/canonical`;
 	if (!existsSync(root)) return [];
 
-	const entries: LocalManifestEntry[] = [];
+	// Collect candidate paths synchronously (readdir is cheap).
+	const paths: string[] = [];
 	for (const typeDir of readdirSync(root, { withFileTypes: true })) {
 		if (!typeDir.isDirectory()) continue;
-		const type = Number(typeDir.name);
-		if (Number.isNaN(type)) continue;
+		if (Number.isNaN(Number(typeDir.name))) continue;
 		const subRoot = `${root}/${typeDir.name}`;
 		for (const file of readdirSync(subRoot, { withFileTypes: true })) {
 			if (!file.isFile() || !file.name.endsWith(".md")) continue;
-			const path = `${subRoot}/${file.name}`;
-			const entry = parseFrontmatter(path);
-			if (entry) {
-				entries.push(entry);
-			} else if (logger) {
-				logger.warn({ msg: "Skipped malformed frontmatter", path });
-			}
+			paths.push(`${subRoot}/${file.name}`);
+		}
+	}
+
+	const parsed = await Promise.all(paths.map((p) => parseFrontmatter(p)));
+
+	const entries: LocalManifestEntry[] = [];
+	for (let i = 0; i < parsed.length; i++) {
+		const entry = parsed[i];
+		if (entry) {
+			entries.push(entry);
+		} else if (logger) {
+			logger.warn({ msg: "Skipped malformed frontmatter", path: paths[i] });
 		}
 	}
 	entries.sort((a, b) =>
@@ -305,18 +312,15 @@ export function deriveLocalManifest(
  * Read a canonical file's frontmatter and return its manifest entry.
  * Returns null if the file can't be read or the frontmatter is malformed.
  */
-export function parseFrontmatter(path: string): LocalManifestEntry | null {
+export async function parseFrontmatter(
+	path: string,
+): Promise<LocalManifestEntry | null> {
 	let head: string;
 	try {
-		// 2KB is well beyond any realistic frontmatter size.
-		const fd = openSync(path, "r");
-		try {
-			const buf = Buffer.alloc(2048);
-			const n = readSync(fd, buf, 0, buf.length, 0);
-			head = buf.toString("utf-8", 0, n);
-		} finally {
-			closeSync(fd);
-		}
+		// Partial read — Bun.file.slice().text() only reads the requested byte
+		// range from disk, not the whole file. 2KB is well beyond any realistic
+		// frontmatter size.
+		head = await Bun.file(path).slice(0, 2048).text();
 	} catch {
 		return null;
 	}
