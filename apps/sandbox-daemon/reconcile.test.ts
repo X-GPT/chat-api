@@ -156,6 +156,7 @@ describe("reconcile", () => {
 
 		// Should resync despite manifest matching — file count mismatch
 		expect(result).toBe(true);
+		expect(mockGetFileContents).toHaveBeenCalledWith("user-1", ["doc-1"]);
 		expect(existsSync(`${dataRoot}/canonical/0/doc-1.md`)).toBe(true);
 		const content = readFileSync(`${dataRoot}/canonical/0/doc-1.md`, "utf-8");
 		expect(content).toContain("restored content");

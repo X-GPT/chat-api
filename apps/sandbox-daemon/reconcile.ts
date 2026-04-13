@@ -93,7 +93,7 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	if (!rawManifest) {
 		clearDataRoot(dataRoot);
 	}
-	const manifestData = rawManifest ?? { entries: [], collectionNames: {} };
+	let manifestData = rawManifest ?? { entries: [], collectionNames: {} };
 
 	const collectionNamesMap = new Map(
 		collectionRows.map((r) => [r.collection_id, r.name]),
@@ -109,6 +109,7 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 		// full resync (same as corrupt manifest).
 		if (countCanonicalFiles(dataRoot) !== manifestData.entries.length) {
 			clearDataRoot(dataRoot);
+			manifestData = { entries: [], collectionNames: {} };
 		} else {
 			return false;
 		}
