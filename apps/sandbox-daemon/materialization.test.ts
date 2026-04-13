@@ -485,32 +485,29 @@ describe("materialization", () => {
 			expect(read).toEqual(data);
 		});
 
-		it("returns empty manifest when file is missing", async () => {
+		it("returns null when file is missing", async () => {
 			const dataRoot = join(testRoot, "manifest-missing");
-			const read = await readManifest(dataRoot);
-			expect(read).toEqual({ entries: [], collectionNames: {} });
+			expect(await readManifest(dataRoot)).toBeNull();
 		});
 
-		it("returns empty manifest when file is malformed", async () => {
+		it("returns null when file is malformed", async () => {
 			const dataRoot = join(testRoot, "manifest-malformed");
 			mkdirSync(`${dataRoot}/canonical`, { recursive: true });
 			await Bun.write(
 				`${dataRoot}/canonical/.manifest.json`,
 				"not valid json{",
 			);
-			const read = await readManifest(dataRoot);
-			expect(read).toEqual({ entries: [], collectionNames: {} });
+			expect(await readManifest(dataRoot)).toBeNull();
 		});
 
-		it("returns empty manifest when file has wrong shape", async () => {
+		it("returns null when file has wrong shape", async () => {
 			const dataRoot = join(testRoot, "manifest-wrong-shape");
 			mkdirSync(`${dataRoot}/canonical`, { recursive: true });
 			await Bun.write(
 				`${dataRoot}/canonical/.manifest.json`,
 				'{"entries": "not an array"}',
 			);
-			const read = await readManifest(dataRoot);
-			expect(read).toEqual({ entries: [], collectionNames: {} });
+			expect(await readManifest(dataRoot)).toBeNull();
 		});
 	});
 
@@ -640,6 +637,35 @@ describe("materialization", () => {
 			expect(alphaPos).toBeGreaterThan(-1);
 			expect(zebraPos).toBeGreaterThan(-1);
 			expect(alphaPos).toBeLessThan(zebraPos);
+		});
+
+		it("escapes newlines in titles and collection names", async () => {
+			const dataRoot = join(testRoot, "index-newlines");
+			mkdirSync(`${dataRoot}/canonical`, { recursive: true });
+
+			await writeIndexFile(
+				dataRoot,
+				[
+					{
+						document_id: "doc-1",
+						type: 0,
+						checksum: "c",
+						collections: ["col-A"],
+						title: "Title\nWith\nNewlines",
+					},
+				],
+				new Map([["col-A", "Collection\nName"]]),
+			);
+
+			const content = readFileSync(
+				`${dataRoot}/canonical/_index.md`,
+				"utf-8",
+			);
+			// Newlines should be replaced with spaces, not injecting extra lines
+			expect(content).toContain("- Title With Newlines");
+			expect(content).toContain("## Collection Name (col-A)");
+			expect(content).not.toContain("Title\n");
+			expect(content).not.toContain("Collection\n");
 		});
 
 		it("generates valid index with no entries", async () => {

@@ -118,6 +118,37 @@ describe("reconcile", () => {
 		expect(existsSync(`${dataRoot}/canonical/0/orphan.md`)).toBe(false);
 	});
 
+	it("cleans up orphaned files when manifest is corrupt", async () => {
+		writeCanonicalFile(
+			dataRoot,
+			{
+				document_id: "orphan",
+				type: 0,
+				collections: [],
+				content: "stale content",
+				checksum: "old",
+			},
+			emptyCollectionNames,
+		);
+		// Write corrupt manifest (file exists but invalid JSON)
+		mkdirSync(`${dataRoot}/canonical`, { recursive: true });
+		const { writeFileSync } = require("node:fs");
+		writeFileSync(
+			`${dataRoot}/canonical/.manifest.json`,
+			"truncated{",
+			"utf-8",
+		);
+
+		expect(existsSync(`${dataRoot}/canonical/0/orphan.md`)).toBe(true);
+
+		mockGetManifest.mockResolvedValueOnce([]);
+		mockGetFileContents.mockResolvedValueOnce([]);
+
+		await reconcile({ userId: "user-1" });
+
+		expect(existsSync(`${dataRoot}/canonical/0/orphan.md`)).toBe(false);
+	});
+
 	it("removes collection hardlinks and canonical file on delete", async () => {
 		const doc: DocFile = {
 			document_id: "doc-1",

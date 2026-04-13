@@ -5,7 +5,6 @@ import {
 	ensureDataRoot,
 	getDataRoot,
 	type LocalManifestEntry,
-	manifestExists,
 	readManifest,
 	removeCanonicalFile,
 	removeCollectionEntries,
@@ -83,21 +82,17 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	const dataRoot = getDataRoot(userId);
 	ensureDataRoot(dataRoot);
 
-	// Check before async reads — if no manifest file exists, we'll need a full wipe.
-	const hasManifest = manifestExists(dataRoot);
-
-	const [remoteManifest, manifestData, collectionRows] = await Promise.all([
+	const [remoteManifest, rawManifest, collectionRows] = await Promise.all([
 		getManifest(userId),
 		readManifest(dataRoot),
 		getCollectionNames(userId),
 	]);
 
-	// Missing/corrupt manifest file — wipe and full resync to prevent orphaned files.
-	// Distinguished from a genuinely empty workspace (new user) where the manifest
-	// file exists but has zero entries.
-	if (!hasManifest) {
+	// Missing/corrupt manifest — wipe and full resync to prevent orphaned files.
+	if (!rawManifest) {
 		clearDataRoot(dataRoot);
 	}
+	const manifestData = rawManifest ?? { entries: [], collectionNames: {} };
 
 	const collectionNamesMap = new Map(
 		collectionRows.map((r) => [r.collection_id, r.name]),

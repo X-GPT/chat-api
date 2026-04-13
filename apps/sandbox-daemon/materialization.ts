@@ -312,18 +312,13 @@ function emptyManifest(): ManifestData {
 	return { entries: [], collectionNames: {} };
 }
 
-/** Check if a persisted manifest exists on disk. */
-export function manifestExists(dataRoot: string): boolean {
-	return existsSync(`${dataRoot}/canonical/${MANIFEST_FILENAME}`);
-}
-
 /**
  * Read the local manifest from `canonical/.manifest.json`.
- * Returns empty ManifestData if the file is missing or malformed.
+ * Returns `null` if the file is missing, corrupt, or unparseable.
  */
 export async function readManifest(
 	dataRoot: string,
-): Promise<ManifestData> {
+): Promise<ManifestData | null> {
 	const filePath = `${dataRoot}/canonical/${MANIFEST_FILENAME}`;
 	try {
 		const text = await Bun.file(filePath).text();
@@ -333,14 +328,14 @@ export async function readManifest(
 			typeof parsed !== "object" ||
 			!Array.isArray(parsed.entries)
 		) {
-			return emptyManifest();
+			return null;
 		}
 		return {
 			entries: parsed.entries,
 			collectionNames: parsed.collectionNames ?? {},
 		};
 	} catch {
-		return emptyManifest();
+		return null;
 	}
 }
 
@@ -393,13 +388,17 @@ export async function writeIndexFile(
 		return nameA.localeCompare(nameB);
 	});
 
+	function stripNewlines(s: string): string {
+		return s.replace(/[\r\n]+/g, " ");
+	}
+
 	function formatDocLine(doc: LocalManifestEntry): string {
-		const title = doc.title ?? doc.document_id;
+		const title = stripNewlines(doc.title ?? doc.document_id);
 		return `- ${title} (${doc.type}/${sanitizePathSegment(doc.document_id)}.md)`;
 	}
 
 	for (const [colId, docs] of sortedCollections) {
-		const colName = collectionNames.get(colId) ?? colId;
+		const colName = stripNewlines(collectionNames.get(colId) ?? colId);
 		lines.push(`## ${colName} (${colId})`, "");
 		for (const doc of docs) {
 			lines.push(formatDocLine(doc));
