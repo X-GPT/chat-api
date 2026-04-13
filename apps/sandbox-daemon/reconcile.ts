@@ -105,9 +105,11 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	const entriesChanged = !manifestsEqual(manifestData.entries, remoteManifest);
 
 	if (!entriesChanged && renamedCollections.size === 0) {
-		// Verify canonical files exist — if count doesn't match, files may have
-		// been lost and need restoring.
-		if (countCanonicalFiles(dataRoot) === manifestData.entries.length) {
+		// Verify canonical files exist — if count doesn't match, wipe and
+		// full resync (same as corrupt manifest).
+		if (countCanonicalFiles(dataRoot) !== manifestData.entries.length) {
+			clearDataRoot(dataRoot);
+		} else {
 			return false;
 		}
 	}
