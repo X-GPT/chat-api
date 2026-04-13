@@ -119,7 +119,8 @@ export function writeCanonicalFile(
 	collectionNames: Map<string, string>,
 ): void {
 	const filePath = buildCanonicalPath(dataRoot, doc);
-	const title = doc.title ?? doc.document_id;
+	// Strip newlines/carriage returns to prevent title from breaking frontmatter.
+	const title = (doc.title ?? doc.document_id).replace(/[\r\n]+/g, " ").trim();
 	const cite = buildCitePath(doc);
 	const lines = ["---", `title: ${title}`, `cite: ${cite}`];
 	if (doc.collections.length > 0) {

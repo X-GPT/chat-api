@@ -189,6 +189,25 @@ describe("materialization", () => {
 			expect(content).not.toContain("col-A");
 		});
 
+		it("sanitizes newlines in title to prevent frontmatter breakage", () => {
+			const dataRoot = join(testRoot, "write-title-newline");
+			const doc: DocFile = {
+				document_id: "nl-doc",
+				type: 0,
+				collections: [],
+				content: "body",
+				checksum: "c",
+				title: "Line One\nLine Two\r\nLine Three",
+			};
+			writeCanonicalFile(dataRoot, doc, emptyCollectionNames);
+
+			const content = readFileSync(buildCanonicalPath(dataRoot, doc), "utf-8");
+			expect(content).toContain("title: Line One Line Two Line Three");
+			// Frontmatter should have exactly 2 "---" delimiters
+			const dashes = content.match(/^---$/gm);
+			expect(dashes).toHaveLength(2);
+		});
+
 		it("falls back to collection ID when name is missing", () => {
 			const dataRoot = join(testRoot, "write-collections-fallback");
 			const doc: DocFile = {
