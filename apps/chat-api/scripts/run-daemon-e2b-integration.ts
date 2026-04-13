@@ -581,8 +581,63 @@ async function testCollectionRename() {
 	console.log("✓ Frontmatter updated with renamed collection");
 }
 
+async function testTitleOnlyChange() {
+	console.log("\n=== Test 12: Title-Only Change Detection ===");
+
+	// Update doc-1's title without changing content or checksum
+	await db
+		.update(userFiles)
+		.set({ title: "Paris City Guide" })
+		.where(
+			and(
+				eq(userFiles.userId, userId),
+				eq(userFiles.documentId, "doc-1"),
+			),
+		);
+	console.log('Updated doc-1 title to "Paris City Guide"');
+
+	// Run a turn to trigger reconcile
+	const { status, events } = await sendTurn({
+		request_id: `turn-title-${Date.now()}`,
+		user_id: userId,
+		scope_type: "global",
+		message: "What is the capital of France?",
+		system_prompt: prodPrompt("general"),
+	});
+
+	assert.equal(status, 200);
+	const types = events.map((e) => e.type);
+	assert.ok(types.includes("text_delta"), "Should have text_delta events");
+
+	// Verify frontmatter has the new title
+	const catResult = await sandbox.commands.run(
+		`head -10 ${WORKSPACE_ROOT}/data/*/canonical/0/doc-1.md 2>/dev/null`,
+		{ timeoutMs: 5_000 },
+	);
+	assert.ok(
+		catResult.stdout.includes("title: Paris City Guide"),
+		`Frontmatter should contain new title, got:\n${catResult.stdout}`,
+	);
+	console.log("✓ Frontmatter updated with new title");
+
+	// Verify _index.md has the new title
+	const indexResult = await sandbox.commands.run(
+		`cat ${WORKSPACE_ROOT}/data/*/canonical/_index.md 2>/dev/null`,
+		{ timeoutMs: 5_000 },
+	);
+	assert.ok(
+		indexResult.stdout.includes("Paris City Guide"),
+		`_index.md should contain "Paris City Guide", got:\n${indexResult.stdout}`,
+	);
+	assert.ok(
+		!indexResult.stdout.includes("France Travel Notes"),
+		`_index.md should NOT contain old title "France Travel Notes"`,
+	);
+	console.log("✓ _index.md updated with new title");
+}
+
 async function testSandboxIdPersistence() {
-	console.log("\n=== Test 12: Sandbox ID Persistence in Postgres ===");
+	console.log("\n=== Test 13: Sandbox ID Persistence in Postgres ===");
 
 	const runtime = await getRuntime(userId);
 	const persistedId = runtime?.sandbox_id;
@@ -639,6 +694,7 @@ async function main() {
 		await testMissingScopeId();
 		await testMissingDocument();
 		await testCollectionRename();
+		await testTitleOnlyChange();
 		await testSandboxIdPersistence();
 		console.log("\n✓ All E2B daemon integration tests passed");
 	} catch (err) {
