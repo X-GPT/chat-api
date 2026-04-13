@@ -12,24 +12,29 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
 	buildCanonicalPath,
+	buildCitePath,
 	buildCollectionHardlink,
+	clearDataRoot,
 	computeChecksum,
+	countCanonicalFiles,
 	createEphemeralDocumentScope,
 	type DocFile,
-	deriveLocalManifest,
 	findCanonicalDoc,
 	getDataRoot,
 	parseCollectionIds,
-	parseFrontmatter,
+	readManifest,
 	removeCanonicalFile,
 	removeEphemeralDocumentScope,
 	resolveScopeCwd,
 	sanitizePathSegment,
 	writeCanonicalFile,
+	writeIndexFile,
+	writeManifest,
 } from "./materialization";
 
 describe("materialization", () => {
 	const testRoot = join(tmpdir(), `mat-test-${Date.now()}`);
+	const emptyCollectionNames = new Map<string, string>();
 
 	afterAll(() => {
 		rmSync(testRoot, { recursive: true, force: true });
@@ -106,6 +111,49 @@ describe("materialization", () => {
 		});
 	});
 
+	describe("clearDataRoot", () => {
+		it("removes canonical/ and collections/ and recreates canonical/", () => {
+			const dataRoot = join(testRoot, "clear-test");
+			mkdirSync(`${dataRoot}/canonical/0`, { recursive: true });
+			mkdirSync(`${dataRoot}/collections/col-A/0`, { recursive: true });
+			writeFileSync(`${dataRoot}/canonical/0/doc.md`, "content");
+			writeFileSync(`${dataRoot}/collections/col-A/0/doc.md`, "content");
+
+			clearDataRoot(dataRoot);
+
+			expect(existsSync(`${dataRoot}/canonical`)).toBe(true);
+			expect(existsSync(`${dataRoot}/canonical/0/doc.md`)).toBe(false);
+			expect(existsSync(`${dataRoot}/collections`)).toBe(false);
+		});
+	});
+
+	describe("countCanonicalFiles", () => {
+		it("counts .md files across type directories", () => {
+			const dataRoot = join(testRoot, "count-test");
+			writeCanonicalFile(
+				dataRoot,
+				{ document_id: "a", type: 0, collections: [], content: "x", checksum: "c1" },
+				emptyCollectionNames,
+			);
+			writeCanonicalFile(
+				dataRoot,
+				{ document_id: "b", type: 3, collections: [], content: "y", checksum: "c2" },
+				emptyCollectionNames,
+			);
+			expect(countCanonicalFiles(dataRoot)).toBe(2);
+		});
+
+		it("returns 0 when canonical/ is missing", () => {
+			expect(countCanonicalFiles(join(testRoot, "count-noroot"))).toBe(0);
+		});
+
+		it("returns 0 when canonical/ is empty", () => {
+			const dataRoot = join(testRoot, "count-empty");
+			mkdirSync(`${dataRoot}/canonical`, { recursive: true });
+			expect(countCanonicalFiles(dataRoot)).toBe(0);
+		});
+	});
+
 	describe("buildCanonicalPath", () => {
 		it("builds path with type and document_id", () => {
 			const path = buildCanonicalPath("/data/u1", {
@@ -137,7 +185,7 @@ describe("materialization", () => {
 	});
 
 	describe("writeCanonicalFile + removeCanonicalFile", () => {
-		it("writes file with frontmatter and removes it", () => {
+		it("writes file with agent-facing frontmatter and removes it", () => {
 			const dataRoot = join(testRoot, "write-test");
 
 			const doc: DocFile = {
@@ -148,15 +196,16 @@ describe("materialization", () => {
 				checksum: "abc",
 			};
 
-			writeCanonicalFile(dataRoot, doc);
+			writeCanonicalFile(dataRoot, doc, emptyCollectionNames);
 
 			const filePath = buildCanonicalPath(dataRoot, doc);
 			expect(existsSync(filePath)).toBe(true);
 
 			const content = readFileSync(filePath, "utf-8");
-			expect(content).toContain("summaryId: 123");
-			expect(content).toContain("type: 0");
-			expect(content).toContain("checksum: abc");
+			expect(content).toContain('title: "123"');
+			expect(content).toContain("cite: detail/0/123");
+			// No checksum in frontmatter — it lives in .manifest.json
+			expect(content).not.toContain("checksum:");
 			// Empty collections → no collections line
 			expect(content).not.toContain("collections:");
 			expect(content).toContain("Hello world");
@@ -165,7 +214,7 @@ describe("materialization", () => {
 			expect(existsSync(filePath)).toBe(false);
 		});
 
-		it("emits collections line as JSON array when non-empty", () => {
+		it("emits collections with human-readable names when non-empty", () => {
 			const dataRoot = join(testRoot, "write-collections-test");
 			const doc: DocFile = {
 				document_id: "456",
@@ -174,10 +223,69 @@ describe("materialization", () => {
 				content: "content",
 				checksum: "xyz",
 			};
-			writeCanonicalFile(dataRoot, doc);
+			const names = new Map([
+				["col-A", "Research"],
+				["col-B", "Reading"],
+			]);
+			writeCanonicalFile(dataRoot, doc, names);
 
 			const content = readFileSync(buildCanonicalPath(dataRoot, doc), "utf-8");
-			expect(content).toContain('collections: ["col-A","col-B"]');
+			expect(content).toContain('collections: ["Research","Reading"]');
+			// Should NOT contain raw IDs
+			expect(content).not.toContain("col-A");
+		});
+
+		it("escapes newlines in title via JSON.stringify", () => {
+			const dataRoot = join(testRoot, "write-title-newline");
+			const doc: DocFile = {
+				document_id: "nl-doc",
+				type: 0,
+				collections: [],
+				content: "body",
+				checksum: "c",
+				title: "Line One\nLine Two",
+			};
+			writeCanonicalFile(dataRoot, doc, emptyCollectionNames);
+
+			const content = readFileSync(buildCanonicalPath(dataRoot, doc), "utf-8");
+			expect(content).toContain('title: "Line One\\nLine Two"');
+			const dashes = content.match(/^---$/gm);
+			expect(dashes).toHaveLength(2);
+		});
+
+		it("escapes YAML-special characters in title", () => {
+			const dataRoot = join(testRoot, "write-title-yaml");
+			const doc: DocFile = {
+				document_id: "yaml-doc",
+				type: 0,
+				collections: [],
+				content: "body",
+				checksum: "c",
+				title: 'Node.js: A Guide [Draft] #1 & "Quoted"',
+			};
+			writeCanonicalFile(dataRoot, doc, emptyCollectionNames);
+
+			const content = readFileSync(buildCanonicalPath(dataRoot, doc), "utf-8");
+			expect(content).toContain(
+				'title: "Node.js: A Guide [Draft] #1 & \\"Quoted\\""',
+			);
+			const dashes = content.match(/^---$/gm);
+			expect(dashes).toHaveLength(2);
+		});
+
+		it("falls back to collection ID when name is missing", () => {
+			const dataRoot = join(testRoot, "write-collections-fallback");
+			const doc: DocFile = {
+				document_id: "789",
+				type: 0,
+				collections: ["col-unknown"],
+				content: "content",
+				checksum: "xyz",
+			};
+			writeCanonicalFile(dataRoot, doc, emptyCollectionNames);
+
+			const content = readFileSync(buildCanonicalPath(dataRoot, doc), "utf-8");
+			expect(content).toContain('collections: ["col-unknown"]');
 		});
 
 		it("removeCanonicalFile is safe for nonexistent files", () => {
@@ -200,20 +308,17 @@ describe("materialization", () => {
 				checksum: "xyz",
 			};
 
-			writeCanonicalFile(dataRoot, doc);
+			writeCanonicalFile(dataRoot, doc, emptyCollectionNames);
 			buildCollectionHardlink(dataRoot, doc, "col-A");
 
 			const linkPath = `${dataRoot}/collections/col-A/0/456.md`;
 			const canonicalPath = buildCanonicalPath(dataRoot, doc);
 
 			expect(existsSync(linkPath)).toBe(true);
-			// lstatSync without auto-following: must be a regular file, not a symlink
 			expect(lstatSync(linkPath).isFile()).toBe(true);
 			expect(lstatSync(linkPath).isSymbolicLink()).toBe(false);
-			// Same inode as the canonical file — proves the hardlink is sharing bytes
 			expect(statSync(linkPath).ino).toBe(statSync(canonicalPath).ino);
 
-			// Content round-trip via the hardlink path
 			expect(readFileSync(linkPath, "utf-8")).toContain("content");
 		});
 
@@ -226,7 +331,7 @@ describe("materialization", () => {
 				content: "content",
 				checksum: "c1",
 			};
-			writeCanonicalFile(dataRoot, doc);
+			writeCanonicalFile(dataRoot, doc, emptyCollectionNames);
 			buildCollectionHardlink(dataRoot, doc, "col-X");
 			expect(() =>
 				buildCollectionHardlink(dataRoot, doc, "col-X"),
@@ -269,7 +374,7 @@ describe("materialization", () => {
 				checksum: "eph",
 			};
 
-			writeCanonicalFile(dataRoot, doc);
+			writeCanonicalFile(dataRoot, doc, emptyCollectionNames);
 
 			const scopePath = createEphemeralDocumentScope(dataRoot, "789", doc);
 			const linkPath = `${scopePath}/doc.md`;
@@ -285,92 +390,6 @@ describe("materialization", () => {
 		});
 	});
 
-	describe("parseFrontmatter", () => {
-		it("parses a well-formed frontmatter", async () => {
-			const dataRoot = join(testRoot, "parse-good");
-			const doc: DocFile = {
-				document_id: "doc-1",
-				type: 0,
-				collections: ["col-A", "col-B"],
-				content: "body",
-				checksum: "abc",
-			};
-			writeCanonicalFile(dataRoot, doc);
-			const path = buildCanonicalPath(dataRoot, doc);
-
-			const entry = await parseFrontmatter(path);
-			expect(entry).toEqual({
-				document_id: "doc-1",
-				type: 0,
-				checksum: "abc",
-				collections: ["col-A", "col-B"],
-			});
-		});
-
-		it("returns empty collections when the line is absent", async () => {
-			const dataRoot = join(testRoot, "parse-nocols");
-			const doc: DocFile = {
-				document_id: "doc-2",
-				type: 3,
-				collections: [],
-				content: "body",
-				checksum: "xyz",
-			};
-			writeCanonicalFile(dataRoot, doc);
-			const path = buildCanonicalPath(dataRoot, doc);
-
-			const entry = await parseFrontmatter(path);
-			expect(entry).toEqual({
-				document_id: "doc-2",
-				type: 3,
-				checksum: "xyz",
-				collections: [],
-			});
-		});
-
-		it("returns null for a file without frontmatter", async () => {
-			const dataRoot = join(testRoot, "parse-nofm");
-			mkdirSync(dataRoot, { recursive: true });
-			const path = join(dataRoot, "bad.md");
-			writeFileSync(path, "no frontmatter here\njust body\n", "utf-8");
-			expect(await parseFrontmatter(path)).toBeNull();
-		});
-
-		it("returns null when required fields are missing", async () => {
-			const dataRoot = join(testRoot, "parse-incomplete");
-			mkdirSync(dataRoot, { recursive: true });
-			const path = join(dataRoot, "incomplete.md");
-			writeFileSync(path, "---\nsummaryId: x\ntype: 0\n---\n\nbody\n", "utf-8");
-			// Missing checksum — parser should reject
-			expect(await parseFrontmatter(path)).toBeNull();
-		});
-
-		it("returns null when collections JSON is malformed", async () => {
-			const dataRoot = join(testRoot, "parse-bad-cols");
-			mkdirSync(dataRoot, { recursive: true });
-			const path = join(dataRoot, "bad-cols.md");
-			// Brackets present so the line matches, but the JSON itself is invalid.
-			writeFileSync(
-				path,
-				"---\nsummaryId: x\ntype: 0\nchecksum: c\ncollections: [bad]\n---\n\nbody\n",
-				"utf-8",
-			);
-			expect(await parseFrontmatter(path)).toBeNull();
-		});
-
-		it("returns null when collections JSON is an array of non-strings", async () => {
-			const dataRoot = join(testRoot, "parse-bad-cols-type");
-			mkdirSync(dataRoot, { recursive: true });
-			const path = join(dataRoot, "bad-cols-type.md");
-			writeFileSync(
-				path,
-				"---\nsummaryId: x\ntype: 0\nchecksum: c\ncollections: [1,2,3]\n---\n\nbody\n",
-				"utf-8",
-			);
-			expect(await parseFrontmatter(path)).toBeNull();
-		});
-	});
-
 	describe("findCanonicalDoc", () => {
 		it("returns null when canonical/ is missing", () => {
 			expect(
@@ -380,32 +399,44 @@ describe("materialization", () => {
 
 		it("returns null when the document isn't found", () => {
 			const dataRoot = join(testRoot, "find-missing");
-			writeCanonicalFile(dataRoot, {
-				document_id: "doc-1",
-				type: 0,
-				collections: [],
-				content: "x",
-				checksum: "c",
-			});
+			writeCanonicalFile(
+				dataRoot,
+				{
+					document_id: "doc-1",
+					type: 0,
+					collections: [],
+					content: "x",
+					checksum: "c",
+				},
+				emptyCollectionNames,
+			);
 			expect(findCanonicalDoc(dataRoot, "doc-2")).toBeNull();
 		});
 
 		it("finds a doc by id in its type directory", () => {
 			const dataRoot = join(testRoot, "find-hit");
-			writeCanonicalFile(dataRoot, {
-				document_id: "doc-1",
-				type: 0,
-				collections: [],
-				content: "x",
-				checksum: "c1",
-			});
-			writeCanonicalFile(dataRoot, {
-				document_id: "doc-2",
-				type: 3,
-				collections: [],
-				content: "y",
-				checksum: "c2",
-			});
+			writeCanonicalFile(
+				dataRoot,
+				{
+					document_id: "doc-1",
+					type: 0,
+					collections: [],
+					content: "x",
+					checksum: "c1",
+				},
+				emptyCollectionNames,
+			);
+			writeCanonicalFile(
+				dataRoot,
+				{
+					document_id: "doc-2",
+					type: 3,
+					collections: [],
+					content: "y",
+					checksum: "c2",
+				},
+				emptyCollectionNames,
+			);
 			expect(findCanonicalDoc(dataRoot, "doc-1")).toEqual({
 				document_id: "doc-1",
 				type: 0,
@@ -418,14 +449,17 @@ describe("materialization", () => {
 
 		it("sanitizes the document_id before matching", () => {
 			const dataRoot = join(testRoot, "find-sanitize");
-			writeCanonicalFile(dataRoot, {
-				document_id: "my doc/id",
-				type: 0,
-				collections: [],
-				content: "x",
-				checksum: "c",
-			});
-			// sanitizePathSegment turns "my doc/id" into "my-doc-id"
+			writeCanonicalFile(
+				dataRoot,
+				{
+					document_id: "my doc/id",
+					type: 0,
+					collections: [],
+					content: "x",
+					checksum: "c",
+				},
+				emptyCollectionNames,
+			);
 			expect(findCanonicalDoc(dataRoot, "my doc/id")).toEqual({
 				document_id: "my doc/id",
 				type: 0,
@@ -433,100 +467,247 @@ describe("materialization", () => {
 		});
 	});
 
-	describe("deriveLocalManifest", () => {
-		it("returns empty array when canonical/ is missing", async () => {
-			const dataRoot = join(testRoot, "derive-empty-noroot");
-			expect(await deriveLocalManifest(dataRoot)).toEqual([]);
+	describe("buildCitePath", () => {
+		it("builds detail path for non-note types", () => {
+			expect(buildCitePath({ document_id: "doc-1", type: 0 })).toBe(
+				"detail/0/doc-1",
+			);
+			expect(buildCitePath({ document_id: "doc-2", type: 6 })).toBe(
+				"detail/6/doc-2",
+			);
 		});
 
-		it("returns empty array when canonical/ exists but is empty", async () => {
-			const dataRoot = join(testRoot, "derive-empty-root");
+		it("builds notes path for type 3", () => {
+			expect(buildCitePath({ document_id: "doc-3", type: 3 })).toBe(
+				"notes/3/doc-3",
+			);
+		});
+	});
+
+	describe("writeManifest / readManifest", () => {
+		it("round-trips manifest data with entries and collection names", async () => {
+			const dataRoot = join(testRoot, "manifest-roundtrip");
 			mkdirSync(`${dataRoot}/canonical`, { recursive: true });
-			expect(await deriveLocalManifest(dataRoot)).toEqual([]);
+
+			const data = {
+				entries: [
+					{
+						document_id: "doc-1",
+						type: 0,
+						checksum: "c1",
+						collections: ["col-A"],
+						title: "My Article",
+					},
+					{
+						document_id: "doc-2",
+						type: 3,
+						checksum: "c2",
+						collections: [],
+					},
+				],
+				collectionNames: { "col-A": "Research" },
+			};
+
+			await writeManifest(dataRoot, data);
+			const read = await readManifest(dataRoot);
+			expect(read).toEqual(data);
 		});
 
-		it("returns entries sorted by document_id across type dirs", async () => {
-			const dataRoot = join(testRoot, "derive-sorted");
-			writeCanonicalFile(dataRoot, {
-				document_id: "b-doc",
-				type: 0,
-				collections: [],
-				content: "x",
-				checksum: "c1",
-			});
-			writeCanonicalFile(dataRoot, {
-				document_id: "a-doc",
-				type: 3,
-				collections: ["col-1"],
-				content: "y",
-				checksum: "c2",
-			});
+		it("returns null when file is missing", async () => {
+			const dataRoot = join(testRoot, "manifest-missing");
+			expect(await readManifest(dataRoot)).toBeNull();
+		});
 
-			const entries = await deriveLocalManifest(dataRoot);
-			expect(entries).toEqual([
+		it("returns null when file is malformed", async () => {
+			const dataRoot = join(testRoot, "manifest-malformed");
+			mkdirSync(`${dataRoot}/canonical`, { recursive: true });
+			await Bun.write(
+				`${dataRoot}/canonical/.manifest.json`,
+				"not valid json{",
+			);
+			expect(await readManifest(dataRoot)).toBeNull();
+		});
+
+		it("returns null when file has wrong shape", async () => {
+			const dataRoot = join(testRoot, "manifest-wrong-shape");
+			mkdirSync(`${dataRoot}/canonical`, { recursive: true });
+			await Bun.write(
+				`${dataRoot}/canonical/.manifest.json`,
+				'{"entries": "not an array"}',
+			);
+			expect(await readManifest(dataRoot)).toBeNull();
+		});
+	});
+
+	describe("writeIndexFile", () => {
+		it("generates collection-organized index", async () => {
+			const dataRoot = join(testRoot, "index-basic");
+			mkdirSync(`${dataRoot}/canonical`, { recursive: true });
+
+			const entries = [
 				{
-					document_id: "a-doc",
-					type: 3,
-					checksum: "c2",
-					collections: ["col-1"],
-				},
-				{
-					document_id: "b-doc",
+					document_id: "doc-1",
 					type: 0,
 					checksum: "c1",
-					collections: [],
+					collections: ["col-A"],
+					title: "My Article",
 				},
+				{
+					document_id: "doc-2",
+					type: 3,
+					checksum: "c2",
+					collections: ["col-A", "col-B"],
+					title: "My Note",
+				},
+			];
+			const collectionNames = new Map([
+				["col-A", "Research"],
+				["col-B", "Reading"],
 			]);
-		});
 
-		it("skips non-numeric type dirs", async () => {
-			const dataRoot = join(testRoot, "derive-non-numeric");
-			mkdirSync(`${dataRoot}/canonical/notanumber`, { recursive: true });
-			writeFileSync(
-				`${dataRoot}/canonical/notanumber/ghost.md`,
-				"---\nsummaryId: ghost\ntype: 0\nchecksum: g\n---\n\n",
+			await writeIndexFile(dataRoot, entries, collectionNames);
+
+			const content = readFileSync(
+				`${dataRoot}/canonical/_index.md`,
 				"utf-8",
 			);
-			expect(await deriveLocalManifest(dataRoot)).toEqual([]);
+			expect(content).toContain("# Collections");
+			expect(content).toContain("## Research (col-A)");
+			expect(content).toContain("## Reading (col-B)");
+			expect(content).toContain("- My Article (0/doc-1.md)");
+			expect(content).toContain("- My Note (3/doc-2.md)");
+			// No cite column in the new format
+			expect(content).not.toContain("detail/0/doc-1");
 		});
 
-		it("skips non-.md files", async () => {
-			const dataRoot = join(testRoot, "derive-non-md");
-			mkdirSync(`${dataRoot}/canonical/0`, { recursive: true });
-			writeFileSync(
-				`${dataRoot}/canonical/0/notes.txt`,
-				"---\nsummaryId: x\ntype: 0\nchecksum: c\n---\n\n",
+		it("puts docs without collections under Uncategorized", async () => {
+			const dataRoot = join(testRoot, "index-uncategorized");
+			mkdirSync(`${dataRoot}/canonical`, { recursive: true });
+
+			await writeIndexFile(
+				dataRoot,
+				[
+					{
+						document_id: "doc-1",
+						type: 0,
+						checksum: "c",
+						collections: [],
+					},
+				],
+				new Map(),
+			);
+
+			const content = readFileSync(
+				`${dataRoot}/canonical/_index.md`,
 				"utf-8",
 			);
-			expect(await deriveLocalManifest(dataRoot)).toEqual([]);
+			expect(content).toContain("## Uncategorized");
+			expect(content).toContain("- doc-1 (0/doc-1.md)");
 		});
 
-		it("skips files with malformed frontmatter and logs a warning", async () => {
-			const dataRoot = join(testRoot, "derive-malformed");
-			mkdirSync(`${dataRoot}/canonical/0`, { recursive: true });
-			writeFileSync(
-				`${dataRoot}/canonical/0/bad.md`,
-				"no frontmatter",
+		it("falls back to collection ID when name is missing", async () => {
+			const dataRoot = join(testRoot, "index-no-col-name");
+			mkdirSync(`${dataRoot}/canonical`, { recursive: true });
+
+			await writeIndexFile(
+				dataRoot,
+				[
+					{
+						document_id: "doc-1",
+						type: 0,
+						checksum: "c",
+						collections: ["col-unknown"],
+					},
+				],
+				new Map(),
+			);
+
+			const content = readFileSync(
+				`${dataRoot}/canonical/_index.md`,
 				"utf-8",
 			);
-			writeCanonicalFile(dataRoot, {
-				document_id: "good",
-				type: 0,
-				collections: [],
-				content: "body",
-				checksum: "c",
-			});
+			expect(content).toContain("## col-unknown (col-unknown)");
+		});
 
-			const warnings: Array<Record<string, unknown>> = [];
-			const entries = await deriveLocalManifest(dataRoot, {
-				warn: (m) => {
-					warnings.push(m);
+		it("sorts collections alphabetically by name", async () => {
+			const dataRoot = join(testRoot, "index-sorted");
+			mkdirSync(`${dataRoot}/canonical`, { recursive: true });
+
+			const entries = [
+				{
+					document_id: "doc-1",
+					type: 0,
+					checksum: "c1",
+					collections: ["col-Z"],
+					title: "Doc Z",
 				},
-			});
+				{
+					document_id: "doc-2",
+					type: 0,
+					checksum: "c2",
+					collections: ["col-A"],
+					title: "Doc A",
+				},
+			];
+			const collectionNames = new Map([
+				["col-Z", "Zebra"],
+				["col-A", "Alpha"],
+			]);
 
-			expect(entries.map((e) => e.document_id)).toEqual(["good"]);
-			expect(warnings).toHaveLength(1);
-			expect(String(warnings[0]?.path)).toContain("bad.md");
+			await writeIndexFile(dataRoot, entries, collectionNames);
+
+			const content = readFileSync(
+				`${dataRoot}/canonical/_index.md`,
+				"utf-8",
+			);
+			const alphaPos = content.indexOf("## Alpha");
+			const zebraPos = content.indexOf("## Zebra");
+			expect(alphaPos).toBeGreaterThan(-1);
+			expect(zebraPos).toBeGreaterThan(-1);
+			expect(alphaPos).toBeLessThan(zebraPos);
+		});
+
+		it("escapes newlines in titles and collection names", async () => {
+			const dataRoot = join(testRoot, "index-newlines");
+			mkdirSync(`${dataRoot}/canonical`, { recursive: true });
+
+			await writeIndexFile(
+				dataRoot,
+				[
+					{
+						document_id: "doc-1",
+						type: 0,
+						checksum: "c",
+						collections: ["col-A"],
+						title: "Title\nWith\nNewlines",
+					},
+				],
+				new Map([["col-A", "Collection\nName"]]),
+			);
+
+			const content = readFileSync(
+				`${dataRoot}/canonical/_index.md`,
+				"utf-8",
+			);
+			// Newlines should be replaced with spaces, not injecting extra lines
+			expect(content).toContain("- Title With Newlines");
+			expect(content).toContain("## Collection Name (col-A)");
+			expect(content).not.toContain("Title\n");
+			expect(content).not.toContain("Collection\n");
+		});
+
+		it("generates valid index with no entries", async () => {
+			const dataRoot = join(testRoot, "index-empty");
+			mkdirSync(`${dataRoot}/canonical`, { recursive: true });
+
+			await writeIndexFile(dataRoot, [], new Map());
+
+			const content = readFileSync(
+				`${dataRoot}/canonical/_index.md`,
+				"utf-8",
+			);
+			expect(content).toContain("# Collections");
+			expect(content).not.toContain("## Uncategorized");
 		});
 	});
 });

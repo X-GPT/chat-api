@@ -4,7 +4,6 @@ import { stream } from "hono/streaming";
 import { runAgent } from "../agent";
 import {
 	createEphemeralDocumentScope,
-	ensureDataRoot,
 	findCanonicalDoc,
 	getDataRoot,
 	removeEphemeralDocumentScope,
@@ -69,9 +68,8 @@ app.post("/turn", async (c) => {
 			try {
 				await s.write(ndjsonLine({ type: "started", turn_id: request_id }));
 
+				// reconcile() calls ensureDataRoot internally.
 				await reconcile({ userId: user_id });
-
-				ensureDataRoot(dataRoot);
 
 				if (scope_type === "collection" && !collection_id) {
 					await s.write(

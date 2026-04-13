@@ -1,4 +1,4 @@
-import { userFiles } from "@mymemo/db";
+import { userCollections, userFiles } from "@mymemo/db";
 import { and, eq, inArray } from "drizzle-orm";
 import { getDb } from "./db";
 import { type LocalManifestEntry, parseCollectionIds } from "./materialization";
@@ -16,6 +16,7 @@ export async function getManifest(
 			type: userFiles.type,
 			path_key: userFiles.pathKey,
 			checksum: userFiles.checksum,
+			title: userFiles.title,
 		})
 		.from(userFiles)
 		.where(eq(userFiles.userId, userId))
@@ -25,6 +26,7 @@ export async function getManifest(
 		type: row.type,
 		checksum: row.checksum,
 		collections: parseCollectionIds(row.path_key),
+		title: row.title ?? undefined,
 	}));
 }
 
@@ -40,6 +42,7 @@ export async function getFileContents(
 			path_key: userFiles.pathKey,
 			content: userFiles.content,
 			checksum: userFiles.checksum,
+			title: userFiles.title,
 		})
 		.from(userFiles)
 		.where(
@@ -54,5 +57,28 @@ export async function getFileContents(
 		checksum: row.checksum,
 		collections: parseCollectionIds(row.path_key),
 		content: row.content,
+		title: row.title ?? undefined,
 	}));
+}
+
+export interface CollectionNameRow {
+	collection_id: string;
+	name: string;
+}
+
+export async function getCollectionNames(
+	userId: string,
+): Promise<CollectionNameRow[]> {
+	try {
+		return await getDb()
+			.select({
+				collection_id: userCollections.collectionId,
+				name: userCollections.name,
+			})
+			.from(userCollections)
+			.where(eq(userCollections.userId, userId));
+	} catch {
+		// Table may not exist yet if schema migration hasn't run.
+		return [];
+	}
 }

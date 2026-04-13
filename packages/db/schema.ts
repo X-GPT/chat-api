@@ -17,11 +17,22 @@ export const userFiles = mysqlTable(
 		pathKey: text("path_key").notNull(),
 		content: mediumtext("content").notNull(),
 		checksum: varchar("checksum", { length: 255 }).notNull(),
+		title: varchar("title", { length: 500 }),
 		updatedAt: timestamp("updated_at", { mode: "string" })
 			.notNull()
 			.defaultNow(),
 	},
 	(table) => [primaryKey({ columns: [table.userId, table.documentId] })],
+);
+
+export const userCollections = mysqlTable(
+	"user_collections",
+	{
+		userId: varchar("user_id", { length: 255 }).notNull(),
+		collectionId: varchar("collection_id", { length: 255 }).notNull(),
+		name: varchar("name", { length: 500 }).notNull(),
+	},
+	(table) => [primaryKey({ columns: [table.userId, table.collectionId] })],
 );
 
 export const userSandboxRuntime = mysqlTable("user_sandbox_runtime", {
