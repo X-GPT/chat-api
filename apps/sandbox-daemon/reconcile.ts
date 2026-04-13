@@ -1,6 +1,7 @@
 import {
 	buildCollectionHardlink,
 	clearDataRoot,
+	countCanonicalFiles,
 	type DocFile,
 	ensureDataRoot,
 	getDataRoot,
@@ -104,7 +105,11 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	const entriesChanged = !manifestsEqual(manifestData.entries, remoteManifest);
 
 	if (!entriesChanged && renamedCollections.size === 0) {
-		return false;
+		// Verify canonical files exist — if count doesn't match, files may have
+		// been lost and need restoring.
+		if (countCanonicalFiles(dataRoot) === manifestData.entries.length) {
+			return false;
+		}
 	}
 
 	const localMap = new Map(

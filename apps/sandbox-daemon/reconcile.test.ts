@@ -118,6 +118,49 @@ describe("reconcile", () => {
 		expect(existsSync(`${dataRoot}/canonical/0/orphan.md`)).toBe(false);
 	});
 
+	it("resyncs when canonical file is missing but manifest is intact", async () => {
+		mkdirSync(`${dataRoot}/canonical`, { recursive: true });
+
+		// Manifest says doc-1 exists, but the file is missing from disk
+		await writeManifest(dataRoot, {
+			entries: [
+				{
+					document_id: "doc-1",
+					type: 0,
+					checksum: "c1",
+					collections: [],
+				},
+			],
+			collectionNames: {},
+		});
+
+		mockGetManifest.mockResolvedValueOnce([
+			{
+				document_id: "doc-1",
+				type: 0,
+				checksum: "c1",
+				collections: [],
+			},
+		]);
+		mockGetFileContents.mockResolvedValueOnce([
+			{
+				document_id: "doc-1",
+				type: 0,
+				checksum: "c1",
+				collections: [],
+				content: "restored content",
+			},
+		]);
+
+		const result = await reconcile({ userId: "user-1" });
+
+		// Should resync despite manifest matching — file count mismatch
+		expect(result).toBe(true);
+		expect(existsSync(`${dataRoot}/canonical/0/doc-1.md`)).toBe(true);
+		const content = readFileSync(`${dataRoot}/canonical/0/doc-1.md`, "utf-8");
+		expect(content).toContain("restored content");
+	});
+
 	it("cleans up orphaned files when manifest is corrupt", async () => {
 		writeCanonicalFile(
 			dataRoot,

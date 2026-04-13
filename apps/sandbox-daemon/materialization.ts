@@ -269,6 +269,27 @@ export function resolveScopeCwd(
 }
 
 /**
+ * Count .md files in canonical/{type}/ directories.
+ * Used as a cheap integrity check on the fast path — if the count doesn't
+ * match the manifest entry count, files may have been lost.
+ */
+export function countCanonicalFiles(dataRoot: string): number {
+	const root = `${dataRoot}/canonical`;
+	if (!existsSync(root)) return 0;
+	let count = 0;
+	for (const typeDir of readdirSync(root, { withFileTypes: true })) {
+		if (!typeDir.isDirectory()) continue;
+		if (Number.isNaN(Number(typeDir.name))) continue;
+		for (const file of readdirSync(`${root}/${typeDir.name}`, {
+			withFileTypes: true,
+		})) {
+			if (file.isFile() && file.name.endsWith(".md")) count++;
+		}
+	}
+	return count;
+}
+
+/**
  * Find a canonical document by ID without parsing frontmatter. Scans
  * canonical/{type}/ subdirectories for a filename matching document_id.
  * Returns the DocIdentifier (document_id + type) or null if not found.

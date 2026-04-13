@@ -16,6 +16,7 @@ import {
 	buildCollectionHardlink,
 	clearDataRoot,
 	computeChecksum,
+	countCanonicalFiles,
 	createEphemeralDocumentScope,
 	type DocFile,
 	findCanonicalDoc,
@@ -123,6 +124,33 @@ describe("materialization", () => {
 			expect(existsSync(`${dataRoot}/canonical`)).toBe(true);
 			expect(existsSync(`${dataRoot}/canonical/0/doc.md`)).toBe(false);
 			expect(existsSync(`${dataRoot}/collections`)).toBe(false);
+		});
+	});
+
+	describe("countCanonicalFiles", () => {
+		it("counts .md files across type directories", () => {
+			const dataRoot = join(testRoot, "count-test");
+			writeCanonicalFile(
+				dataRoot,
+				{ document_id: "a", type: 0, collections: [], content: "x", checksum: "c1" },
+				emptyCollectionNames,
+			);
+			writeCanonicalFile(
+				dataRoot,
+				{ document_id: "b", type: 3, collections: [], content: "y", checksum: "c2" },
+				emptyCollectionNames,
+			);
+			expect(countCanonicalFiles(dataRoot)).toBe(2);
+		});
+
+		it("returns 0 when canonical/ is missing", () => {
+			expect(countCanonicalFiles(join(testRoot, "count-noroot"))).toBe(0);
+		});
+
+		it("returns 0 when canonical/ is empty", () => {
+			const dataRoot = join(testRoot, "count-empty");
+			mkdirSync(`${dataRoot}/canonical`, { recursive: true });
+			expect(countCanonicalFiles(dataRoot)).toBe(0);
 		});
 	});
 

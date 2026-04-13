@@ -69,11 +69,16 @@ export interface CollectionNameRow {
 export async function getCollectionNames(
 	userId: string,
 ): Promise<CollectionNameRow[]> {
-	return getDb()
-		.select({
-			collection_id: userCollections.collectionId,
-			name: userCollections.name,
-		})
-		.from(userCollections)
-		.where(eq(userCollections.userId, userId));
+	try {
+		return await getDb()
+			.select({
+				collection_id: userCollections.collectionId,
+				name: userCollections.name,
+			})
+			.from(userCollections)
+			.where(eq(userCollections.userId, userId));
+	} catch {
+		// Table may not exist yet if schema migration hasn't run.
+		return [];
+	}
 }
