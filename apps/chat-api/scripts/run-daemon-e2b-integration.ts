@@ -16,7 +16,7 @@ import {
 	userSandboxRuntime,
 	userSandboxSessions,
 } from "@mymemo/db";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import type { Sandbox } from "e2b";
 import { closeDb, getDb } from "@/db/client";
 import { getRuntime } from "@/db/user-runtime";
@@ -522,8 +522,67 @@ async function testMissingDocument() {
 	console.log("✓ Missing document correctly rejected");
 }
 
+async function testCollectionRename() {
+	console.log("\n=== Test 11: Collection Rename Detection ===");
+
+	// Rename "Travel Research" → "Vacation Notes" in the DB
+	await db
+		.update(userCollections)
+		.set({ name: "Vacation Notes" })
+		.where(
+			and(
+				eq(userCollections.userId, userId),
+				eq(userCollections.collectionId, "col-test"),
+			),
+		);
+	console.log('Renamed collection "Travel Research" → "Vacation Notes"');
+
+	// Run a turn to trigger reconcile — doc manifest is unchanged, but name differs
+	const { status, events } = await sendTurn({
+		request_id: `turn-rename-${Date.now()}`,
+		user_id: userId,
+		scope_type: "global",
+		message: "What is the capital of France?",
+		system_prompt: prodPrompt("general"),
+	});
+
+	assert.equal(status, 200);
+	const types = events.map((e) => e.type);
+	assert.ok(types.includes("text_delta"), "Should have text_delta events");
+
+	// Verify _index.md was updated with the new name
+	const indexResult = await sandbox.commands.run(
+		`cat ${WORKSPACE_ROOT}/data/*/canonical/_index.md 2>/dev/null`,
+		{ timeoutMs: 5_000 },
+	);
+	assert.ok(
+		indexResult.stdout.includes("Vacation Notes"),
+		`_index.md should contain "Vacation Notes", got:\n${indexResult.stdout}`,
+	);
+	assert.ok(
+		!indexResult.stdout.includes("Travel Research"),
+		`_index.md should NOT contain "Travel Research"`,
+	);
+	console.log("✓ _index.md updated with renamed collection");
+
+	// Verify frontmatter was updated
+	const catResult = await sandbox.commands.run(
+		`head -10 ${WORKSPACE_ROOT}/data/*/canonical/0/doc-1.md 2>/dev/null`,
+		{ timeoutMs: 5_000 },
+	);
+	assert.ok(
+		catResult.stdout.includes("Vacation Notes"),
+		`Frontmatter should contain "Vacation Notes", got:\n${catResult.stdout}`,
+	);
+	assert.ok(
+		!catResult.stdout.includes("Travel Research"),
+		`Frontmatter should NOT contain "Travel Research"`,
+	);
+	console.log("✓ Frontmatter updated with renamed collection");
+}
+
 async function testSandboxIdPersistence() {
-	console.log("\n=== Test 11: Sandbox ID Persistence in Postgres ===");
+	console.log("\n=== Test 12: Sandbox ID Persistence in Postgres ===");
 
 	const runtime = await getRuntime(userId);
 	const persistedId = runtime?.sandbox_id;
@@ -579,6 +638,7 @@ async function main() {
 		await testDocumentScope();
 		await testMissingScopeId();
 		await testMissingDocument();
+		await testCollectionRename();
 		await testSandboxIdPersistence();
 		console.log("\n✓ All E2B daemon integration tests passed");
 	} catch (err) {
