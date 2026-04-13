@@ -615,7 +615,7 @@ async function testTitleOnlyChange() {
 		{ timeoutMs: 5_000 },
 	);
 	assert.ok(
-		catResult.stdout.includes("title: Paris City Guide"),
+		catResult.stdout.includes('title: "Paris City Guide"'),
 		`Frontmatter should contain new title, got:\n${catResult.stdout}`,
 	);
 	console.log("✓ Frontmatter updated with new title");
