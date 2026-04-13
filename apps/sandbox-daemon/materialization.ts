@@ -298,7 +298,9 @@ export interface ManifestData {
 	collectionNames: Record<string, string>;
 }
 
-const EMPTY_MANIFEST: ManifestData = { entries: [], collectionNames: {} };
+function emptyManifest(): ManifestData {
+	return { entries: [], collectionNames: {} };
+}
 
 /**
  * Read the local manifest from `canonical/.manifest.json`.
@@ -316,14 +318,14 @@ export async function readManifest(
 			typeof parsed !== "object" ||
 			!Array.isArray(parsed.entries)
 		) {
-			return EMPTY_MANIFEST;
+			return emptyManifest();
 		}
 		return {
 			entries: parsed.entries,
 			collectionNames: parsed.collectionNames ?? {},
 		};
 	} catch {
-		return EMPTY_MANIFEST;
+		return emptyManifest();
 	}
 }
 
@@ -376,14 +378,16 @@ export async function writeIndexFile(
 		return nameA.localeCompare(nameB);
 	});
 
+	function formatDocLine(doc: LocalManifestEntry): string {
+		const title = doc.title ?? doc.document_id;
+		return `- ${title} (${doc.type}/${sanitizePathSegment(doc.document_id)}.md)`;
+	}
+
 	for (const [colId, docs] of sortedCollections) {
 		const colName = collectionNames.get(colId) ?? colId;
 		lines.push(`## ${colName} (${colId})`, "");
 		for (const doc of docs) {
-			const title = doc.title ?? doc.document_id;
-			lines.push(
-				`- ${title} (${doc.type}/${sanitizePathSegment(doc.document_id)}.md)`,
-			);
+			lines.push(formatDocLine(doc));
 		}
 		lines.push("");
 	}
@@ -391,10 +395,7 @@ export async function writeIndexFile(
 	if (uncategorized.length > 0) {
 		lines.push("## Uncategorized", "");
 		for (const doc of uncategorized) {
-			const title = doc.title ?? doc.document_id;
-			lines.push(
-				`- ${title} (${doc.type}/${sanitizePathSegment(doc.document_id)}.md)`,
-			);
+			lines.push(formatDocLine(doc));
 		}
 		lines.push("");
 	}

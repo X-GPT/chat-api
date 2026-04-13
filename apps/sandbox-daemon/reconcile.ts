@@ -56,12 +56,12 @@ function manifestsEqual(
 
 /**
  * Compare stored collection names against current names.
- * Returns the set of collection IDs whose names changed, or null if none changed.
+ * Returns the set of collection IDs whose names differ (empty if none changed).
  */
 function findRenamedCollections(
 	stored: Record<string, string>,
 	current: Map<string, string>,
-): Set<string> | null {
+): Set<string> {
 	const renamed = new Set<string>();
 	for (const [id, name] of current) {
 		if (stored[id] !== name) renamed.add(id);
@@ -69,7 +69,7 @@ function findRenamedCollections(
 	for (const id of Object.keys(stored)) {
 		if (!current.has(id)) renamed.add(id);
 	}
-	return renamed.size > 0 ? renamed : null;
+	return renamed;
 }
 
 /**
@@ -96,7 +96,7 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	);
 	const entriesChanged = !manifestsEqual(manifestData.entries, remoteManifest);
 
-	if (!entriesChanged && !renamedCollections) {
+	if (!entriesChanged && renamedCollections.size === 0) {
 		return false;
 	}
 
@@ -126,13 +126,13 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 		}
 	}
 
-	// If collection names changed, mark docs in renamed collections for rewrite.
-	if (renamedCollections) {
+	if (renamedCollections.size > 0) {
 		const updateSet = new Set(updates);
 		for (const entry of remoteManifest) {
 			if (updateSet.has(entry.document_id)) continue;
 			if (entry.collections.some((id) => renamedCollections.has(id))) {
 				updates.push(entry.document_id);
+				updateSet.add(entry.document_id);
 			}
 		}
 	}
