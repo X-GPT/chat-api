@@ -312,6 +312,11 @@ function emptyManifest(): ManifestData {
 	return { entries: [], collectionNames: {} };
 }
 
+/** Check if a persisted manifest exists on disk. */
+export function manifestExists(dataRoot: string): boolean {
+	return existsSync(`${dataRoot}/canonical/${MANIFEST_FILENAME}`);
+}
+
 /**
  * Read the local manifest from `canonical/.manifest.json`.
  * Returns empty ManifestData if the file is missing or malformed.
