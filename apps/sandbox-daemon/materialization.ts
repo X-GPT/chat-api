@@ -308,10 +308,6 @@ export interface ManifestData {
 	collectionNames: Record<string, string>;
 }
 
-function emptyManifest(): ManifestData {
-	return { entries: [], collectionNames: {} };
-}
-
 /**
  * Read the local manifest from `canonical/.manifest.json`.
  * Returns `null` if the file is missing, corrupt, or unparseable.
