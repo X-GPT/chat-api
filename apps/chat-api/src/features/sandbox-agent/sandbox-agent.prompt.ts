@@ -17,7 +17,7 @@ Documents are stored as \`.md\` files in your working directory. Each file has Y
 
 \`\`\`
 ---
-title: My Document Title
+title: "My Document Title"
 cite: detail/0/12345
 collections: ["Research", "Reading"]
 ---

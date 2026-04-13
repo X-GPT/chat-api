@@ -6,6 +6,7 @@ import {
 	readFileSync,
 	rmSync,
 	statSync,
+	writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -13,6 +14,7 @@ import {
 	buildCanonicalPath,
 	buildCitePath,
 	buildCollectionHardlink,
+	clearDataRoot,
 	computeChecksum,
 	createEphemeralDocumentScope,
 	type DocFile,
@@ -108,6 +110,22 @@ describe("materialization", () => {
 		});
 	});
 
+	describe("clearDataRoot", () => {
+		it("removes canonical/ and collections/ and recreates canonical/", () => {
+			const dataRoot = join(testRoot, "clear-test");
+			mkdirSync(`${dataRoot}/canonical/0`, { recursive: true });
+			mkdirSync(`${dataRoot}/collections/col-A/0`, { recursive: true });
+			writeFileSync(`${dataRoot}/canonical/0/doc.md`, "content");
+			writeFileSync(`${dataRoot}/collections/col-A/0/doc.md`, "content");
+
+			clearDataRoot(dataRoot);
+
+			expect(existsSync(`${dataRoot}/canonical`)).toBe(true);
+			expect(existsSync(`${dataRoot}/canonical/0/doc.md`)).toBe(false);
+			expect(existsSync(`${dataRoot}/collections`)).toBe(false);
+		});
+	});
+
 	describe("buildCanonicalPath", () => {
 		it("builds path with type and document_id", () => {
 			const path = buildCanonicalPath("/data/u1", {
@@ -156,7 +174,7 @@ describe("materialization", () => {
 			expect(existsSync(filePath)).toBe(true);
 
 			const content = readFileSync(filePath, "utf-8");
-			expect(content).toContain("title: 123");
+			expect(content).toContain('title: "123"');
 			expect(content).toContain("cite: detail/0/123");
 			// No checksum in frontmatter — it lives in .manifest.json
 			expect(content).not.toContain("checksum:");
@@ -189,7 +207,7 @@ describe("materialization", () => {
 			expect(content).not.toContain("col-A");
 		});
 
-		it("sanitizes newlines in title to prevent frontmatter breakage", () => {
+		it("escapes newlines in title via JSON.stringify", () => {
 			const dataRoot = join(testRoot, "write-title-newline");
 			const doc: DocFile = {
 				document_id: "nl-doc",
@@ -197,13 +215,32 @@ describe("materialization", () => {
 				collections: [],
 				content: "body",
 				checksum: "c",
-				title: "Line One\nLine Two\r\nLine Three",
+				title: "Line One\nLine Two",
 			};
 			writeCanonicalFile(dataRoot, doc, emptyCollectionNames);
 
 			const content = readFileSync(buildCanonicalPath(dataRoot, doc), "utf-8");
-			expect(content).toContain("title: Line One Line Two Line Three");
-			// Frontmatter should have exactly 2 "---" delimiters
+			expect(content).toContain('title: "Line One\\nLine Two"');
+			const dashes = content.match(/^---$/gm);
+			expect(dashes).toHaveLength(2);
+		});
+
+		it("escapes YAML-special characters in title", () => {
+			const dataRoot = join(testRoot, "write-title-yaml");
+			const doc: DocFile = {
+				document_id: "yaml-doc",
+				type: 0,
+				collections: [],
+				content: "body",
+				checksum: "c",
+				title: 'Node.js: A Guide [Draft] #1 & "Quoted"',
+			};
+			writeCanonicalFile(dataRoot, doc, emptyCollectionNames);
+
+			const content = readFileSync(buildCanonicalPath(dataRoot, doc), "utf-8");
+			expect(content).toContain(
+				'title: "Node.js: A Guide [Draft] #1 & \\"Quoted\\""',
+			);
 			const dashes = content.match(/^---$/gm);
 			expect(dashes).toHaveLength(2);
 		});

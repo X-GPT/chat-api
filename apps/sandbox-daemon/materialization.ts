@@ -79,6 +79,16 @@ export function ensureDataRoot(dataRoot: string): void {
 	mkdirSync(`${dataRoot}/canonical`, { recursive: true });
 }
 
+/**
+ * Wipe canonical/ and collections/ for a full resync.
+ * Used when .manifest.json is missing or corrupt to prevent orphaned files.
+ */
+export function clearDataRoot(dataRoot: string): void {
+	rmSync(`${dataRoot}/canonical`, { recursive: true, force: true });
+	rmSync(`${dataRoot}/collections`, { recursive: true, force: true });
+	ensureDataRoot(dataRoot);
+}
+
 export function buildCanonicalPath(
 	dataRoot: string,
 	doc: DocIdentifier,
@@ -119,10 +129,9 @@ export function writeCanonicalFile(
 	collectionNames: Map<string, string>,
 ): void {
 	const filePath = buildCanonicalPath(dataRoot, doc);
-	// Strip newlines/carriage returns to prevent title from breaking frontmatter.
-	const title = (doc.title ?? doc.document_id).replace(/[\r\n]+/g, " ").trim();
+	const title = doc.title ?? doc.document_id;
 	const cite = buildCitePath(doc);
-	const lines = ["---", `title: ${title}`, `cite: ${cite}`];
+	const lines = ["---", `title: ${JSON.stringify(title)}`, `cite: ${cite}`];
 	if (doc.collections.length > 0) {
 		const names = doc.collections.map(
 			(id) => collectionNames.get(id) ?? id,

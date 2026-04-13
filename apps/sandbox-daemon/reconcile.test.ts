@@ -93,6 +93,31 @@ describe("reconcile", () => {
 		expect(mockGetFileContents).not.toHaveBeenCalled();
 	});
 
+	it("cleans up orphaned files when manifest is missing", async () => {
+		// Write a file directly without a manifest (simulates first rollout or corrupt manifest)
+		writeCanonicalFile(
+			dataRoot,
+			{
+				document_id: "orphan",
+				type: 0,
+				collections: [],
+				content: "stale content",
+				checksum: "old",
+			},
+			emptyCollectionNames,
+		);
+		expect(existsSync(`${dataRoot}/canonical/0/orphan.md`)).toBe(true);
+
+		// Remote says no documents exist (doc was deleted from DB)
+		mockGetManifest.mockResolvedValueOnce([]);
+		mockGetFileContents.mockResolvedValueOnce([]);
+
+		await reconcile({ userId: "user-1" });
+
+		// Orphaned file should be gone — clearDataRoot wiped the workspace
+		expect(existsSync(`${dataRoot}/canonical/0/orphan.md`)).toBe(false);
+	});
+
 	it("removes collection hardlinks and canonical file on delete", async () => {
 		const doc: DocFile = {
 			document_id: "doc-1",
@@ -159,7 +184,7 @@ describe("reconcile", () => {
 
 		const content = readFileSync(`${dataRoot}/canonical/0/doc-new.md`, "utf-8");
 		expect(content).toContain("New document content");
-		expect(content).toContain("title: doc-new");
+		expect(content).toContain('title: "doc-new"');
 		expect(content).toContain("cite: detail/0/doc-new");
 		expect(content).not.toContain("checksum:");
 	});
@@ -263,7 +288,7 @@ describe("reconcile", () => {
 
 		expect(result).toBe(true);
 		const onDisk = readFileSync(`${dataRoot}/canonical/0/doc-1.md`, "utf-8");
-		expect(onDisk).toContain("title: New Title");
+		expect(onDisk).toContain('title: "New Title"');
 	});
 
 	it("writes .manifest.json with entries and collectionNames after sync", async () => {

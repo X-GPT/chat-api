@@ -1,5 +1,6 @@
 import {
 	buildCollectionHardlink,
+	clearDataRoot,
 	type DocFile,
 	ensureDataRoot,
 	getDataRoot,
@@ -86,6 +87,11 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 		readManifest(dataRoot),
 		getCollectionNames(userId),
 	]);
+
+	// Missing/corrupt manifest — wipe and full resync to prevent orphaned files.
+	if (manifestData.entries.length === 0) {
+		clearDataRoot(dataRoot);
+	}
 
 	const collectionNamesMap = new Map(
 		collectionRows.map((r) => [r.collection_id, r.name]),
