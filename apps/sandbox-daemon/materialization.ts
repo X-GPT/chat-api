@@ -289,34 +289,54 @@ export function findCanonicalDoc(
 const MANIFEST_FILENAME = ".manifest.json";
 
 /**
+ * Persisted reconciliation state: document entries + collection name snapshot.
+ * Collection names are stored so renames can be detected even when document
+ * manifests are unchanged.
+ */
+export interface ManifestData {
+	entries: LocalManifestEntry[];
+	collectionNames: Record<string, string>;
+}
+
+const EMPTY_MANIFEST: ManifestData = { entries: [], collectionNames: {} };
+
+/**
  * Read the local manifest from `canonical/.manifest.json`.
- * Returns `[]` if the file is missing or malformed.
+ * Returns empty ManifestData if the file is missing or malformed.
  */
 export async function readManifest(
 	dataRoot: string,
-): Promise<LocalManifestEntry[]> {
+): Promise<ManifestData> {
 	const filePath = `${dataRoot}/canonical/${MANIFEST_FILENAME}`;
 	try {
 		const text = await Bun.file(filePath).text();
 		const parsed = JSON.parse(text);
-		if (!Array.isArray(parsed)) return [];
-		return parsed;
+		if (
+			!parsed ||
+			typeof parsed !== "object" ||
+			!Array.isArray(parsed.entries)
+		) {
+			return EMPTY_MANIFEST;
+		}
+		return {
+			entries: parsed.entries,
+			collectionNames: parsed.collectionNames ?? {},
+		};
 	} catch {
-		return [];
+		return EMPTY_MANIFEST;
 	}
 }
 
 /**
  * Write the local manifest to `canonical/.manifest.json`.
- * Entries are stored as-is (already sorted by document_id from the DB query).
  */
 export async function writeManifest(
 	dataRoot: string,
-	entries: LocalManifestEntry[],
+	data: ManifestData,
 ): Promise<void> {
 	const filePath = `${dataRoot}/canonical/${MANIFEST_FILENAME}`;
 	ensureParentDir(filePath);
-	await Bun.write(filePath, JSON.stringify(entries));
+	await Bun.write(filePath, JSON.stringify(data));
 }
 
 /**

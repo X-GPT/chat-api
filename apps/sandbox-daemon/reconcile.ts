@@ -55,6 +55,24 @@ function manifestsEqual(
 }
 
 /**
+ * Compare stored collection names against current names.
+ * Returns the set of collection IDs whose names changed, or null if none changed.
+ */
+function findRenamedCollections(
+	stored: Record<string, string>,
+	current: Map<string, string>,
+): Set<string> | null {
+	const renamed = new Set<string>();
+	for (const [id, name] of current) {
+		if (stored[id] !== name) renamed.add(id);
+	}
+	for (const id of Object.keys(stored)) {
+		if (!current.has(id)) renamed.add(id);
+	}
+	return renamed.size > 0 ? renamed : null;
+}
+
+/**
  * Reconcile the local filesystem state with the database.
  * Returns true if sync was performed, false if skipped.
  */
@@ -63,22 +81,27 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	const dataRoot = getDataRoot(userId);
 	ensureDataRoot(dataRoot);
 
-	const [remoteManifest, localManifest] = await Promise.all([
+	const [remoteManifest, manifestData, collectionRows] = await Promise.all([
 		getManifest(userId),
 		readManifest(dataRoot),
+		getCollectionNames(userId),
 	]);
 
-	if (manifestsEqual(localManifest, remoteManifest)) {
-		return false;
-	}
-
-	const collectionRows = await getCollectionNames(userId);
 	const collectionNamesMap = new Map(
 		collectionRows.map((r) => [r.collection_id, r.name]),
 	);
+	const renamedCollections = findRenamedCollections(
+		manifestData.collectionNames,
+		collectionNamesMap,
+	);
+	const entriesChanged = !manifestsEqual(manifestData.entries, remoteManifest);
+
+	if (!entriesChanged && !renamedCollections) {
+		return false;
+	}
 
 	const localMap = new Map(
-		localManifest.map((entry) => [entry.document_id, entry]),
+		manifestData.entries.map((entry) => [entry.document_id, entry]),
 	);
 	const remoteMap = new Map(
 		remoteManifest.map((entry) => [entry.document_id, entry]),
@@ -97,9 +120,20 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 		}
 	}
 
-	for (const entry of localManifest) {
+	for (const entry of manifestData.entries) {
 		if (!remoteMap.has(entry.document_id)) {
 			deletes.push(entry);
+		}
+	}
+
+	// If collection names changed, mark docs in renamed collections for rewrite.
+	if (renamedCollections) {
+		const updateSet = new Set(updates);
+		for (const entry of remoteManifest) {
+			if (updateSet.has(entry.document_id)) continue;
+			if (entry.collections.some((id) => renamedCollections.has(id))) {
+				updates.push(entry.document_id);
+			}
 		}
 	}
 
@@ -142,7 +176,10 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	}
 
 	await Promise.all([
-		writeManifest(dataRoot, remoteManifest),
+		writeManifest(dataRoot, {
+			entries: remoteManifest,
+			collectionNames: Object.fromEntries(collectionNamesMap),
+		}),
 		writeIndexFile(dataRoot, remoteManifest, collectionNamesMap),
 	]);
 

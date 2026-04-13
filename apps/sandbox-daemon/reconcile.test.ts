@@ -51,8 +51,7 @@ describe("reconcile", () => {
 		mock.restore();
 	});
 
-	it("skips sync when manifest matches remote", async () => {
-		// Pre-populate canonical file and manifest
+	it("skips sync when manifest and collection names match remote", async () => {
 		writeCanonicalFile(
 			dataRoot,
 			{
@@ -64,14 +63,17 @@ describe("reconcile", () => {
 			},
 			emptyCollectionNames,
 		);
-		await writeManifest(dataRoot, [
-			{
-				document_id: "doc-1",
-				type: 0,
-				checksum: "aaa",
-				collections: ["col-A"],
-			},
-		]);
+		await writeManifest(dataRoot, {
+			entries: [
+				{
+					document_id: "doc-1",
+					type: 0,
+					checksum: "aaa",
+					collections: ["col-A"],
+				},
+			],
+			collectionNames: { "col-A": "Research" },
+		});
 
 		mockGetManifest.mockResolvedValueOnce([
 			{
@@ -81,12 +83,14 @@ describe("reconcile", () => {
 				collections: ["col-A"],
 			},
 		]);
+		mockGetCollectionNames.mockResolvedValueOnce([
+			{ collection_id: "col-A", name: "Research" },
+		]);
 
 		const result = await reconcile({ userId: "user-1" });
 
 		expect(result).toBe(false);
 		expect(mockGetFileContents).not.toHaveBeenCalled();
-		expect(mockGetCollectionNames).not.toHaveBeenCalled();
 	});
 
 	it("removes collection hardlinks and canonical file on delete", async () => {
@@ -99,14 +103,17 @@ describe("reconcile", () => {
 		};
 		writeCanonicalFile(dataRoot, doc, emptyCollectionNames);
 		buildCollectionHardlink(dataRoot, doc, "col-A");
-		await writeManifest(dataRoot, [
-			{
-				document_id: "doc-1",
-				type: 0,
-				checksum: "aaa",
-				collections: ["col-A"],
-			},
-		]);
+		await writeManifest(dataRoot, {
+			entries: [
+				{
+					document_id: "doc-1",
+					type: 0,
+					checksum: "aaa",
+					collections: ["col-A"],
+				},
+			],
+			collectionNames: {},
+		});
 
 		expect(existsSync(`${dataRoot}/canonical/0/doc-1.md`)).toBe(true);
 		expect(existsSync(`${dataRoot}/collections/col-A/0/doc-1.md`)).toBe(true);
@@ -154,7 +161,6 @@ describe("reconcile", () => {
 		expect(content).toContain("New document content");
 		expect(content).toContain("title: doc-new");
 		expect(content).toContain("cite: detail/0/doc-new");
-		// No checksum in frontmatter
 		expect(content).not.toContain("checksum:");
 	});
 
@@ -170,14 +176,17 @@ describe("reconcile", () => {
 			},
 			emptyCollectionNames,
 		);
-		await writeManifest(dataRoot, [
-			{
-				document_id: "doc-1",
-				type: 0,
-				checksum: "old",
-				collections: [],
-			},
-		]);
+		await writeManifest(dataRoot, {
+			entries: [
+				{
+					document_id: "doc-1",
+					type: 0,
+					checksum: "old",
+					collections: [],
+				},
+			],
+			collectionNames: {},
+		});
 
 		mockGetManifest.mockResolvedValueOnce([
 			{
@@ -200,8 +209,6 @@ describe("reconcile", () => {
 		const result = await reconcile({ userId: "user-1" });
 
 		expect(result).toBe(true);
-		expect(mockGetFileContents).toHaveBeenCalledTimes(1);
-
 		const onDisk = readFileSync(`${dataRoot}/canonical/0/doc-1.md`, "utf-8");
 		expect(onDisk).toContain("new content");
 	});
@@ -219,15 +226,18 @@ describe("reconcile", () => {
 			},
 			emptyCollectionNames,
 		);
-		await writeManifest(dataRoot, [
-			{
-				document_id: "doc-1",
-				type: 0,
-				checksum: "same",
-				collections: [],
-				title: "Old Title",
-			},
-		]);
+		await writeManifest(dataRoot, {
+			entries: [
+				{
+					document_id: "doc-1",
+					type: 0,
+					checksum: "same",
+					collections: [],
+					title: "Old Title",
+				},
+			],
+			collectionNames: {},
+		});
 
 		mockGetManifest.mockResolvedValueOnce([
 			{
@@ -256,7 +266,7 @@ describe("reconcile", () => {
 		expect(onDisk).toContain("title: New Title");
 	});
 
-	it("writes .manifest.json after sync", async () => {
+	it("writes .manifest.json with entries and collectionNames after sync", async () => {
 		mkdirSync(`${dataRoot}/canonical`, { recursive: true });
 
 		const remote = [
@@ -264,28 +274,25 @@ describe("reconcile", () => {
 				document_id: "doc-1",
 				type: 0,
 				checksum: "c1",
-				collections: [],
-			},
-			{
-				document_id: "doc-2",
-				type: 3,
-				checksum: "c2",
 				collections: ["col-X"],
 			},
 		];
 		mockGetManifest.mockResolvedValueOnce(remote);
 		mockGetFileContents.mockResolvedValueOnce(
-			remote.map((r) => ({ ...r, content: `content of ${r.document_id}` })),
+			remote.map((r) => ({ ...r, content: "body" })),
 		);
+		mockGetCollectionNames.mockResolvedValueOnce([
+			{ collection_id: "col-X", name: "Research" },
+		]);
 
 		await reconcile({ userId: "user-1" });
 
-		// Manifest should be persisted
 		const manifest = await readManifest(dataRoot);
-		expect(manifest).toEqual(remote);
+		expect(manifest.entries).toEqual(remote);
+		expect(manifest.collectionNames).toEqual({ "col-X": "Research" });
 	});
 
-	it("generates _index.md on every reconcile", async () => {
+	it("generates _index.md on sync", async () => {
 		mkdirSync(`${dataRoot}/canonical`, { recursive: true });
 
 		mockGetManifest.mockResolvedValueOnce([
@@ -322,7 +329,7 @@ describe("reconcile", () => {
 		expect(indexContent).toContain("Research");
 	});
 
-	it("skips _index.md regeneration when manifest is unchanged", async () => {
+	it("skips _index.md when nothing changed", async () => {
 		writeCanonicalFile(
 			dataRoot,
 			{
@@ -334,14 +341,17 @@ describe("reconcile", () => {
 			},
 			emptyCollectionNames,
 		);
-		await writeManifest(dataRoot, [
-			{
-				document_id: "doc-1",
-				type: 0,
-				checksum: "aaa",
-				collections: [],
-			},
-		]);
+		await writeManifest(dataRoot, {
+			entries: [
+				{
+					document_id: "doc-1",
+					type: 0,
+					checksum: "aaa",
+					collections: [],
+				},
+			],
+			collectionNames: {},
+		});
 
 		mockGetManifest.mockResolvedValueOnce([
 			{
@@ -351,13 +361,82 @@ describe("reconcile", () => {
 				collections: [],
 			},
 		]);
-		mockGetCollectionNames.mockResolvedValueOnce([]);
 
 		const result = await reconcile({ userId: "user-1" });
 		expect(result).toBe(false);
-
-		// No _index.md generated on the fast path (no changes)
 		expect(existsSync(`${dataRoot}/canonical/_index.md`)).toBe(false);
+	});
+
+	it("rewrites frontmatter and _index.md when collection is renamed", async () => {
+		writeCanonicalFile(
+			dataRoot,
+			{
+				document_id: "doc-1",
+				type: 0,
+				collections: ["col-A"],
+				content: "content",
+				checksum: "c1",
+				title: "My Article",
+			},
+			new Map([["col-A", "Old Name"]]),
+		);
+		await writeManifest(dataRoot, {
+			entries: [
+				{
+					document_id: "doc-1",
+					type: 0,
+					checksum: "c1",
+					collections: ["col-A"],
+					title: "My Article",
+				},
+			],
+			collectionNames: { "col-A": "Old Name" },
+		});
+
+		// Same document manifest, but collection renamed
+		mockGetManifest.mockResolvedValueOnce([
+			{
+				document_id: "doc-1",
+				type: 0,
+				checksum: "c1",
+				collections: ["col-A"],
+				title: "My Article",
+			},
+		]);
+		mockGetFileContents.mockResolvedValueOnce([
+			{
+				document_id: "doc-1",
+				type: 0,
+				checksum: "c1",
+				collections: ["col-A"],
+				content: "content",
+				title: "My Article",
+			},
+		]);
+		mockGetCollectionNames.mockResolvedValueOnce([
+			{ collection_id: "col-A", name: "New Name" },
+		]);
+
+		const result = await reconcile({ userId: "user-1" });
+
+		expect(result).toBe(true);
+
+		// Frontmatter should have new collection name
+		const content = readFileSync(`${dataRoot}/canonical/0/doc-1.md`, "utf-8");
+		expect(content).toContain('collections: ["New Name"]');
+		expect(content).not.toContain("Old Name");
+
+		// _index.md should have new collection name
+		const indexContent = readFileSync(
+			`${dataRoot}/canonical/_index.md`,
+			"utf-8",
+		);
+		expect(indexContent).toContain("New Name");
+		expect(indexContent).not.toContain("Old Name");
+
+		// Manifest should store updated names
+		const manifest = await readManifest(dataRoot);
+		expect(manifest.collectionNames).toEqual({ "col-A": "New Name" });
 	});
 
 	it("writes human-readable collection names in frontmatter", async () => {

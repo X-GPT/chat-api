@@ -401,54 +401,60 @@ describe("materialization", () => {
 	});
 
 	describe("writeManifest / readManifest", () => {
-		it("round-trips manifest entries", async () => {
+		it("round-trips manifest data with entries and collection names", async () => {
 			const dataRoot = join(testRoot, "manifest-roundtrip");
 			mkdirSync(`${dataRoot}/canonical`, { recursive: true });
 
-			const entries = [
-				{
-					document_id: "doc-1",
-					type: 0,
-					checksum: "c1",
-					collections: ["col-A"],
-					title: "My Article",
-				},
-				{
-					document_id: "doc-2",
-					type: 3,
-					checksum: "c2",
-					collections: [],
-				},
-			];
+			const data = {
+				entries: [
+					{
+						document_id: "doc-1",
+						type: 0,
+						checksum: "c1",
+						collections: ["col-A"],
+						title: "My Article",
+					},
+					{
+						document_id: "doc-2",
+						type: 3,
+						checksum: "c2",
+						collections: [],
+					},
+				],
+				collectionNames: { "col-A": "Research" },
+			};
 
-			await writeManifest(dataRoot, entries);
+			await writeManifest(dataRoot, data);
 			const read = await readManifest(dataRoot);
-			expect(read).toEqual(entries);
+			expect(read).toEqual(data);
 		});
 
-		it("returns empty array when file is missing", async () => {
+		it("returns empty manifest when file is missing", async () => {
 			const dataRoot = join(testRoot, "manifest-missing");
-			expect(await readManifest(dataRoot)).toEqual([]);
+			const read = await readManifest(dataRoot);
+			expect(read).toEqual({ entries: [], collectionNames: {} });
 		});
 
-		it("returns empty array when file is malformed", async () => {
+		it("returns empty manifest when file is malformed", async () => {
 			const dataRoot = join(testRoot, "manifest-malformed");
 			mkdirSync(`${dataRoot}/canonical`, { recursive: true });
 			await Bun.write(
 				`${dataRoot}/canonical/.manifest.json`,
 				"not valid json{",
 			);
-			expect(await readManifest(dataRoot)).toEqual([]);
+			const read = await readManifest(dataRoot);
+			expect(read).toEqual({ entries: [], collectionNames: {} });
 		});
 
-		it("returns empty array when file contains non-array JSON", async () => {
-			const dataRoot = join(testRoot, "manifest-non-array");
+		it("returns empty manifest when file has wrong shape", async () => {
+			const dataRoot = join(testRoot, "manifest-wrong-shape");
 			mkdirSync(`${dataRoot}/canonical`, { recursive: true });
 			await Bun.write(
 				`${dataRoot}/canonical/.manifest.json`,
-				'{"not": "an array"}',
+				'{"entries": "not an array"}',
 			);
-			expect(await readManifest(dataRoot)).toEqual([]);
+			const read = await readManifest(dataRoot);
+			expect(read).toEqual({ entries: [], collectionNames: {} });
 		});
 	});
 
