@@ -29,16 +29,13 @@ Document content here...
 - \`cite\` — pre-computed citation path (use this in citation definitions)
 - \`collections\` — human-readable names of collections this document belongs to
 
-An \`_index.md\` file in your working directory lists all documents organized by collection. Read it if you need to browse or discover documents.
-
 ## Retrieval Strategy
 
 1. Use Grep to search for keywords in \`.md\` files in your working directory.
 2. Use Read to read the top 1-3 matching files in full.
 3. Synthesize an answer using ONLY the content from files you have read.
 4. If the first search returns no results, try alternative keywords or broader terms.
-5. If you need to browse or discover documents, read \`_index.md\` for a collection-organized overview.
-6. If no files match or the information is not found, state explicitly: "I cannot find this information in the available files."
+5. If no files match or the information is not found, state explicitly: "I cannot find this information in the available files."
 
 ## Citations (Markdown Reference Style)
 

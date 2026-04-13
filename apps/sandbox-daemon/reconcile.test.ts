@@ -86,6 +86,7 @@ describe("reconcile", () => {
 
 		expect(result).toBe(false);
 		expect(mockGetFileContents).not.toHaveBeenCalled();
+		expect(mockGetCollectionNames).not.toHaveBeenCalled();
 	});
 
 	it("removes collection hardlinks and canonical file on delete", async () => {
@@ -203,6 +204,56 @@ describe("reconcile", () => {
 
 		const onDisk = readFileSync(`${dataRoot}/canonical/0/doc-1.md`, "utf-8");
 		expect(onDisk).toContain("new content");
+	});
+
+	it("updates canonical file when title changes but checksum is unchanged", async () => {
+		writeCanonicalFile(
+			dataRoot,
+			{
+				document_id: "doc-1",
+				type: 0,
+				collections: [],
+				content: "content",
+				checksum: "same",
+				title: "Old Title",
+			},
+			emptyCollectionNames,
+		);
+		await writeManifest(dataRoot, [
+			{
+				document_id: "doc-1",
+				type: 0,
+				checksum: "same",
+				collections: [],
+				title: "Old Title",
+			},
+		]);
+
+		mockGetManifest.mockResolvedValueOnce([
+			{
+				document_id: "doc-1",
+				type: 0,
+				checksum: "same",
+				collections: [],
+				title: "New Title",
+			},
+		]);
+		mockGetFileContents.mockResolvedValueOnce([
+			{
+				document_id: "doc-1",
+				type: 0,
+				checksum: "same",
+				collections: [],
+				content: "content",
+				title: "New Title",
+			},
+		]);
+
+		const result = await reconcile({ userId: "user-1" });
+
+		expect(result).toBe(true);
+		const onDisk = readFileSync(`${dataRoot}/canonical/0/doc-1.md`, "utf-8");
+		expect(onDisk).toContain("title: New Title");
 	});
 
 	it("writes .manifest.json after sync", async () => {

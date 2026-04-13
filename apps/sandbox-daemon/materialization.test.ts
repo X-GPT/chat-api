@@ -542,6 +542,44 @@ describe("materialization", () => {
 			expect(content).toContain("## col-unknown (col-unknown)");
 		});
 
+		it("sorts collections alphabetically by name", async () => {
+			const dataRoot = join(testRoot, "index-sorted");
+			mkdirSync(`${dataRoot}/canonical`, { recursive: true });
+
+			const entries = [
+				{
+					document_id: "doc-1",
+					type: 0,
+					checksum: "c1",
+					collections: ["col-Z"],
+					title: "Doc Z",
+				},
+				{
+					document_id: "doc-2",
+					type: 0,
+					checksum: "c2",
+					collections: ["col-A"],
+					title: "Doc A",
+				},
+			];
+			const collectionNames = new Map([
+				["col-Z", "Zebra"],
+				["col-A", "Alpha"],
+			]);
+
+			await writeIndexFile(dataRoot, entries, collectionNames);
+
+			const content = readFileSync(
+				`${dataRoot}/canonical/_index.md`,
+				"utf-8",
+			);
+			const alphaPos = content.indexOf("## Alpha");
+			const zebraPos = content.indexOf("## Zebra");
+			expect(alphaPos).toBeGreaterThan(-1);
+			expect(zebraPos).toBeGreaterThan(-1);
+			expect(alphaPos).toBeLessThan(zebraPos);
+		});
+
 		it("generates valid index with no entries", async () => {
 			const dataRoot = join(testRoot, "index-empty");
 			mkdirSync(`${dataRoot}/canonical`, { recursive: true });

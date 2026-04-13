@@ -349,7 +349,14 @@ export async function writeIndexFile(
 		}
 	}
 
-	for (const [colId, docs] of collectionMap) {
+	// Sort collections alphabetically by name for natural browsing.
+	const sortedCollections = [...collectionMap.entries()].sort((a, b) => {
+		const nameA = collectionNames.get(a[0]) ?? a[0];
+		const nameB = collectionNames.get(b[0]) ?? b[0];
+		return nameA.localeCompare(nameB);
+	});
+
+	for (const [colId, docs] of sortedCollections) {
 		const colName = collectionNames.get(colId) ?? colId;
 		lines.push(`## ${colName} (${colId})`, "");
 		for (const doc of docs) {

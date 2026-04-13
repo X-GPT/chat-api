@@ -32,6 +32,7 @@ function hasEntryChanged(
 	return (
 		local.checksum !== remote.checksum ||
 		local.type !== remote.type ||
+		local.title !== remote.title ||
 		!collectionsEqual(local.collections, remote.collections)
 	);
 }
@@ -62,19 +63,19 @@ export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	const dataRoot = getDataRoot(userId);
 	ensureDataRoot(dataRoot);
 
-	const [remoteManifest, localManifest, collectionRows] = await Promise.all([
+	const [remoteManifest, localManifest] = await Promise.all([
 		getManifest(userId),
 		readManifest(dataRoot),
-		getCollectionNames(userId),
 	]);
-
-	const collectionNamesMap = new Map(
-		collectionRows.map((r) => [r.collection_id, r.name]),
-	);
 
 	if (manifestsEqual(localManifest, remoteManifest)) {
 		return false;
 	}
+
+	const collectionRows = await getCollectionNames(userId);
+	const collectionNamesMap = new Map(
+		collectionRows.map((r) => [r.collection_id, r.name]),
+	);
 
 	const localMap = new Map(
 		localManifest.map((entry) => [entry.document_id, entry]),
