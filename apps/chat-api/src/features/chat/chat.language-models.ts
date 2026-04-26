@@ -1,17 +1,48 @@
-import { anthropic } from "@ai-sdk/anthropic";
+import { createDeepSeek } from "@ai-sdk/deepseek";
 import { google } from "@ai-sdk/google";
 import { openai } from "@ai-sdk/openai";
 import type { LanguageModel } from "ai";
 import invariant from "tiny-invariant";
+import { apiEnv } from "@/config/env";
 
 export const DEFAULT_MODEL_ID = "claude-3-5-haiku-20241022";
 
-export type LanguageModelProvider = "openai" | "anthropic" | "google";
+export type LanguageModelProvider =
+	| "openai"
+	| "anthropic"
+	| "google"
+	| "deepseek";
 
 type LanguageModelEntry = {
 	model: LanguageModel;
 	provider: LanguageModelProvider;
 };
+
+const DEEPSEEK_PRO_MODEL_ID = "deepseek-v4-pro";
+
+const deepseek = createDeepSeek({
+	apiKey: apiEnv.DEEPSEEK_API_KEY,
+	...(apiEnv.DEEPSEEK_BASE_URL ? { baseURL: apiEnv.DEEPSEEK_BASE_URL } : {}),
+});
+
+const resolveDeepseekBackendId = (claudeModelId: string): string =>
+	/opus/i.test(claudeModelId)
+		? DEEPSEEK_PRO_MODEL_ID
+		: apiEnv.DEEPSEEK_DEFAULT_MODEL;
+
+const createClaudeMap = <TModelId extends string>(
+	modelIds: readonly TModelId[],
+) =>
+	modelIds.reduce<Record<string, LanguageModelEntry>>(
+		(accumulator, modelId) => {
+			accumulator[modelId] = {
+				model: deepseek(resolveDeepseekBackendId(modelId)),
+				provider: "deepseek",
+			};
+			return accumulator;
+		},
+		{},
+	);
 
 const createModelMap = <TModelId extends string>(
 	provider: LanguageModelProvider,
@@ -86,24 +117,20 @@ export const LANGUAGE_MODELS_BY_ID = {
 		],
 		openai,
 	),
-	...createModelMap(
-		"anthropic",
-		[
-			"claude-3-opus-20240229",
-			"claude-3-opus-latest",
-			"claude-3-sonnet-20240229",
-			"claude-3-haiku-20240307",
-			"claude-3-5-sonnet-20240620",
-			"claude-3-5-sonnet-20241022",
-			"claude-3-5-sonnet-latest",
-			"claude-3-5-haiku-20241022",
-			"claude-3-5-haiku-latest",
-			"claude-3-7-sonnet-20250219",
-			"claude-sonnet-4-20250514",
-			"claude-opus-4-20250514",
-		],
-		anthropic,
-	),
+	...createClaudeMap([
+		"claude-3-opus-20240229",
+		"claude-3-opus-latest",
+		"claude-3-sonnet-20240229",
+		"claude-3-haiku-20240307",
+		"claude-3-5-sonnet-20240620",
+		"claude-3-5-sonnet-20241022",
+		"claude-3-5-sonnet-latest",
+		"claude-3-5-haiku-20241022",
+		"claude-3-5-haiku-latest",
+		"claude-3-7-sonnet-20250219",
+		"claude-sonnet-4-20250514",
+		"claude-opus-4-20250514",
+	]),
 	...createModelMap(
 		"google",
 		[

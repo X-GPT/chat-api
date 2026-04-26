@@ -8,6 +8,7 @@ import {
 } from "../chat.language-models";
 import type { ChatLogger } from "../chat.logger";
 import { buildEnvironmentContext } from "../prompts/environment-context";
+import { buildClaudeIdentity } from "../prompts/identity";
 import {
 	buildPrompt,
 	getNoKnowledgePrompt,
@@ -68,11 +69,14 @@ function buildSession({
 		systemPrompt = getNoKnowledgePrompt();
 	}
 
+	const identity = buildClaudeIdentity(config.modelId);
+
 	const turnContext: TurnContext = {
 		model,
 		provider,
 		systemPrompt,
 		environmentContext,
+		identity,
 		memberAuthToken: config.memberAuthToken,
 		scope: config.scope,
 		summaryId: config.summaryId,
@@ -84,9 +88,12 @@ function buildSession({
 		summaryCache: config.summaryCache,
 	};
 
+	const usesUserMessageEnvContext =
+		provider === "openai" || provider === "deepseek";
+
 	const session = {
 		messages:
-			conversationHistory.type === "new" && provider === "openai"
+			conversationHistory.type === "new" && usesUserMessageEnvContext
 				? [
 						{
 							role: "user" as const,
@@ -108,6 +115,7 @@ export type TurnContext = {
 	provider: LanguageModelProvider;
 	systemPrompt: string;
 	environmentContext: string | null;
+	identity: string | null;
 	memberAuthToken: string;
 	scope: ChatMessagesScope;
 	summaryId: string | null;
@@ -138,6 +146,7 @@ async function runTurn(
 	const prompt = buildPrompt({
 		systemPrompt: turnContext.systemPrompt,
 		environmentContext: turnContext.environmentContext,
+		identity: turnContext.identity,
 		messages: turnInput,
 		scope: turnContext.scope,
 		enableKnowledge: turnContext.enableKnowledge,

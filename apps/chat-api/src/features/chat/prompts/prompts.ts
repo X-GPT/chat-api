@@ -53,6 +53,7 @@ export function getNoKnowledgePrompt(): string {
 export function buildPrompt({
 	systemPrompt,
 	environmentContext,
+	identity,
 	tools,
 	scope,
 	enableKnowledge,
@@ -60,6 +61,7 @@ export function buildPrompt({
 }: {
 	systemPrompt: string;
 	environmentContext: string | null;
+	identity?: string | null;
 	tools: ReturnType<typeof getTools>;
 	scope: ChatMessagesScope;
 	enableKnowledge: boolean;
@@ -67,8 +69,9 @@ export function buildPrompt({
 }) {
 	const allowedTools = getAllowedTools(scope, enableKnowledge);
 
+	const identityPrefix = identity ? `${identity}\n\n` : "";
 	return {
-		system: `${systemPrompt}\n\n${environmentContext ?? ""}`,
+		system: `${identityPrefix}${systemPrompt}\n\n${environmentContext ?? ""}`,
 		tools,
 		messages,
 		allowedTools,

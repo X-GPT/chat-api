@@ -3,6 +3,7 @@ import invariant from "tiny-invariant";
 const DEFAULT_PROTECTED_API_ORIGIN = "http://127.0.0.1";
 const DEFAULT_PROTECTED_API_PREFIX = "/beta-api";
 const DEFAULT_RAG_API_ORIGIN = "http://rag-api:8000";
+const DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash";
 
 /**
  * Environment variables for the API server
@@ -11,6 +12,7 @@ const DEFAULT_RAG_API_ORIGIN = "http://rag-api:8000";
 export const apiEnv = (() => {
 	invariant(Bun.env.OPENAI_API_KEY, "OPENAI_API_KEY is required");
 	invariant(Bun.env.ANTHROPIC_API_KEY, "ANTHROPIC_API_KEY is required");
+	invariant(Bun.env.DEEPSEEK_API_KEY, "DEEPSEEK_API_KEY is required");
 	invariant(Bun.env.PROTECTED_API_TOKEN, "PROTECTED_API_TOKEN is required");
 
 	const sandboxEnabled = Bun.env.SANDBOX_ENABLED === "true";
@@ -32,6 +34,10 @@ export const apiEnv = (() => {
 		DATABASE_URL: databaseUrl,
 		OPENAI_API_KEY: Bun.env.OPENAI_API_KEY,
 		ANTHROPIC_API_KEY: Bun.env.ANTHROPIC_API_KEY,
+		DEEPSEEK_API_KEY: Bun.env.DEEPSEEK_API_KEY,
+		DEEPSEEK_BASE_URL: Bun.env.DEEPSEEK_BASE_URL || null,
+		DEEPSEEK_DEFAULT_MODEL:
+			Bun.env.DEEPSEEK_DEFAULT_MODEL || DEFAULT_DEEPSEEK_MODEL,
 		PROTECTED_API_ORIGIN:
 			Bun.env.PROTECTED_API_ORIGIN || DEFAULT_PROTECTED_API_ORIGIN,
 		PROTECTED_API_PREFIX:
