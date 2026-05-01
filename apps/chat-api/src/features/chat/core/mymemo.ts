@@ -8,7 +8,7 @@ import {
 } from "../chat.language-models";
 import type { ChatLogger } from "../chat.logger";
 import { buildEnvironmentContext } from "../prompts/environment-context";
-import { buildClaudeIdentity } from "../prompts/identity";
+import { buildIdentity } from "../prompts/identity";
 import {
 	buildPrompt,
 	getNoKnowledgePrompt,
@@ -69,7 +69,7 @@ function buildSession({
 		systemPrompt = getNoKnowledgePrompt();
 	}
 
-	const identity = buildClaudeIdentity(config.modelId);
+	const identity = buildIdentity(config.modelId);
 
 	const turnContext: TurnContext = {
 		model,

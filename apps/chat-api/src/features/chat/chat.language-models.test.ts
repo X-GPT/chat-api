@@ -7,8 +7,8 @@ import {
 } from "./chat.language-models";
 
 describe("resolveLanguageModel", () => {
-	it("returns the exact language model when a known OpenAI id is provided", () => {
-		const id = "gpt-4o";
+	it("returns the exact language model when a known OpenAI reasoning id is provided", () => {
+		const id = "o3-mini";
 		const resolved = resolveLanguageModel(id);
 
 		expect(resolved.isFallback).toBe(false);
@@ -16,6 +16,48 @@ describe("resolveLanguageModel", () => {
 		expect(resolved.provider).toBe("openai");
 		invariant(LANGUAGE_MODELS_BY_ID[id], "Language model not found");
 		expect(resolved.model).toBe(LANGUAGE_MODELS_BY_ID[id].model);
+	});
+
+	it("keeps chatgpt-* requests on the OpenAI provider", () => {
+		const id = "chatgpt-4o-latest";
+		const resolved = resolveLanguageModel(id);
+
+		expect(resolved.isFallback).toBe(false);
+		expect(resolved.provider).toBe("openai");
+	});
+
+	it("routes gpt-5* requests through DeepSeek pro", () => {
+		const id = "gpt-5";
+		const resolved = resolveLanguageModel(id);
+
+		expect(resolved.isFallback).toBe(false);
+		expect(resolved.modelId).toBe(id);
+		expect(resolved.provider).toBe("deepseek");
+		invariant(LANGUAGE_MODELS_BY_ID[id], "Language model not found");
+		expect(resolved.model).toBe(LANGUAGE_MODELS_BY_ID[id].model);
+	});
+
+	it("routes gpt-5-mini requests through DeepSeek pro", () => {
+		const resolved = resolveLanguageModel("gpt-5-mini");
+
+		expect(resolved.isFallback).toBe(false);
+		expect(resolved.provider).toBe("deepseek");
+	});
+
+	it("routes non gpt-5 gpt-* requests through DeepSeek (default flash)", () => {
+		const id = "gpt-4o";
+		const resolved = resolveLanguageModel(id);
+
+		expect(resolved.isFallback).toBe(false);
+		expect(resolved.modelId).toBe(id);
+		expect(resolved.provider).toBe("deepseek");
+	});
+
+	it("routes legacy gpt-3.5-turbo through DeepSeek", () => {
+		const resolved = resolveLanguageModel("gpt-3.5-turbo");
+
+		expect(resolved.isFallback).toBe(false);
+		expect(resolved.provider).toBe("deepseek");
 	});
 
 	it("routes claude-opus-* requests through DeepSeek", () => {
