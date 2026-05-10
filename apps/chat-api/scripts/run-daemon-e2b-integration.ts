@@ -632,6 +632,68 @@ async function testTitleOnlyChange() {
 	console.log("✓ _index.md updated with new title");
 }
 
+// Pins down daemon behavior when the client supplies an `agent_session_id`
+// that the SDK has no record of. Pre-PR #90, chat-api guaranteed this never
+// happened by clearing user_sandbox_sessions whenever a sandbox was killed.
+// Post-#90, clients persist sessionIds across sandbox lifetimes, so the
+// daemon must handle unknown IDs gracefully — either fall back to a fresh
+// session, or fail with a recognizable error so chat-api can retry.
+async function testUnknownSessionResume() {
+	console.log("\n=== Test 14: Unknown agent_session_id Handling ===");
+
+	const fakeSessionId = `nonexistent-${crypto.randomUUID()}`;
+	const { status, events } = await sendTurn({
+		request_id: `turn-fake-resume-${Date.now()}`,
+		user_id: userId,
+		scope_type: "global",
+		message: "What is the capital of France?",
+		agent_session_id: fakeSessionId,
+		system_prompt: prodPrompt("general"),
+	});
+
+	assert.equal(status, 200, "Daemon should accept the request");
+
+	const types = events.map((e) => e.type);
+	const failedEvent = events.find((e) => e.type === "failed");
+	const sessionEvent = events.find((e) => e.type === "session_id");
+
+	if (failedEvent) {
+		const failureMessage = String(failedEvent.message);
+		console.log(
+			`⚠ Daemon failed on unknown agent_session_id: "${failureMessage}"`,
+		);
+		console.log(
+			"  → chat-api needs a retry-without-resume fallback, or clients must drop stale IDs on this error",
+		);
+		assert.fail(
+			`Daemon does not gracefully handle unknown agent_session_id. ` +
+				`Failure: ${failureMessage}. ` +
+				`Either change the daemon to fall back to a new session, or add ` +
+				`retry-without-resume logic in sandbox-orchestration.ts.`,
+		);
+	}
+
+	assert.ok(sessionEvent, "Daemon should emit a session_id event");
+	assert.notEqual(
+		sessionEvent.sessionId,
+		fakeSessionId,
+		"Allocated session_id should differ from the unknown one supplied",
+	);
+	assert.ok(
+		types.includes("text_delta"),
+		"Daemon should still produce a response after falling back",
+	);
+
+	const fullText = extractFullText(events);
+	assert.ok(
+		/Paris/i.test(fullText),
+		`Expected fallback turn to still answer correctly:\n${fullText.slice(0, 400)}`,
+	);
+	console.log(
+		`✓ Daemon allocated new session ${sessionEvent.sessionId} (fake was ${fakeSessionId})`,
+	);
+}
+
 async function testSandboxIdPersistence() {
 	console.log("\n=== Test 13: Sandbox ID Persistence in Postgres ===");
 
@@ -691,6 +753,7 @@ async function main() {
 		await testMissingDocument();
 		await testCollectionRename();
 		await testTitleOnlyChange();
+		await testUnknownSessionResume();
 		await testSandboxIdPersistence();
 		console.log("\n✓ All E2B daemon integration tests passed");
 	} catch (err) {
