@@ -1,21 +1,10 @@
 import { readFileSync } from "node:fs";
 import type { ModelMessage } from "ai";
-import type { ChatMessagesScope } from "@/config/env";
 import { getAllowedTools, type getTools } from "../tools/tools";
 
 const SYSTEM_PROMPT_URL = new URL("./system-prompt.md", import.meta.url);
-const SINGLE_FILE_PROMPT_URL = new URL(
-	"./single-file-prompt.md",
-	import.meta.url,
-);
-const NO_KNOWLEDGE_PROMPT_URL = new URL(
-	"./no-knowledge-prompt.md",
-	import.meta.url,
-);
 
 let cachedSystemPrompt: string | null = null;
-let cachedSingleFilePrompt: string | null = null;
-let cachedNoKnowledgePrompt: string | null = null;
 
 export function getSystemPrompt(): string {
 	if (cachedSystemPrompt) {
@@ -28,52 +17,22 @@ export function getSystemPrompt(): string {
 	return cachedSystemPrompt;
 }
 
-export function getSingleFilePrompt(): string {
-	if (cachedSingleFilePrompt) {
-		return cachedSingleFilePrompt;
-	}
-
-	const rawPrompt = readFileSync(SINGLE_FILE_PROMPT_URL, "utf8");
-	cachedSingleFilePrompt = rawPrompt.trim();
-
-	return cachedSingleFilePrompt;
-}
-
-export function getNoKnowledgePrompt(): string {
-	if (cachedNoKnowledgePrompt) {
-		return cachedNoKnowledgePrompt;
-	}
-
-	const rawPrompt = readFileSync(NO_KNOWLEDGE_PROMPT_URL, "utf8");
-	cachedNoKnowledgePrompt = rawPrompt.trim();
-
-	return cachedNoKnowledgePrompt;
-}
-
 export function buildPrompt({
 	systemPrompt,
-	environmentContext,
 	identity,
 	tools,
-	scope,
-	enableKnowledge,
 	messages,
 }: {
 	systemPrompt: string;
-	environmentContext: string | null;
 	identity?: string | null;
 	tools: ReturnType<typeof getTools>;
-	scope: ChatMessagesScope;
-	enableKnowledge: boolean;
 	messages: ModelMessage[];
 }) {
-	const allowedTools = getAllowedTools(scope, enableKnowledge);
-
 	const identityPrefix = identity ? `${identity}\n\n` : "";
 	return {
-		system: `${identityPrefix}${systemPrompt}\n\n${environmentContext ?? ""}`,
+		system: `${identityPrefix}${systemPrompt}`,
 		tools,
 		messages,
-		allowedTools,
+		allowedTools: getAllowedTools(),
 	};
 }

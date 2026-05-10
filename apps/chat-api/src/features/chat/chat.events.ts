@@ -1,4 +1,3 @@
-import type { ProtectedSummary } from "./api/types";
 import type { UpdatePlanToolInput } from "./tools/update-plan";
 
 export interface MymemoEvent {
@@ -13,17 +12,6 @@ export type EventMessage =
 	| ChatEntityEvent
 	| PingEvent
 	| PlanUpdatedEvent
-	| CitationsUpdatedEvent
-	| ReadFileStartedEvent
-	| ReadFileCompletedEvent
-	| ListCollectionFilesStartedEvent
-	| ListCollectionFilesCompletedEvent
-	| ListAllFilesStartedEvent
-	| ListAllFilesCompletedEvent
-	| ReadFileStartedEvent
-	| ReadFileCompletedEvent
-	| SearchDocumentsStartedEvent
-	| SearchDocumentsCompletedEvent
 	| TaskStatusEvent;
 
 export interface TaskStartEvent {
@@ -40,37 +28,6 @@ export type PlanUpdatedEvent = UpdatePlanToolInput & {
 	type: "plan.updated";
 };
 
-export type Citation = ProtectedSummary & {
-	number: number;
-};
-
-export type CitationsUpdatedEvent = {
-	type: "citations.updated";
-	citations: Citation[];
-};
-
-export type ReadFileStartedEvent = {
-	type: "read_file.started";
-	fileId: string;
-	fileName: string;
-};
-
-export type ReadFileCompletedEvent = {
-	type: "read_file.completed";
-	fileId: string;
-	fileName: string;
-	message?: string;
-};
-
-export type ListCollectionFilesStartedEvent = {
-	type: "list_collection_files.started";
-};
-
-export type ListCollectionFilesCompletedEvent = {
-	type: "list_collection_files.completed";
-	message: string;
-};
-
 export interface ErrorEvent {
 	type: "error";
 	message: string;
@@ -79,15 +36,6 @@ export interface ErrorEvent {
 export interface PingEvent {
 	type: "ping";
 }
-
-export type ListAllFilesStartedEvent = {
-	type: "list_all_files.started";
-};
-
-export type ListAllFilesCompletedEvent = {
-	type: "list_all_files.completed";
-	message: string;
-};
 
 export interface ChatEntityEvent {
 	type: "chat_entity";
@@ -114,18 +62,6 @@ export interface ChatEntityEvent {
 }
 
 export type ChatEntity = Omit<ChatEntityEvent, "type">;
-
-export type SearchDocumentsStartedEvent = {
-	type: "search_documents.started";
-	query: string;
-};
-
-export type SearchDocumentsCompletedEvent = {
-	type: "search_documents.completed";
-	query: string;
-	totalDocuments: number;
-	error?: string;
-};
 
 export type TaskStatusEvent = {
 	type: "task_status";

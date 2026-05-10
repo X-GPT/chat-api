@@ -1,5 +1,14 @@
 import { dirname, relative } from "node:path";
-import type { ProtectedSummary } from "@/features/chat/api/types";
+
+export interface SummarySource {
+	id: string;
+	type?: number | null;
+	fileType?: string | null;
+	parseContent?: string | null;
+	content?: string | null;
+	title?: string | null;
+	summaryTitle?: string | null;
+}
 
 export interface SyncLogger {
 	info(obj: Record<string, unknown>): void;
@@ -45,7 +54,7 @@ export function computeChecksum(content: string): string {
 }
 
 export function resolveSourceKind(
-	summary: ProtectedSummary,
+	summary: SummarySource,
 ): "markdown" | "text" | "parser_output" {
 	const fileType = summary.fileType;
 
@@ -64,7 +73,7 @@ export function resolveSourceKind(
 	return "text";
 }
 
-export function resolveContent(summary: ProtectedSummary): string {
+export function resolveContent(summary: SummarySource): string {
 	const sourceKind = resolveSourceKind(summary);
 
 	if (sourceKind === "parser_output") {
@@ -80,10 +89,10 @@ export function getDocsRoot(config: MaterializationConfig): string {
 }
 
 /**
- * Materialize a single ProtectedSummary into a file with YAML frontmatter.
+ * Materialize a single SummarySource into a file with YAML frontmatter.
  */
 export function materializeSummary(
-	summary: ProtectedSummary,
+	summary: SummarySource,
 	config: MaterializationConfig,
 ): MaterializedFile {
 	const summaryId = summary.id;
@@ -118,7 +127,7 @@ export function materializeSummary(
 
 /** Batch materialization of multiple summaries. */
 export function materializeSummaries(
-	summaries: ProtectedSummary[],
+	summaries: SummarySource[],
 	config: MaterializationConfig,
 ): MaterializedFile[] {
 	return summaries.map((summary) => materializeSummary(summary, config));
@@ -139,7 +148,7 @@ export function getCollectionDocsRoot(
  * Each symlink points from collections/{collectionId}/{type}/{id}.txt
  * back to the primary file at {type}/{id}.txt via a relative path.
  *
- * Accepts either full ProtectedSummary objects or minimal {id, type} objects.
+ * Accepts either full SummarySource objects or minimal {id, type} objects.
  */
 export function resolveCollectionSymlinks(
 	summaries: ReadonlyArray<{ id: string; type?: number | null }>,

@@ -54,7 +54,6 @@ describe("runSandboxChat", () => {
 		Bun.env.OPENAI_API_KEY = "test-openai-key";
 		Bun.env.ANTHROPIC_API_KEY = "test-anthropic-key";
 		Bun.env.DEEPSEEK_API_KEY = "test-deepseek-key";
-		Bun.env.PROTECTED_API_TOKEN = "test-token";
 		({ runSandboxChat } = await import("./sandbox-orchestration"));
 		singletonModule = await import("./singleton");
 		proxyModule = await import("./sandbox-proxy");

@@ -1,26 +1,22 @@
 import { describe, expect, it } from "bun:test";
-import type { ProtectedChatMessage } from "./api/types";
-import { adaptProtectedMessagesToModelMessages } from "./chat.adapter";
+import { adaptHistoryToModelMessages } from "./chat.adapter";
+import type { ChatHistoryMessage } from "./chat.schema";
 
 const buildMessage = (
-	chatContent: string | null,
-	senderType: string | null | undefined,
-): ProtectedChatMessage =>
-	({
-		chatContent,
-		senderType,
-	}) as ProtectedChatMessage;
+	role: "user" | "assistant",
+	content: string,
+): ChatHistoryMessage => ({ role, content });
 
-describe("adaptProtectedMessagesToModelMessages", () => {
+describe("adaptHistoryToModelMessages", () => {
 	it("returns alternating messages with trimmed content", () => {
-		const history: ProtectedChatMessage[] = [
-			buildMessage(" Hello ", "User"),
-			buildMessage("  ", "assistant"),
-			buildMessage(null, "user"),
-			buildMessage("Thanks for reaching out", "assistant"),
+		const history: ChatHistoryMessage[] = [
+			buildMessage("user", " Hello "),
+			buildMessage("assistant", "  "),
+			buildMessage("user", ""),
+			buildMessage("assistant", "Thanks for reaching out"),
 		];
 
-		const result = adaptProtectedMessagesToModelMessages(history);
+		const result = adaptHistoryToModelMessages(history);
 
 		expect(result).toEqual([
 			{
@@ -35,13 +31,13 @@ describe("adaptProtectedMessagesToModelMessages", () => {
 	});
 
 	it("removes an unmatched trailing user message", () => {
-		const history: ProtectedChatMessage[] = [
-			buildMessage("First user", "user"),
-			buildMessage("Assistant reply", "assistant"),
-			buildMessage("Latest user", "user"),
+		const history: ChatHistoryMessage[] = [
+			buildMessage("user", "First user"),
+			buildMessage("assistant", "Assistant reply"),
+			buildMessage("user", "Latest user"),
 		];
 
-		const result = adaptProtectedMessagesToModelMessages(history);
+		const result = adaptHistoryToModelMessages(history);
 
 		expect(result).toEqual([
 			{
@@ -56,15 +52,15 @@ describe("adaptProtectedMessagesToModelMessages", () => {
 	});
 
 	it("keeps only the most recent alternating user/assistant pair", () => {
-		const history: ProtectedChatMessage[] = [
-			buildMessage("First user", "user"),
-			buildMessage("Assistant one", "assistant"),
-			buildMessage("Assistant two", "assistant"),
-			buildMessage("Latest user", "user"),
-			buildMessage("Latest assistant", "assistant"),
+		const history: ChatHistoryMessage[] = [
+			buildMessage("user", "First user"),
+			buildMessage("assistant", "Assistant one"),
+			buildMessage("assistant", "Assistant two"),
+			buildMessage("user", "Latest user"),
+			buildMessage("assistant", "Latest assistant"),
 		];
 
-		const result = adaptProtectedMessagesToModelMessages(history);
+		const result = adaptHistoryToModelMessages(history);
 
 		expect(result).toEqual([
 			{
@@ -79,11 +75,11 @@ describe("adaptProtectedMessagesToModelMessages", () => {
 	});
 
 	it("returns an empty array when trailing assistant replies have no matching user", () => {
-		const history: ProtectedChatMessage[] = [
-			buildMessage("Assistant only", "assistant"),
+		const history: ChatHistoryMessage[] = [
+			buildMessage("assistant", "Assistant only"),
 		];
 
-		const result = adaptProtectedMessagesToModelMessages(history);
+		const result = adaptHistoryToModelMessages(history);
 
 		expect(result).toEqual([]);
 	});

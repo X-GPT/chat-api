@@ -1,44 +1,61 @@
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import { validator as zValidator } from "hono-openapi";
 import type { Env as PinoEnv } from "hono-pino";
 import { ConversationBusyError } from "@/features/sandbox-orchestration";
 import { complete } from "./chat.controller";
 import { ChatLogger } from "./chat.logger";
-import { ChatRequest } from "./chat.schema";
+import {
+	ChatBodyRequest,
+	InternalIdentity,
+	MAX_REQUEST_BODY_BYTES,
+} from "./chat.schema";
 import { HonoSSESender } from "./chat.streaming";
 
 const app = new Hono<PinoEnv>();
 
 app.post(
 	"/",
-	zValidator("json", ChatRequest, (result, c) => {
+	bodyLimit({
+		maxSize: MAX_REQUEST_BODY_BYTES,
+		onError: (c) => c.json({ error: "Request body too large" }, 413),
+	}),
+	zValidator("json", ChatBodyRequest, (result, c) => {
 		if (!result.success) {
-			console.error({
+			console.warn({
 				message: "Invalid request body",
-				error: result.error,
+				issues: result.error,
 			});
-			return c.json({ error: result.error }, 400);
+			return c.json(
+				{ error: "Invalid request body", issues: result.error },
+				400,
+			);
 		}
 	}),
 	async (c) => {
-		const request = c.req.valid("json");
+		const body = c.req.valid("json");
 
-		const memberAuthToken = c.req.header("X-Member-Auth");
-		if (!memberAuthToken) {
-			console.error({
-				message: "X-Member-Auth is required",
+		const identityResult = InternalIdentity.safeParse({
+			memberCode: c.req.header("x-member-code"),
+			memberName: c.req.header("x-member-name"),
+			teamCode: c.req.header("x-team-code"),
+			partnerCode: c.req.header("x-partner-code"),
+			partnerName: c.req.header("x-partner-name"),
+		});
+
+		if (!identityResult.success) {
+			c.var.logger.warn({
+				message: "Missing or invalid internal identity headers",
+				issues: identityResult.error.flatten(),
 			});
-			return c.json({ error: "X-Member-Auth-Token is required" }, 400);
+			return c.json(
+				{ error: "Missing or invalid internal identity headers" },
+				401,
+			);
 		}
 
-		const memberCode = c.req.header("X-Member-Code");
-		if (!memberCode) {
-			console.error({
-				message: "X-Member-Code is required",
-			});
-			return c.json({ error: "X-Member-Code is required" }, 400);
-		}
+		const request = { ...body, ...identityResult.data };
 
 		return streamSSE(
 			c,
@@ -48,7 +65,7 @@ app.post(
 				// Start keepalive ping interval (5 seconds)
 				const keepaliveInterval = setInterval(() => {
 					sender.sendPing().catch((err) => {
-						console.error({
+						c.var.logger.error({
 							message: "Failed to send keepalive ping",
 							error: err,
 						});
@@ -57,19 +74,9 @@ app.post(
 
 				try {
 					await complete(
-						{
-							chatContent: request.chatContent,
-							chatKey: request.chatKey,
-							chatType: request.chatType,
-							collectionId: request.collectionId,
-							summaryId: request.summaryId,
-						},
-						{
-							memberAuthToken,
-							memberCode,
-						},
+						request,
 						sender,
-						new ChatLogger(c.var.logger, memberCode, request.chatKey),
+						new ChatLogger(c.var.logger, request.memberCode, request.chatKey),
 					);
 				} catch (err) {
 					if (err instanceof ConversationBusyError) {
@@ -90,7 +97,7 @@ app.post(
 				}
 			},
 			async (error, stream) => {
-				console.error({
+				c.var.logger.error({
 					message: "Error in chat route",
 					error,
 				});
