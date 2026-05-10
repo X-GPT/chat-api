@@ -21,32 +21,18 @@ STATE_DIR="/var/preview/$REPO_SLUG/$BRANCH_SLUG"
 export REPO_SLUG
 export BRANCH_SLUG
 export API_IMAGE="placeholder"  # Not used during down, but may be required by compose
-export RAG_API_IMAGE="placeholder"
-export RAG_WORKER_IMAGE="placeholder"
 export CONTAINER_PORT="3000"
 
 echo "Stopping and removing containers via docker compose"
-sudo -n API_IMAGE="$API_IMAGE" RAG_API_IMAGE="$RAG_API_IMAGE" RAG_WORKER_IMAGE="$RAG_WORKER_IMAGE" CONTAINER_PORT="$CONTAINER_PORT" REPO_SLUG="$REPO_SLUG" BRANCH_SLUG="$BRANCH_SLUG" \
+sudo -n API_IMAGE="$API_IMAGE" CONTAINER_PORT="$CONTAINER_PORT" REPO_SLUG="$REPO_SLUG" BRANCH_SLUG="$BRANCH_SLUG" \
   docker-compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" down -v || echo "Compose project not found or already removed"
 
-# Double-check containers are gone
+# Double-check container is gone
 API_CONTAINER="preview-$REPO_SLUG-$BRANCH_SLUG-api"
-RAG_API_CONTAINER="preview-$REPO_SLUG-$BRANCH_SLUG-rag-api"
-RAG_WORKER_CONTAINER="preview-$REPO_SLUG-$BRANCH_SLUG-rag-worker"
 
 if sudo -n docker ps -a --format '{{.Names}}' | grep -q "^$API_CONTAINER$"; then
   echo "Warning: API container $API_CONTAINER still exists, forcing removal"
   sudo -n docker rm -f "$API_CONTAINER" || true
-fi
-
-if sudo -n docker ps -a --format '{{.Names}}' | grep -q "^$RAG_API_CONTAINER$"; then
-  echo "Warning: RAG API container $RAG_API_CONTAINER still exists, forcing removal"
-  sudo -n docker rm -f "$RAG_API_CONTAINER" || true
-fi
-
-if sudo -n docker ps -a --format '{{.Names}}' | grep -q "^$RAG_WORKER_CONTAINER$"; then
-  echo "Warning: RAG worker container $RAG_WORKER_CONTAINER still exists, forcing removal"
-  sudo -n docker rm -f "$RAG_WORKER_CONTAINER" || true
 fi
 
 echo "Removing Nginx configuration: $CONF"
@@ -67,7 +53,4 @@ echo "Preview environment destroyed"
 echo "Project: $PROJECT_NAME"
 echo "Containers removed:"
 echo "  - $API_CONTAINER"
-echo "  - $RAG_API_CONTAINER"
-echo "  - $RAG_WORKER_CONTAINER"
 echo "========================================="
-

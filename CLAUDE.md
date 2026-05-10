@@ -4,9 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-MyMemo Monorepo containing two applications:
+MyMemo Monorepo containing the chat-api application:
 - **chat-api** (TypeScript/Bun) - AI chat service at `apps/chat-api/`
-- **rag-python** (Python) - RAG service at `apps/rag-python/`
 
 ## Commands
 
@@ -24,13 +23,6 @@ bun run format       # Format code
 # Docker
 docker build -t chat-api .
 docker-compose up    # Local development
-```
-
-### rag-python (apps/rag-python/)
-
-```bash
-uv sync
-source .venv/bin/activate
 ```
 
 ### Deployment Environments

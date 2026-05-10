@@ -24,10 +24,5 @@
 		"source.organizeImports.biome": "explicit",
 		"source.fixAll.eslint": "never"
 	},
-	"prettier.enable": false,
-	"[python]": {
-		"editor.defaultFormatter": "charliermarsh.ruff"
-	},
-	"cursorpyright.analysis.include": ["apps/rag-python"],
-	"cursorpyright.analysis.extraPaths": ["apps/rag-python/src"]
+	"prettier.enable": false
 }
