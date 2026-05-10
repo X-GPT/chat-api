@@ -30,12 +30,12 @@ docker-compose up    # Local development
 ### Request Flow
 
 1. `POST /api/v1/chat` with:
-   - **JSON body** (`ChatBodyRequest`): chat payload — `chatContent`, `chatKey`, `chatType`, optional `collectionId`/`summaryId`/`modelType`/`enableKnowledge`/`history`/client-supplied `chatId`/`refsId`
+   - **JSON body** (`ChatBodyRequest`): chat payload — `chatContent`, `chatKey`, `chatType`, optional `collectionId`/`summaryId`/client-supplied `chatId`/`refsId`
    - **Identity headers** (`InternalIdentity`): `X-Member-Code` (required), `X-Partner-Code` (required), `X-Team-Code`, `X-Member-Name`, `X-Partner-Name` (all optional)
 2. SSE stream initiated in `chat.route.ts` after body validation (`.strict()`, rejects extra keys) and identity-header validation (401 on missing/invalid)
 3. `chat.controller.ts::complete()` orchestrates the merged request — no upstream API calls
-4. Either `runSandboxChat` (when `SANDBOX_ENABLED` and `enableKnowledge`) or `core/mymemo.ts::runMyMemo()` handles streaming
-5. Events emitted via SSE: `agent.message.delta`, `chat_entity`, etc.
+4. `runSandboxChat` is the sole agent path: forwards the turn to a per-user E2B sandbox daemon
+5. Events emitted via SSE: `chat_entity` (streaming chat content), `error`
 
 ### Trust Boundary
 
@@ -45,11 +45,9 @@ Identity arrives via `X-*` headers, **not** the JSON body. chat-api does not aut
 
 | Path | Purpose |
 |------|---------|
-| `src/features/chat/core/mymemo.ts` | Fallback orchestration: model streaming + update_plan tool |
-| `src/features/chat/chat.controller.ts` | Reads context from request body, dispatches to sandbox or fallback path |
-| `src/features/chat/chat.language-models.ts` | Model registry for 60+ models across OpenAI, Anthropic, Google |
-| `src/features/chat/prompts/` | System prompts (scope-dependent: general, collection, document) |
-| `src/features/chat/tools/` | AI tool definitions (currently just `update_plan`) |
+| `src/features/chat/chat.controller.ts` | Reads context from request body, hands the turn to the sandbox |
+| `src/features/sandbox-orchestration/` | `runSandboxChat`, sandbox manager, daemon proxy |
+| `src/features/sandbox-agent/` | Sandbox-side agent prompt + NDJSON parser |
 | `src/config/env.ts` | Environment validation |
 
 ### Chat Scopes
@@ -70,11 +68,12 @@ Required:
 - `OPENAI_API_KEY`
 - `ANTHROPIC_API_KEY`
 - `DEEPSEEK_API_KEY`
+- `E2B_API_KEY`
+- `DATABASE_URL`
 
 Optional:
 - `LOG_LEVEL` (default: `info`)
 - `PORT` (default: 3000)
-- `SANDBOX_ENABLED` (default: `false`) — enables the per-user E2B sandbox path
-- `E2B_API_KEY` (required when `SANDBOX_ENABLED=true`)
-- `DATABASE_URL` (required when `SANDBOX_ENABLED=true`)
 - `E2B_TEMPLATE` (default: `sandbox-template-dev`)
+- `DEEPSEEK_BASE_URL`
+- `DEEPSEEK_DEFAULT_MODEL` (default: `deepseek-v4-flash`)

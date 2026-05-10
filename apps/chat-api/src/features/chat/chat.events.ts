@@ -1,40 +1,13 @@
-import type { UpdatePlanToolInput } from "./tools/update-plan";
-
 export interface MymemoEvent {
 	id: string;
 	message: EventMessage;
 }
 
-export type EventMessage =
-	| AgentMessageDeltaEvent
-	| TaskStartEvent
-	| ErrorEvent
-	| ChatEntityEvent
-	| PingEvent
-	| PlanUpdatedEvent
-	| TaskStatusEvent;
-
-export interface TaskStartEvent {
-	type: "task.started";
-	taskId: string;
-}
-
-export interface AgentMessageDeltaEvent {
-	type: "agent.message.delta";
-	delta: string;
-}
-
-export type PlanUpdatedEvent = UpdatePlanToolInput & {
-	type: "plan.updated";
-};
+export type EventMessage = ErrorEvent | ChatEntityEvent;
 
 export interface ErrorEvent {
 	type: "error";
 	message: string;
-}
-
-export interface PingEvent {
-	type: "ping";
 }
 
 export interface ChatEntityEvent {
@@ -62,8 +35,3 @@ export interface ChatEntityEvent {
 }
 
 export type ChatEntity = Omit<ChatEntityEvent, "type">;
-
-export type TaskStatusEvent = {
-	type: "task_status";
-	taskStatus: "ask_user" | "complete";
-};
