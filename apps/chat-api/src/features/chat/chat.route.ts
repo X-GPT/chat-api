@@ -23,11 +23,14 @@ app.post(
 	}),
 	zValidator("json", ChatBodyRequest, (result, c) => {
 		if (!result.success) {
-			console.error({
+			console.warn({
 				message: "Invalid request body",
-				error: result.error,
+				issues: result.error,
 			});
-			return c.json({ error: result.error }, 400);
+			return c.json(
+				{ error: "Invalid request body", issues: result.error },
+				400,
+			);
 		}
 	}),
 	async (c) => {
@@ -42,9 +45,9 @@ app.post(
 		});
 
 		if (!identityResult.success) {
-			console.error({
+			c.var.logger.warn({
 				message: "Missing or invalid internal identity headers",
-				error: identityResult.error,
+				issues: identityResult.error.flatten(),
 			});
 			return c.json(
 				{ error: "Missing or invalid internal identity headers" },
@@ -62,7 +65,7 @@ app.post(
 				// Start keepalive ping interval (5 seconds)
 				const keepaliveInterval = setInterval(() => {
 					sender.sendPing().catch((err) => {
-						console.error({
+						c.var.logger.error({
 							message: "Failed to send keepalive ping",
 							error: err,
 						});
@@ -94,7 +97,7 @@ app.post(
 				}
 			},
 			async (error, stream) => {
-				console.error({
+				c.var.logger.error({
 					message: "Error in chat route",
 					error,
 				});
