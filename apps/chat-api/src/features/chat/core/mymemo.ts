@@ -1,13 +1,11 @@
 import { type LanguageModel, type ModelMessage, streamText } from "ai";
 import type { ChatMessagesScope } from "@/config/env";
-import type { ProtectedSummary } from "../api/types";
 import type { EventMessage } from "../chat.events";
 import {
 	type LanguageModelProvider,
 	resolveLanguageModel,
 } from "../chat.language-models";
 import type { ChatLogger } from "../chat.logger";
-import { buildEnvironmentContext } from "../prompts/environment-context";
 import { buildIdentity } from "../prompts/identity";
 import {
 	buildPrompt,
@@ -15,13 +13,8 @@ import {
 	getSingleFilePrompt,
 	getSystemPrompt,
 } from "../prompts/prompts";
-import { handleListAllFiles } from "../tools/list-all-files";
-import { handleListCollectionFiles } from "../tools/list-collection-files";
-import { handleReadFile } from "../tools/read-file";
-import { handleSearchDocuments } from "../tools/search-documents";
 import { getTools } from "../tools/tools";
 import { handleUpdatePlan } from "../tools/update-plan";
-import type { RequestCache } from "./cache";
 import type { Config } from "./config";
 import type { ConversationHistory } from "./history";
 
@@ -41,13 +34,6 @@ function buildSession({
 	session: Session;
 	turnContext: TurnContext;
 } {
-	const environmentContext = buildEnvironmentContext(
-		config.scope,
-		config.enableKnowledge,
-		config.summaryId,
-		config.collectionId,
-	);
-
 	const { model, provider, isFallback, requestedModelId } =
 		resolveLanguageModel(config.modelId);
 
@@ -74,9 +60,7 @@ function buildSession({
 		model,
 		provider,
 		systemPrompt,
-		environmentContext,
 		identity,
-		memberAuthToken: config.memberAuthToken,
 		scope: config.scope,
 		summaryId: config.summaryId,
 		collectionId: config.collectionId,
@@ -84,26 +68,13 @@ function buildSession({
 		partnerCode: config.partnerCode,
 		enableKnowledge: config.enableKnowledge,
 		logger,
-		summaryCache: config.summaryCache,
 	};
-
-	const usesUserMessageEnvContext =
-		provider === "openai" || provider === "deepseek";
 
 	const session = {
 		messages:
-			conversationHistory.type === "new" && usesUserMessageEnvContext
-				? [
-						{
-							role: "user" as const,
-							content: [
-								{ type: "text" as const, text: environmentContext ?? "" },
-							],
-						},
-					]
-				: conversationHistory.type === "continued"
-					? conversationHistory.messages
-					: [],
+			conversationHistory.type === "continued"
+				? conversationHistory.messages
+				: [],
 	};
 
 	return { session, turnContext };
@@ -113,9 +84,7 @@ export type TurnContext = {
 	model: LanguageModel;
 	provider: LanguageModelProvider;
 	systemPrompt: string;
-	environmentContext: string | null;
 	identity: string | null;
-	memberAuthToken: string;
 	scope: ChatMessagesScope;
 	summaryId: string | null;
 	collectionId: string | null;
@@ -123,7 +92,6 @@ export type TurnContext = {
 	partnerCode: string;
 	enableKnowledge: boolean;
 	logger: ChatLogger;
-	summaryCache: RequestCache<ProtectedSummary[]>;
 };
 
 type TurnRunResult = {
@@ -144,7 +112,6 @@ async function runTurn(
 	const tools = getTools();
 	const prompt = buildPrompt({
 		systemPrompt: turnContext.systemPrompt,
-		environmentContext: turnContext.environmentContext,
 		identity: turnContext.identity,
 		messages: turnInput,
 		scope: turnContext.scope,
@@ -206,7 +173,6 @@ async function runTurn(
 	if (finishReason === "tool-calls") {
 		const toolCalls = await result.toolCalls;
 
-		// Handle all tool call execution here
 		for (const toolCall of toolCalls) {
 			turnContext.logger.info({
 				message: `Handling tool call: ${toolCall.toolName}`,
@@ -228,134 +194,19 @@ async function runTurn(
 								toolName: toolCall.toolName,
 								toolCallId: toolCall.toolCallId,
 								type: "tool-result" as const,
-								output: { type: "text" as const, value: toolOutput.message }, // update depending on the tool's output format
-							},
-						],
-					},
-				});
-			} else if (toolCall.toolName === "read_file" && !toolCall.dynamic) {
-				const toolOutput = await handleReadFile({
-					memberCode: turnContext.memberCode,
-					type: toolCall.input.type,
-					fileId: toolCall.input.fileId,
-					protectedFetchOptions: {
-						memberAuthToken: turnContext.memberAuthToken,
-					},
-					logger: turnContext.logger,
-					onEvent,
-				});
-				output.push({
-					response: null,
-					toolResult: {
-						role: "tool" as const,
-						content: [
-							{
-								toolName: toolCall.toolName,
-								toolCallId: toolCall.toolCallId,
-								type: "tool-result" as const,
-								output: { type: "text" as const, value: toolOutput }, // update depending on the tool's output format
-							},
-						],
-					},
-				});
-			} else if (
-				toolCall.toolName === "list_collection_files" &&
-				!toolCall.dynamic
-			) {
-				if (!turnContext.collectionId) {
-					throw new Error("Collection ID is required");
-				}
-				const toolOutput = await handleListCollectionFiles({
-					memberCode: turnContext.memberCode,
-					cursor: toolCall.input.cursor || null,
-					collectionId: turnContext.collectionId,
-					options: {
-						memberAuthToken: turnContext.memberAuthToken,
-					},
-					logger: turnContext.logger,
-					onEvent: onEvent,
-				});
-				output.push({
-					response: null,
-					toolResult: {
-						role: "tool" as const,
-						content: [
-							{
-								toolName: toolCall.toolName,
-								toolCallId: toolCall.toolCallId,
-								type: "tool-result" as const,
-								output: { type: "text" as const, value: toolOutput }, // update depending on the tool's output format
-							},
-						],
-					},
-				});
-			} else if (toolCall.toolName === "list_all_files" && !toolCall.dynamic) {
-				const toolOutput = await handleListAllFiles({
-					memberCode: turnContext.memberCode,
-					collectionId: toolCall.input.collectionId || null,
-					cursor: toolCall.input.cursor || null,
-					options: {
-						memberAuthToken: turnContext.memberAuthToken,
-					},
-					logger: turnContext.logger,
-					onEvent,
-				});
-				output.push({
-					response: null,
-					toolResult: {
-						role: "tool" as const,
-						content: [
-							{
-								toolName: toolCall.toolName,
-								toolCallId: toolCall.toolCallId,
-								type: "tool-result" as const,
-								output: { type: "text" as const, value: toolOutput }, // update depending on the tool's output format
-							},
-						],
-					},
-				});
-			} else if (
-				toolCall.toolName === "search_documents" &&
-				!toolCall.dynamic
-			) {
-				const toolOutput = await handleSearchDocuments({
-					query: toolCall.input.query,
-					memberCode: turnContext.memberCode,
-					partnerCode: turnContext.partnerCode,
-					collectionId: turnContext.collectionId,
-					protectedFetchOptions: {
-						memberAuthToken: turnContext.memberAuthToken,
-					},
-					logger: turnContext.logger,
-					onEvent,
-				});
-				output.push({
-					response: null,
-					toolResult: {
-						role: "tool" as const,
-						content: [
-							{
-								toolName: toolCall.toolName,
-								toolCallId: toolCall.toolCallId,
-								type: "tool-result" as const,
-								output: { type: "text" as const, value: toolOutput },
+								output: { type: "text" as const, value: toolOutput.message },
 							},
 						],
 					},
 				});
 			}
-			// Handle other tool calls
 		}
 	} else if (finishReason === "length") {
-		// Model hit the max context length; rely on caller to decide next steps.
 		turnContext.logger.info({
 			message: "Model reached the maximum length",
 		});
-	} else {
-		// Don't push anything to the output when the model doesn't request to use any more tools
-		// console.log("\\n\\nFinal message history:");
-		// console.dir(session.messages, { depth: null });
 	}
+
 	return {
 		processedItems: output,
 	};

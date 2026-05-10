@@ -1,5 +1,4 @@
 import { describe, expect, it } from "bun:test";
-import type { ProtectedSummary } from "@/features/chat/api/types";
 import {
 	computeChecksum,
 	getCollectionDocsRoot,
@@ -9,6 +8,7 @@ import {
 	resolveContent,
 	resolveSourceKind,
 	sanitizePathSegment,
+	type SummarySource,
 } from "./materialization";
 
 const makeConfig = (userId = "user-1") => ({
@@ -17,8 +17,8 @@ const makeConfig = (userId = "user-1") => ({
 });
 
 const makeSummary = (
-	overrides: Partial<ProtectedSummary> = {},
-): ProtectedSummary => ({
+	overrides: Partial<SummarySource> = {},
+): SummarySource => ({
 	id: "100",
 	type: 0,
 	content: "Hello world",
@@ -26,8 +26,6 @@ const makeSummary = (
 	title: "Test Doc",
 	summaryTitle: null,
 	fileType: null,
-	delFlag: 0,
-	updateTime: "2026-03-27T00:00:00Z",
 	...overrides,
 });
 

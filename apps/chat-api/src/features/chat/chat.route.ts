@@ -24,22 +24,6 @@ app.post(
 	async (c) => {
 		const request = c.req.valid("json");
 
-		const memberAuthToken = c.req.header("X-Member-Auth");
-		if (!memberAuthToken) {
-			console.error({
-				message: "X-Member-Auth is required",
-			});
-			return c.json({ error: "X-Member-Auth-Token is required" }, 400);
-		}
-
-		const memberCode = c.req.header("X-Member-Code");
-		if (!memberCode) {
-			console.error({
-				message: "X-Member-Code is required",
-			});
-			return c.json({ error: "X-Member-Code is required" }, 400);
-		}
-
 		return streamSSE(
 			c,
 			async (stream) => {
@@ -57,19 +41,9 @@ app.post(
 
 				try {
 					await complete(
-						{
-							chatContent: request.chatContent,
-							chatKey: request.chatKey,
-							chatType: request.chatType,
-							collectionId: request.collectionId,
-							summaryId: request.summaryId,
-						},
-						{
-							memberAuthToken,
-							memberCode,
-						},
+						request,
 						sender,
-						new ChatLogger(c.var.logger, memberCode, request.chatKey),
+						new ChatLogger(c.var.logger, request.memberCode, request.chatKey),
 					);
 				} catch (err) {
 					if (err instanceof ConversationBusyError) {

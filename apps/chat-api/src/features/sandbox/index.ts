@@ -7,6 +7,7 @@ export {
 	materializeSummaries,
 	materializeSummary,
 	resolveCollectionSymlinks,
-	type SyncLogger,
 	sanitizePathSegment,
+	type SummarySource,
+	type SyncLogger,
 } from "./materialization";

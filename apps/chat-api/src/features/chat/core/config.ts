@@ -1,9 +1,6 @@
 import type { ChatMessagesScope } from "@/config/env";
-import type { ProtectedSummary } from "../api/types";
-import type { RequestCache } from "./cache";
 
 export type Config = {
-	memberAuthToken: string;
 	scope: ChatMessagesScope;
 	chatKey: string;
 	collectionId: string | null;
@@ -12,5 +9,4 @@ export type Config = {
 	partnerCode: string;
 	enableKnowledge: boolean;
 	modelId: string;
-	summaryCache: RequestCache<ProtectedSummary[]>;
 };
