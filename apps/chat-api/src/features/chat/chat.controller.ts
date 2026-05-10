@@ -83,9 +83,14 @@ export async function complete(
 
 	const onTextDelta = (text: string) => {
 		accumulatedContent += text;
-		// Intentional fire-and-forget on the hot path; the final entity in
-		// onTextEnd is awaited so the stream is not closed before it flushes.
-		void sendChatEntity("1");
+		// Fire-and-forget on the hot path; the final entity in onTextEnd is
+		// awaited so the stream stays open until it flushes.
+		sendChatEntity("1").catch((err) => {
+			logger.error({
+				message: "Failed to send chat_entity delta",
+				error: err,
+			});
+		});
 	};
 
 	const onTextEnd = async () => {
@@ -93,10 +98,18 @@ export async function complete(
 	};
 
 	const onEvent = (event: EventMessage) => {
-		mymemoEventSender.send({
-			id: crypto.randomUUID(),
-			message: event,
-		});
+		mymemoEventSender
+			.send({
+				id: crypto.randomUUID(),
+				message: event,
+			})
+			.catch((err) => {
+				logger.error({
+					message: "Failed to send mymemo event",
+					eventType: event.type,
+					error: err,
+				});
+			});
 	};
 
 	if (isSandboxEnabled() && resolvedEnableKnowledge) {
