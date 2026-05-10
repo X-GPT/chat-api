@@ -25,13 +25,6 @@ docker build -t chat-api .
 docker-compose up    # Local development
 ```
 
-### Deployment Environments
-
-- `compose.yaml` - Local development
-- `compose.preview.yaml` - Preview (PR testing)
-- `compose.staging.yaml` - Staging
-- `compose.production.yaml` - Production
-
 ## Architecture (chat-api)
 
 ### Request Flow
