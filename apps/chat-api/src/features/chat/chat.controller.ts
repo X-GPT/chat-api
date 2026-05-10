@@ -5,7 +5,6 @@ import type { ChatEntity, EventMessage } from "./chat.events";
 import type { ChatLogger } from "./chat.logger";
 import type { ChatRequest } from "./chat.schema";
 import type { MymemoEventSender } from "./chat.streaming";
-import type { Config } from "./core/config";
 import type { ConversationHistory } from "./core/history";
 import { runMyMemo } from "./core/mymemo";
 
@@ -38,10 +37,7 @@ export async function complete(
 	const chatId = request.chatId ?? crypto.randomUUID();
 	const refsId = request.refsId ?? crypto.randomUUID();
 
-	const resolvedModelType = modelType ?? DEFAULT_MODEL_TYPE;
 	const resolvedEnableKnowledge = enableKnowledge ?? false;
-
-	const historyMessages = adaptHistoryToModelMessages(history ?? []);
 
 	let scope: ChatMessagesScope = "general";
 	if (normalizedSummaryId) {
@@ -49,13 +45,6 @@ export async function complete(
 	} else if (normalizedCollectionId) {
 		scope = "collection";
 	}
-
-	const mymemoConfig: Config = { modelId: resolvedModelType };
-
-	const conversationHistory: ConversationHistory =
-		historyMessages.length > 0
-			? { type: "continued", messages: historyMessages }
-			: { type: "new" };
 
 	let accumulatedContent = "";
 
@@ -127,11 +116,20 @@ export async function complete(
 		logger.warn({
 			message:
 				"enableKnowledge requested but sandbox path unavailable; falling back to general assistant without document access",
+			chatKey,
+			memberCode,
+			scope,
 		});
 	}
 
+	const historyMessages = adaptHistoryToModelMessages(history ?? []);
+	const conversationHistory: ConversationHistory =
+		historyMessages.length > 0
+			? { type: "continued", messages: historyMessages }
+			: { type: "new" };
+
 	await runMyMemo({
-		config: mymemoConfig,
+		modelId: modelType ?? DEFAULT_MODEL_TYPE,
 		conversationHistory,
 		userInput: chatContent,
 		onTextDelta,

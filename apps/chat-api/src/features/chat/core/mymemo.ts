@@ -9,7 +9,6 @@ import { buildIdentity } from "../prompts/identity";
 import { buildPrompt, getSystemPrompt } from "../prompts/prompts";
 import { getTools } from "../tools/tools";
 import { handleUpdatePlan } from "../tools/update-plan";
-import type { Config } from "./config";
 import type { ConversationHistory } from "./history";
 
 export type Session = {
@@ -17,11 +16,11 @@ export type Session = {
 };
 
 function buildSession({
-	config,
+	modelId,
 	conversationHistory,
 	logger,
 }: {
-	config: Config;
+	modelId: string;
 	conversationHistory: ConversationHistory;
 	logger: ChatLogger;
 }): {
@@ -29,12 +28,12 @@ function buildSession({
 	turnContext: TurnContext;
 } {
 	const { model, provider, isFallback, requestedModelId } =
-		resolveLanguageModel(config.modelId);
+		resolveLanguageModel(modelId);
 
 	if (isFallback) {
 		logger.info({
 			message: "Requested model type is not supported; using fallback model",
-			requestedModelType: requestedModelId ?? config.modelId,
+			requestedModelType: requestedModelId ?? modelId,
 			fallbackModelType: model,
 		});
 	}
@@ -43,7 +42,7 @@ function buildSession({
 		model,
 		provider,
 		systemPrompt: getSystemPrompt(),
-		identity: buildIdentity(config.modelId),
+		identity: buildIdentity(modelId),
 		logger,
 	};
 
@@ -236,7 +235,7 @@ async function runTask({
 }
 
 export type RunMyMemoOptions = {
-	config: Config;
+	modelId: string;
 	conversationHistory: ConversationHistory;
 	userInput: string;
 	onTextDelta: (text: string) => void;
@@ -246,7 +245,7 @@ export type RunMyMemoOptions = {
 };
 
 export async function runMyMemo({
-	config,
+	modelId,
 	conversationHistory,
 	userInput,
 	onTextDelta,
@@ -255,7 +254,7 @@ export async function runMyMemo({
 	logger,
 }: RunMyMemoOptions) {
 	const { session, turnContext } = buildSession({
-		config,
+		modelId,
 		conversationHistory,
 		logger,
 	});
