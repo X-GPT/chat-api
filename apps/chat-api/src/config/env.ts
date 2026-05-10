@@ -10,24 +10,11 @@ export const apiEnv = (() => {
 	invariant(Bun.env.OPENAI_API_KEY, "OPENAI_API_KEY is required");
 	invariant(Bun.env.ANTHROPIC_API_KEY, "ANTHROPIC_API_KEY is required");
 	invariant(Bun.env.DEEPSEEK_API_KEY, "DEEPSEEK_API_KEY is required");
-
-	const sandboxEnabled = Bun.env.SANDBOX_ENABLED === "true";
-	if (sandboxEnabled) {
-		invariant(
-			Bun.env.E2B_API_KEY,
-			"E2B_API_KEY is required when SANDBOX_ENABLED=true",
-		);
-		invariant(
-			Bun.env.DATABASE_URL,
-			"DATABASE_URL is required when SANDBOX_ENABLED=true",
-		);
-	}
-
-	const databaseUrl = Bun.env.DATABASE_URL || null;
+	invariant(Bun.env.E2B_API_KEY, "E2B_API_KEY is required");
+	invariant(Bun.env.DATABASE_URL, "DATABASE_URL is required");
 
 	return {
-		SANDBOX_ENABLED: sandboxEnabled,
-		DATABASE_URL: databaseUrl,
+		DATABASE_URL: Bun.env.DATABASE_URL,
 		OPENAI_API_KEY: Bun.env.OPENAI_API_KEY,
 		ANTHROPIC_API_KEY: Bun.env.ANTHROPIC_API_KEY,
 		DEEPSEEK_API_KEY: Bun.env.DEEPSEEK_API_KEY,
@@ -38,9 +25,5 @@ export const apiEnv = (() => {
 		E2B_TEMPLATE: Bun.env.E2B_TEMPLATE || "sandbox-template-dev",
 	} as const;
 })();
-
-export function isSandboxEnabled(): boolean {
-	return apiEnv.SANDBOX_ENABLED;
-}
 
 export type ChatMessagesScope = "general" | "collection" | "document";
