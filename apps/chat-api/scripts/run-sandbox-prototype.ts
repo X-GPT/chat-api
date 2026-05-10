@@ -1,7 +1,32 @@
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { Sandbox } from "e2b";
-import { extractReferencesFromText } from "../src/features/chat/lib/extract-citations-from-markdown";
+
+function extractReferencesFromText(
+	markdownText: string,
+): Array<{ id: string; type: number; index: number }> {
+	if (!markdownText) return [];
+
+	const references: Array<{ id: string; type: number; index: number }> = [];
+	const referencePattern = /\[c(\d+)\]:\s*(?:(?:detail|notes)\/)?(\d+)\/(\d+)/g;
+	const seen = new Set<string>();
+
+	let match: RegExpExecArray | null = referencePattern.exec(markdownText);
+	while (match !== null) {
+		const index = parseInt(match[1] ?? "0", 10) || 0;
+		const type = parseInt(match[2] ?? "0", 10) || 0;
+		const id = match[3] ?? "";
+		const key = `${type}/${id}`;
+
+		if (!seen.has(key) && id) {
+			seen.add(key);
+			references.push({ id, type, index });
+		}
+		match = referencePattern.exec(markdownText);
+	}
+
+	return references;
+}
 
 const PROTOTYPE_RUNNER_SOURCE_PATH = resolve(
 	dirname(Bun.main),

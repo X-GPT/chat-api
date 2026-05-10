@@ -112,12 +112,7 @@ export async function complete(
 		});
 	};
 
-	if (
-		isSandboxEnabled() &&
-		resolvedEnableKnowledge &&
-		memberCode &&
-		partnerCode
-	) {
+	if (isSandboxEnabled() && resolvedEnableKnowledge) {
 		await runSandboxChat({
 			userId: memberCode,
 			chatKey,

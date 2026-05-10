@@ -12,7 +12,6 @@ export type EventMessage =
 	| ChatEntityEvent
 	| PingEvent
 	| PlanUpdatedEvent
-	| CitationsUpdatedEvent
 	| TaskStatusEvent;
 
 export interface TaskStartEvent {
@@ -27,17 +26,6 @@ export interface AgentMessageDeltaEvent {
 
 export type PlanUpdatedEvent = UpdatePlanToolInput & {
 	type: "plan.updated";
-};
-
-export type Citation = {
-	id: string;
-	type: number;
-	number: number;
-};
-
-export type CitationsUpdatedEvent = {
-	type: "citations.updated";
-	citations: Citation[];
 };
 
 export interface ErrorEvent {
