@@ -34,7 +34,9 @@ export async function runAgent(
 		allowedTools: ["Bash", "Read", "Grep", "Glob"],
 		permissionMode: "bypassPermissions",
 		includePartialMessages: true,
-		model: "claude-sonnet-4-6",
+		// Honor an explicit ANTHROPIC_MODEL override (e.g. when routing to a
+		// different provider via ANTHROPIC_BASE_URL); otherwise keep the default.
+		model: process.env.ANTHROPIC_MODEL || "claude-sonnet-4-6",
 		pathToClaudeCodeExecutable:
 			process.env.CLAUDE_CODE_PATH ?? "/usr/local/bin/claude",
 	};

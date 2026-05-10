@@ -33,7 +33,8 @@ export async function upsertSessionId(
 	await getDb()
 		.insert(userSandboxSessions)
 		.values({ userId, chatKey, sessionId })
-		.onDuplicateKeyUpdate({
+		.onConflictDoUpdate({
+			target: [userSandboxSessions.userId, userSandboxSessions.chatKey],
 			set: { sessionId, updatedAt: sql`NOW()` },
 		});
 }

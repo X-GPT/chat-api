@@ -12,6 +12,6 @@
 		"@anthropic-ai/claude-agent-sdk": "latest",
 		"@mymemo/db": "workspace:*",
 		"drizzle-orm": "^0.44.1",
-		"mysql2": "^3.14.1"
+		"pg": "^8.13.1"
 	}
 }

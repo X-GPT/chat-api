@@ -1,15 +1,15 @@
-import { drizzle } from "drizzle-orm/mysql2";
-import mysql from "mysql2/promise";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import * as schema from "./schema";
 
 export function createDb(connectionString: string, poolSize = 10) {
-	const pool = mysql.createPool({
-		uri: connectionString,
-		connectionLimit: poolSize,
-		connectTimeout: 5_000,
-		idleTimeout: 30_000,
+	const pool = new Pool({
+		connectionString,
+		max: poolSize,
+		connectionTimeoutMillis: 30_000,
+		idleTimeoutMillis: 30_000,
 	});
-	const db = drizzle({ client: pool, schema, mode: "default" });
+	const db = drizzle(pool, { schema });
 	return Object.assign(db, {
 		async close() {
 			await pool.end();

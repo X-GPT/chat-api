@@ -4,8 +4,10 @@
  * Layout:
  *   /workspace/data/{userId}/
  *   ├── canonical/{type}/{documentId}.md       # Real files. Agent cwd for scope=global.
- *   │                                          # Frontmatter: title, cite, collections (names).
- *   ├── canonical/.manifest.json               # Reconciliation state (checksum, collections IDs).
+ *   │                                          # Frontmatter: title, cite.
+ *   │                                          # File mtime = user_files.updated_at (sync marker).
+ *   ├── canonical/_index.md                    # Collection-browsing directory.
+ *   │                                          # File mtime = max(file_collection_relationship.updated_at).
  *   ├── collections/{collectionId}/{type}/{documentId}.md
  *   │                                          # HARDLINKS to canonical inodes. Agent cwd
  *   │                                          # for scope=collection.
@@ -26,37 +28,25 @@ import {
 	mkdirSync,
 	readdirSync,
 	rmSync,
+	statSync,
 	unlinkSync,
+	utimesSync,
 	writeFileSync,
 } from "node:fs";
 import { ensureParentDir } from "./fs-utils";
+import type { DocMetaRow, MembershipRow } from "./queries";
 
 export interface DocFile {
 	document_id: string;
 	type: number;
-	collections: string[];
 	content: string;
-	checksum: string;
-	title?: string;
+	title?: string | null;
 }
 
 /** Identifies a document for filesystem operations. */
 export interface DocIdentifier {
 	document_id: string;
 	type: number;
-}
-
-/**
- * In-memory representation of a document's metadata.
- * Stored in .manifest.json for reconciliation; the DB manifest returns
- * the same shape after normalization.
- */
-export interface LocalManifestEntry {
-	document_id: string;
-	type: number;
-	checksum: string;
-	collections: string[];
-	title?: string;
 }
 
 export function sanitizePathSegment(value: string): string {
@@ -80,8 +70,8 @@ export function ensureDataRoot(dataRoot: string): void {
 }
 
 /**
- * Wipe canonical/ and collections/ for a full resync.
- * Used when .manifest.json is missing or corrupt to prevent orphaned files.
+ * Wipe canonical/ and collections/ for a full reset.
+ * Not used on the happy path — kept for explicit repair or test setup.
  */
 export function clearDataRoot(dataRoot: string): void {
 	rmSync(`${dataRoot}/canonical`, { recursive: true, force: true });
@@ -97,18 +87,6 @@ export function buildCanonicalPath(
 }
 
 /**
- * Parse a comma-separated path_key into a trimmed, non-empty list of collection IDs.
- * Empty string and all-whitespace yield `[]`.
- */
-export function parseCollectionIds(pathKey: string): string[] {
-	if (!pathKey) return [];
-	return pathKey
-		.split(",")
-		.map((id) => id.trim())
-		.filter(Boolean);
-}
-
-/**
  * Build the pre-computed citation path for a document.
  * Type 3 (notes) → `notes/3/{id}`, all others → `detail/{type}/{id}`.
  */
@@ -119,29 +97,63 @@ export function buildCitePath(doc: DocIdentifier): string {
 }
 
 /**
- * Write a document to canonical/ with agent-facing frontmatter.
- * Reconciliation state (checksum, collection IDs) lives in .manifest.json,
- * not in frontmatter.
+ * Convert a DB TIMESTAMP string to whole seconds since epoch.
+ * Both sides of the sync comparison truncate to seconds to match filesystem
+ * mtime precision on macOS/HFS+ and MySQL's default TIMESTAMP(0).
  */
-export function writeCanonicalFile(
-	dataRoot: string,
-	doc: DocFile,
-	collectionNames: Map<string, string>,
-): void {
+export function toEpochSeconds(updatedAt: string): number {
+	return Math.floor(Date.parse(updatedAt) / 1000);
+}
+
+/**
+ * Stamp a file's mtime and atime to the given DB timestamp (second precision).
+ * The file's mtime thus encodes "last synced updated_at" — no separate marker
+ * file is needed.
+ */
+export function stampMtime(path: string, updatedAt: string): void {
+	stampMtimeSeconds(path, toEpochSeconds(updatedAt));
+}
+
+/**
+ * Stamp a file's mtime and atime to a specific epoch-seconds value.
+ * Used when the stamp source is already numeric (e.g., max(updated_at) across rows).
+ */
+export function stampMtimeSeconds(path: string, epochSec: number): void {
+	utimesSync(path, epochSec, epochSec);
+}
+
+/**
+ * Return a file's mtime truncated to whole seconds, or null if missing.
+ */
+export function getMtimeSeconds(path: string): number | null {
+	try {
+		return Math.floor(statSync(path).mtimeMs / 1000);
+	} catch {
+		return null;
+	}
+}
+
+/**
+ * Write a document to canonical/ with agent-facing frontmatter.
+ * Only title + cite live in frontmatter; membership and sync state are tracked
+ * elsewhere (hardlinks under collections/ and the file's own mtime).
+ */
+export function writeCanonicalFile(dataRoot: string, doc: DocFile): void {
 	const filePath = buildCanonicalPath(dataRoot, doc);
 	const title = doc.title ?? doc.document_id;
 	const cite = buildCitePath(doc);
-	const lines = ["---", `title: ${JSON.stringify(title)}`, `cite: ${cite}`];
-	if (doc.collections.length > 0) {
-		const names = doc.collections.map(
-			(id) => collectionNames.get(id) ?? id,
-		);
-		lines.push(`collections: ${JSON.stringify(names)}`);
-	}
-	lines.push("---", "", doc.content, "");
+	const body = [
+		"---",
+		`title: ${JSON.stringify(title)}`,
+		`cite: ${cite}`,
+		"---",
+		"",
+		doc.content,
+		"",
+	].join("\n");
 
 	ensureParentDir(filePath);
-	writeFileSync(filePath, lines.join("\n"), "utf-8");
+	writeFileSync(filePath, body, "utf-8");
 }
 
 /**
@@ -191,19 +203,17 @@ export function buildCollectionHardlink(
 }
 
 /**
- * Remove collection hardlinks for a specific document across one or more collection IDs.
+ * Remove a single collection hardlink for the given document and collection.
  */
-export function removeCollectionEntries(
+export function removeCollectionHardlink(
 	dataRoot: string,
 	doc: DocIdentifier,
-	collectionIds: string[],
+	collectionId: string,
 ): void {
-	for (const colId of collectionIds) {
-		try {
-			unlinkSync(buildCollectionLinkPath(dataRoot, doc, colId));
-		} catch {
-			// May not exist
-		}
+	try {
+		unlinkSync(buildCollectionLinkPath(dataRoot, doc, collectionId));
+	} catch {
+		// May not exist
 	}
 }
 
@@ -269,34 +279,70 @@ export function resolveScopeCwd(
 }
 
 /**
- * Count .md files in canonical/{type}/ directories.
- * Used as a cheap integrity check on the fast path — if the count doesn't
- * match the manifest entry count, files may have been lost.
+ * Walk canonical/{type}/*.md and return identifiers for every materialized doc.
+ * Used by reconcile's orphan cleanup pass.
  */
-export function countCanonicalFiles(dataRoot: string): number {
+export function scanCanonicalFiles(dataRoot: string): DocIdentifier[] {
 	const root = `${dataRoot}/canonical`;
-	if (!existsSync(root)) return 0;
-	let count = 0;
+	if (!existsSync(root)) return [];
+	const out: DocIdentifier[] = [];
 	for (const typeDir of readdirSync(root, { withFileTypes: true })) {
 		if (!typeDir.isDirectory()) continue;
-		if (Number.isNaN(Number(typeDir.name))) continue;
+		const type = Number(typeDir.name);
+		if (Number.isNaN(type)) continue;
 		for (const file of readdirSync(`${root}/${typeDir.name}`, {
 			withFileTypes: true,
 		})) {
-			if (file.isFile() && file.name.endsWith(".md")) count++;
+			if (!file.isFile() || !file.name.endsWith(".md")) continue;
+			out.push({
+				document_id: file.name.slice(0, -3),
+				type,
+			});
 		}
 	}
-	return count;
+	return out;
+}
+
+export interface CollectionLinkIdentifier extends DocIdentifier {
+	collection_id: string;
+}
+
+/**
+ * Walk collections/*\/*\/*.md and return identifiers for every hardlink.
+ * Used by reconcile's hardlink existence-diff.
+ */
+export function scanCollectionLinks(
+	dataRoot: string,
+): CollectionLinkIdentifier[] {
+	const root = `${dataRoot}/collections`;
+	if (!existsSync(root)) return [];
+	const out: CollectionLinkIdentifier[] = [];
+	for (const colDir of readdirSync(root, { withFileTypes: true })) {
+		if (!colDir.isDirectory()) continue;
+		const colPath = `${root}/${colDir.name}`;
+		for (const typeDir of readdirSync(colPath, { withFileTypes: true })) {
+			if (!typeDir.isDirectory()) continue;
+			const type = Number(typeDir.name);
+			if (Number.isNaN(type)) continue;
+			for (const file of readdirSync(`${colPath}/${typeDir.name}`, {
+				withFileTypes: true,
+			})) {
+				if (!file.isFile() || !file.name.endsWith(".md")) continue;
+				out.push({
+					collection_id: colDir.name,
+					type,
+					document_id: file.name.slice(0, -3),
+				});
+			}
+		}
+	}
+	return out;
 }
 
 /**
  * Find a canonical document by ID without parsing frontmatter. Scans
  * canonical/{type}/ subdirectories for a filename matching document_id.
  * Returns the DocIdentifier (document_id + type) or null if not found.
- *
- * O(#type_dirs) existsSync calls — much cheaper than deriveLocalManifest +
- * find when the caller only needs one document (e.g. the document-scope
- * turn handler).
  */
 export function findCanonicalDoc(
 	dataRoot: string,
@@ -317,107 +363,57 @@ export function findCanonicalDoc(
 	return null;
 }
 
-const MANIFEST_FILENAME = ".manifest.json";
-
-/**
- * Persisted reconciliation state: document entries + collection name snapshot.
- * Collection names are stored so renames can be detected even when document
- * manifests are unchanged.
- */
-export interface ManifestData {
-	entries: LocalManifestEntry[];
-	collectionNames: Record<string, string>;
-}
-
-/**
- * Read the local manifest from `canonical/.manifest.json`.
- * Returns `null` if the file is missing, corrupt, or unparseable.
- */
-export async function readManifest(
-	dataRoot: string,
-): Promise<ManifestData | null> {
-	const filePath = `${dataRoot}/canonical/${MANIFEST_FILENAME}`;
-	try {
-		const text = await Bun.file(filePath).text();
-		const parsed = JSON.parse(text);
-		if (
-			!parsed ||
-			typeof parsed !== "object" ||
-			!Array.isArray(parsed.entries)
-		) {
-			return null;
-		}
-		return {
-			entries: parsed.entries,
-			collectionNames: parsed.collectionNames ?? {},
-		};
-	} catch {
-		return null;
-	}
-}
-
-/**
- * Write the local manifest to `canonical/.manifest.json`.
- */
-export async function writeManifest(
-	dataRoot: string,
-	data: ManifestData,
-): Promise<void> {
-	const filePath = `${dataRoot}/canonical/${MANIFEST_FILENAME}`;
-	ensureParentDir(filePath);
-	await Bun.write(filePath, JSON.stringify(data));
-}
-
 /**
  * Generate `canonical/_index.md` — a collection-organized directory of all
- * documents. The agent reads this optionally when browsing or discovering
- * documents, not as a mandatory first step.
+ * documents. Collection names come from membership rows (denormalized), so no
+ * separate name lookup is required.
  */
 export async function writeIndexFile(
 	dataRoot: string,
-	entries: LocalManifestEntry[],
-	collectionNames: Map<string, string>,
+	docs: DocMetaRow[],
+	memberships: MembershipRow[],
 ): Promise<void> {
 	const lines: string[] = ["# Collections", ""];
 
-	// Group entries by collection.
-	const collectionMap = new Map<string, LocalManifestEntry[]>();
-	const uncategorized: LocalManifestEntry[] = [];
-	for (const entry of entries) {
-		if (entry.collections.length === 0) {
-			uncategorized.push(entry);
-		} else {
-			for (const colId of entry.collections) {
-				let list = collectionMap.get(colId);
-				if (!list) {
-					list = [];
-					collectionMap.set(colId, list);
-				}
-				list.push(entry);
-			}
+	// Look up titles/types by document_id.
+	const docMap = new Map(docs.map((d) => [d.document_id, d]));
+
+	// Group memberships by collection (collection_id → { name, docs }).
+	const colMap = new Map<
+		string,
+		{ name: string; docs: DocMetaRow[] }
+	>();
+	const categorizedDocIds = new Set<string>();
+	for (const m of memberships) {
+		const doc = docMap.get(m.document_id);
+		if (!doc) continue; // membership for a deleted doc — skip
+		categorizedDocIds.add(m.document_id);
+		let entry = colMap.get(m.collection_id);
+		if (!entry) {
+			entry = { name: m.collection_name, docs: [] };
+			colMap.set(m.collection_id, entry);
 		}
+		entry.docs.push(doc);
 	}
 
-	// Sort collections alphabetically by name for natural browsing.
-	const sortedCollections = [...collectionMap.entries()].sort((a, b) => {
-		const nameA = collectionNames.get(a[0]) ?? a[0];
-		const nameB = collectionNames.get(b[0]) ?? b[0];
-		return nameA.localeCompare(nameB);
-	});
+	const uncategorized = docs.filter((d) => !categorizedDocIds.has(d.document_id));
+
+	const sortedCollections = [...colMap.entries()].sort((a, b) =>
+		a[1].name.localeCompare(b[1].name),
+	);
 
 	function stripNewlines(s: string): string {
 		return s.replace(/[\r\n]+/g, " ");
 	}
 
-	function formatDocLine(doc: LocalManifestEntry): string {
+	function formatDocLine(doc: DocMetaRow): string {
 		const title = stripNewlines(doc.title ?? doc.document_id);
 		return `- ${title} (${doc.type}/${sanitizePathSegment(doc.document_id)}.md)`;
 	}
 
-	for (const [colId, docs] of sortedCollections) {
-		const colName = stripNewlines(collectionNames.get(colId) ?? colId);
-		lines.push(`## ${colName} (${colId})`, "");
-		for (const doc of docs) {
+	for (const [colId, { name, docs: colDocs }] of sortedCollections) {
+		lines.push(`## ${stripNewlines(name)} (${colId})`, "");
+		for (const doc of colDocs) {
 			lines.push(formatDocLine(doc));
 		}
 		lines.push("");

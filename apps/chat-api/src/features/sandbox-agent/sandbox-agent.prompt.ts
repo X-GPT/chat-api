@@ -19,7 +19,6 @@ Documents are stored as \`.md\` files in your working directory. Each file has Y
 ---
 title: "My Document Title"
 cite: detail/0/12345
-collections: ["Research", "Reading"]
 ---
 
 Document content here...
@@ -27,7 +26,6 @@ Document content here...
 
 - \`title\` — human-readable document title
 - \`cite\` — pre-computed citation path (use this in citation definitions)
-- \`collections\` — human-readable names of collections this document belongs to
 
 ## Retrieval Strategy
 

@@ -1,21 +1,26 @@
 import { afterAll, beforeEach, describe, expect, it, mock } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import {
+	existsSync,
+	mkdirSync,
+	readFileSync,
+	rmSync,
+	writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const testRoot = join(tmpdir(), `reconcile-test-${Date.now()}`);
 
-const mockGetManifest = mock();
-const mockGetFileContents = mock();
-const mockGetCollectionNames = mock();
+const mockGetAllDocMeta = mock();
+const mockGetDocContents = mock();
+const mockGetAllMemberships = mock();
 
 mock.module("./queries", () => ({
-	getManifest: mockGetManifest,
-	getFileContents: mockGetFileContents,
-	getCollectionNames: mockGetCollectionNames,
+	getAllDocMeta: mockGetAllDocMeta,
+	getDocContents: mockGetDocContents,
+	getAllMemberships: mockGetAllMemberships,
 }));
 
-// Mock getDataRoot to use our test directory
 mock.module("./materialization", () => {
 	const actual = require("./materialization");
 	return {
@@ -25,23 +30,76 @@ mock.module("./materialization", () => {
 });
 
 import {
-	buildCollectionHardlink,
-	type DocFile,
-	readManifest,
+	getMtimeSeconds,
+	stampMtime,
+	toEpochSeconds,
 	writeCanonicalFile,
-	writeManifest,
 } from "./materialization";
 import { reconcile } from "./reconcile";
 
+function docMeta(
+	overrides: Partial<{
+		document_id: string;
+		type: number;
+		title: string | null;
+		updated_at: string;
+	}> = {},
+) {
+	return {
+		document_id: "doc-1",
+		type: 0,
+		title: null,
+		updated_at: "2026-01-01 00:00:00",
+		...overrides,
+	};
+}
+
+function docContent(
+	overrides: Partial<{
+		document_id: string;
+		type: number;
+		title: string | null;
+		updated_at: string;
+		content: string;
+	}> = {},
+) {
+	return {
+		document_id: "doc-1",
+		type: 0,
+		title: null,
+		updated_at: "2026-01-01 00:00:00",
+		content: "body",
+		...overrides,
+	};
+}
+
+function membership(
+	overrides: Partial<{
+		document_id: string;
+		collection_id: string;
+		collection_name: string;
+		updated_at: string;
+	}> = {},
+) {
+	return {
+		document_id: "doc-1",
+		collection_id: "col-A",
+		collection_name: "Research",
+		updated_at: "2026-01-01 00:00:00",
+		...overrides,
+	};
+}
+
 describe("reconcile", () => {
 	const dataRoot = join(testRoot, "data");
-	const emptyCollectionNames = new Map<string, string>();
 
 	beforeEach(() => {
-		mockGetManifest.mockReset();
-		mockGetFileContents.mockReset();
-		mockGetCollectionNames.mockReset();
-		mockGetCollectionNames.mockResolvedValue([]);
+		mockGetAllDocMeta.mockReset();
+		mockGetDocContents.mockReset();
+		mockGetAllMemberships.mockReset();
+		mockGetAllDocMeta.mockResolvedValue([]);
+		mockGetDocContents.mockResolvedValue([]);
+		mockGetAllMemberships.mockResolvedValue([]);
 		rmSync(dataRoot, { recursive: true, force: true });
 		mkdirSync(dataRoot, { recursive: true });
 	});
@@ -51,524 +109,382 @@ describe("reconcile", () => {
 		mock.restore();
 	});
 
-	it("skips sync when manifest and collection names match remote", async () => {
-		writeCanonicalFile(
-			dataRoot,
-			{
-				document_id: "doc-1",
-				type: 0,
-				collections: ["col-A"],
-				content: "body",
-				checksum: "aaa",
-			},
-			emptyCollectionNames,
-		);
-		await writeManifest(dataRoot, {
-			entries: [
-				{
-					document_id: "doc-1",
-					type: 0,
-					checksum: "aaa",
-					collections: ["col-A"],
-				},
-			],
-			collectionNames: { "col-A": "Research" },
-		});
-
-		mockGetManifest.mockResolvedValueOnce([
-			{
-				document_id: "doc-1",
-				type: 0,
-				checksum: "aaa",
-				collections: ["col-A"],
-			},
+	it("materializes everything on first run with empty dataRoot", async () => {
+		mockGetAllDocMeta.mockResolvedValueOnce([
+			docMeta({ document_id: "doc-1", title: "First", updated_at: "2026-01-01 00:00:00" }),
 		]);
-		mockGetCollectionNames.mockResolvedValueOnce([
-			{ collection_id: "col-A", name: "Research" },
+		mockGetDocContents.mockResolvedValueOnce([
+			docContent({ document_id: "doc-1", title: "First", content: "hello" }),
 		]);
-
-		const result = await reconcile({ userId: "user-1" });
-
-		expect(result).toBe(false);
-		expect(mockGetFileContents).not.toHaveBeenCalled();
-	});
-
-	it("cleans up orphaned files when manifest is missing", async () => {
-		// Write a file directly without a manifest (simulates first rollout or corrupt manifest)
-		writeCanonicalFile(
-			dataRoot,
-			{
-				document_id: "orphan",
-				type: 0,
-				collections: [],
-				content: "stale content",
-				checksum: "old",
-			},
-			emptyCollectionNames,
-		);
-		expect(existsSync(`${dataRoot}/canonical/0/orphan.md`)).toBe(true);
-
-		// Remote says no documents exist (doc was deleted from DB)
-		mockGetManifest.mockResolvedValueOnce([]);
-		mockGetFileContents.mockResolvedValueOnce([]);
-
-		await reconcile({ userId: "user-1" });
-
-		// Orphaned file should be gone — clearDataRoot wiped the workspace
-		expect(existsSync(`${dataRoot}/canonical/0/orphan.md`)).toBe(false);
-	});
-
-	it("resyncs when canonical file is missing but manifest is intact", async () => {
-		mkdirSync(`${dataRoot}/canonical`, { recursive: true });
-
-		// Manifest says doc-1 exists, but the file is missing from disk
-		await writeManifest(dataRoot, {
-			entries: [
-				{
-					document_id: "doc-1",
-					type: 0,
-					checksum: "c1",
-					collections: [],
-				},
-			],
-			collectionNames: {},
-		});
-
-		mockGetManifest.mockResolvedValueOnce([
-			{
-				document_id: "doc-1",
-				type: 0,
-				checksum: "c1",
-				collections: [],
-			},
-		]);
-		mockGetFileContents.mockResolvedValueOnce([
-			{
-				document_id: "doc-1",
-				type: 0,
-				checksum: "c1",
-				collections: [],
-				content: "restored content",
-			},
-		]);
-
-		const result = await reconcile({ userId: "user-1" });
-
-		// Should resync despite manifest matching — file count mismatch
-		expect(result).toBe(true);
-		expect(mockGetFileContents).toHaveBeenCalledWith("user-1", ["doc-1"]);
-		expect(existsSync(`${dataRoot}/canonical/0/doc-1.md`)).toBe(true);
-		const content = readFileSync(`${dataRoot}/canonical/0/doc-1.md`, "utf-8");
-		expect(content).toContain("restored content");
-	});
-
-	it("cleans up orphaned files when manifest is corrupt", async () => {
-		writeCanonicalFile(
-			dataRoot,
-			{
-				document_id: "orphan",
-				type: 0,
-				collections: [],
-				content: "stale content",
-				checksum: "old",
-			},
-			emptyCollectionNames,
-		);
-		// Write corrupt manifest (file exists but invalid JSON)
-		mkdirSync(`${dataRoot}/canonical`, { recursive: true });
-		const { writeFileSync } = require("node:fs");
-		writeFileSync(
-			`${dataRoot}/canonical/.manifest.json`,
-			"truncated{",
-			"utf-8",
-		);
-
-		expect(existsSync(`${dataRoot}/canonical/0/orphan.md`)).toBe(true);
-
-		mockGetManifest.mockResolvedValueOnce([]);
-		mockGetFileContents.mockResolvedValueOnce([]);
-
-		await reconcile({ userId: "user-1" });
-
-		expect(existsSync(`${dataRoot}/canonical/0/orphan.md`)).toBe(false);
-	});
-
-	it("removes collection hardlinks and canonical file on delete", async () => {
-		const doc: DocFile = {
-			document_id: "doc-1",
-			type: 0,
-			collections: ["col-A"],
-			content: "Hello world",
-			checksum: "aaa",
-		};
-		writeCanonicalFile(dataRoot, doc, emptyCollectionNames);
-		buildCollectionHardlink(dataRoot, doc, "col-A");
-		await writeManifest(dataRoot, {
-			entries: [
-				{
-					document_id: "doc-1",
-					type: 0,
-					checksum: "aaa",
-					collections: ["col-A"],
-				},
-			],
-			collectionNames: {},
-		});
-
-		expect(existsSync(`${dataRoot}/canonical/0/doc-1.md`)).toBe(true);
-		expect(existsSync(`${dataRoot}/collections/col-A/0/doc-1.md`)).toBe(true);
-
-		mockGetManifest.mockResolvedValueOnce([]);
-		mockGetFileContents.mockResolvedValueOnce([]);
-
-		const result = await reconcile({ userId: "user-1" });
-
-		expect(result).toBe(true);
-		expect(existsSync(`${dataRoot}/canonical/0/doc-1.md`)).toBe(false);
-		expect(existsSync(`${dataRoot}/collections/col-A/0/doc-1.md`)).toBe(false);
-	});
-
-	it("creates canonical files and collection hardlinks for new docs", async () => {
-		mkdirSync(`${dataRoot}/canonical`, { recursive: true });
-
-		mockGetManifest.mockResolvedValueOnce([
-			{
-				document_id: "doc-new",
-				type: 0,
-				checksum: "bbb",
-				collections: ["col-B"],
-			},
-		]);
-		mockGetFileContents.mockResolvedValueOnce([
-			{
-				document_id: "doc-new",
-				type: 0,
-				checksum: "bbb",
-				collections: ["col-B"],
-				content: "New document content",
-			},
+		mockGetAllMemberships.mockResolvedValueOnce([
+			membership({ document_id: "doc-1", collection_id: "col-A" }),
 		]);
 
 		const result = await reconcile({ userId: "user-1" });
 
 		expect(result).toBe(true);
-		expect(existsSync(`${dataRoot}/canonical/0/doc-new.md`)).toBe(true);
-		expect(existsSync(`${dataRoot}/collections/col-B/0/doc-new.md`)).toBe(
+		expect(existsSync(join(dataRoot, "canonical/0/doc-1.md"))).toBe(true);
+		expect(existsSync(join(dataRoot, "collections/col-A/0/doc-1.md"))).toBe(
 			true,
 		);
+		expect(existsSync(join(dataRoot, "canonical/_index.md"))).toBe(true);
 
-		const content = readFileSync(`${dataRoot}/canonical/0/doc-new.md`, "utf-8");
-		expect(content).toContain("New document content");
-		expect(content).toContain('title: "doc-new"');
-		expect(content).toContain("cite: detail/0/doc-new");
-		expect(content).not.toContain("checksum:");
+		const canonicalMtime = getMtimeSeconds(
+			join(dataRoot, "canonical/0/doc-1.md"),
+		);
+		expect(canonicalMtime).toBe(toEpochSeconds("2026-01-01 00:00:00"));
 	});
 
-	it("updates canonical file when remote checksum changes", async () => {
-		writeCanonicalFile(
-			dataRoot,
-			{
-				document_id: "doc-1",
-				type: 0,
-				collections: [],
-				content: "old content",
-				checksum: "old",
-			},
-			emptyCollectionNames,
-		);
-		await writeManifest(dataRoot, {
-			entries: [
-				{
-					document_id: "doc-1",
-					type: 0,
-					checksum: "old",
-					collections: [],
-				},
-			],
-			collectionNames: {},
+	it("skips all disk writes when nothing changed", async () => {
+		const t = "2026-01-01 00:00:00";
+		writeCanonicalFile(dataRoot, {
+			document_id: "doc-1",
+			type: 0,
+			content: "hello",
+			title: "First",
 		});
+		stampMtime(join(dataRoot, "canonical/0/doc-1.md"), t);
+		// Pre-build hardlink + index with matching mtimes.
+		mkdirSync(join(dataRoot, "collections/col-A/0"), { recursive: true });
+		require("node:fs").linkSync(
+			join(dataRoot, "canonical/0/doc-1.md"),
+			join(dataRoot, "collections/col-A/0/doc-1.md"),
+		);
+		// Pre-write index and stamp it to match.
+		writeFileSync(join(dataRoot, "canonical/_index.md"), "stub");
+		stampMtime(join(dataRoot, "canonical/_index.md"), t);
 
-		mockGetManifest.mockResolvedValueOnce([
-			{
-				document_id: "doc-1",
-				type: 0,
-				checksum: "new",
-				collections: [],
-			},
+		mockGetAllDocMeta.mockResolvedValueOnce([
+			docMeta({ document_id: "doc-1", title: "First", updated_at: t }),
 		]);
-		mockGetFileContents.mockResolvedValueOnce([
-			{
-				document_id: "doc-1",
-				type: 0,
-				checksum: "new",
-				collections: [],
-				content: "new content",
-			},
+		mockGetAllMemberships.mockResolvedValueOnce([
+			membership({ document_id: "doc-1", collection_id: "col-A", updated_at: t }),
 		]);
 
 		const result = await reconcile({ userId: "user-1" });
 
-		expect(result).toBe(true);
-		const onDisk = readFileSync(`${dataRoot}/canonical/0/doc-1.md`, "utf-8");
-		expect(onDisk).toContain("new content");
-	});
-
-	it("updates canonical file when title changes but checksum is unchanged", async () => {
-		writeCanonicalFile(
-			dataRoot,
-			{
-				document_id: "doc-1",
-				type: 0,
-				collections: [],
-				content: "content",
-				checksum: "same",
-				title: "Old Title",
-			},
-			emptyCollectionNames,
-		);
-		await writeManifest(dataRoot, {
-			entries: [
-				{
-					document_id: "doc-1",
-					type: 0,
-					checksum: "same",
-					collections: [],
-					title: "Old Title",
-				},
-			],
-			collectionNames: {},
-		});
-
-		mockGetManifest.mockResolvedValueOnce([
-			{
-				document_id: "doc-1",
-				type: 0,
-				checksum: "same",
-				collections: [],
-				title: "New Title",
-			},
-		]);
-		mockGetFileContents.mockResolvedValueOnce([
-			{
-				document_id: "doc-1",
-				type: 0,
-				checksum: "same",
-				collections: [],
-				content: "content",
-				title: "New Title",
-			},
-		]);
-
-		const result = await reconcile({ userId: "user-1" });
-
-		expect(result).toBe(true);
-		const onDisk = readFileSync(`${dataRoot}/canonical/0/doc-1.md`, "utf-8");
-		expect(onDisk).toContain('title: "New Title"');
-	});
-
-	it("writes .manifest.json with entries and collectionNames after sync", async () => {
-		mkdirSync(`${dataRoot}/canonical`, { recursive: true });
-
-		const remote = [
-			{
-				document_id: "doc-1",
-				type: 0,
-				checksum: "c1",
-				collections: ["col-X"],
-			},
-		];
-		mockGetManifest.mockResolvedValueOnce(remote);
-		mockGetFileContents.mockResolvedValueOnce(
-			remote.map((r) => ({ ...r, content: "body" })),
-		);
-		mockGetCollectionNames.mockResolvedValueOnce([
-			{ collection_id: "col-X", name: "Research" },
-		]);
-
-		await reconcile({ userId: "user-1" });
-
-		const manifest = await readManifest(dataRoot);
-		expect(manifest.entries).toEqual(remote);
-		expect(manifest.collectionNames).toEqual({ "col-X": "Research" });
-	});
-
-	it("generates _index.md on sync", async () => {
-		mkdirSync(`${dataRoot}/canonical`, { recursive: true });
-
-		mockGetManifest.mockResolvedValueOnce([
-			{
-				document_id: "doc-1",
-				type: 0,
-				checksum: "c1",
-				collections: ["col-A"],
-				title: "My Article",
-			},
-		]);
-		mockGetFileContents.mockResolvedValueOnce([
-			{
-				document_id: "doc-1",
-				type: 0,
-				checksum: "c1",
-				collections: ["col-A"],
-				content: "content",
-				title: "My Article",
-			},
-		]);
-		mockGetCollectionNames.mockResolvedValueOnce([
-			{ collection_id: "col-A", name: "Research" },
-		]);
-
-		await reconcile({ userId: "user-1" });
-
-		const indexContent = readFileSync(
-			`${dataRoot}/canonical/_index.md`,
-			"utf-8",
-		);
-		expect(indexContent).toContain("# Collections");
-		expect(indexContent).toContain("My Article");
-		expect(indexContent).toContain("Research");
-	});
-
-	it("skips _index.md when nothing changed", async () => {
-		writeCanonicalFile(
-			dataRoot,
-			{
-				document_id: "doc-1",
-				type: 0,
-				collections: [],
-				content: "body",
-				checksum: "aaa",
-			},
-			emptyCollectionNames,
-		);
-		await writeManifest(dataRoot, {
-			entries: [
-				{
-					document_id: "doc-1",
-					type: 0,
-					checksum: "aaa",
-					collections: [],
-				},
-			],
-			collectionNames: {},
-		});
-
-		mockGetManifest.mockResolvedValueOnce([
-			{
-				document_id: "doc-1",
-				type: 0,
-				checksum: "aaa",
-				collections: [],
-			},
-		]);
-
-		const result = await reconcile({ userId: "user-1" });
 		expect(result).toBe(false);
-		expect(existsSync(`${dataRoot}/canonical/_index.md`)).toBe(false);
+		expect(mockGetDocContents).not.toHaveBeenCalled();
+		// Index file wasn't rewritten (still has stub content).
+		expect(readFileSync(join(dataRoot, "canonical/_index.md"), "utf-8")).toBe(
+			"stub",
+		);
 	});
 
-	it("rewrites frontmatter and _index.md when collection is renamed", async () => {
-		writeCanonicalFile(
-			dataRoot,
-			{
-				document_id: "doc-1",
-				type: 0,
-				collections: ["col-A"],
-				content: "content",
-				checksum: "c1",
-				title: "My Article",
-			},
-			new Map([["col-A", "Old Name"]]),
-		);
-		await writeManifest(dataRoot, {
-			entries: [
-				{
-					document_id: "doc-1",
-					type: 0,
-					checksum: "c1",
-					collections: ["col-A"],
-					title: "My Article",
-				},
-			],
-			collectionNames: { "col-A": "Old Name" },
+	it("rewrites a doc when updated_at bumps", async () => {
+		writeCanonicalFile(dataRoot, {
+			document_id: "doc-1",
+			type: 0,
+			content: "old",
+			title: "First",
 		});
+		stampMtime(
+			join(dataRoot, "canonical/0/doc-1.md"),
+			"2026-01-01 00:00:00",
+		);
 
-		// Same document manifest, but collection renamed
-		mockGetManifest.mockResolvedValueOnce([
-			{
+		mockGetAllDocMeta.mockResolvedValueOnce([
+			docMeta({
 				document_id: "doc-1",
-				type: 0,
-				checksum: "c1",
-				collections: ["col-A"],
-				title: "My Article",
-			},
+				title: "First",
+				updated_at: "2026-01-02 00:00:00",
+			}),
 		]);
-		mockGetFileContents.mockResolvedValueOnce([
-			{
+		mockGetDocContents.mockResolvedValueOnce([
+			docContent({
 				document_id: "doc-1",
-				type: 0,
-				checksum: "c1",
-				collections: ["col-A"],
-				content: "content",
-				title: "My Article",
-			},
-		]);
-		mockGetCollectionNames.mockResolvedValueOnce([
-			{ collection_id: "col-A", name: "New Name" },
+				title: "First",
+				content: "new body",
+				updated_at: "2026-01-02 00:00:00",
+			}),
 		]);
 
 		const result = await reconcile({ userId: "user-1" });
 
 		expect(result).toBe(true);
-
-		// Frontmatter should have new collection name
-		const content = readFileSync(`${dataRoot}/canonical/0/doc-1.md`, "utf-8");
-		expect(content).toContain('collections: ["New Name"]');
-		expect(content).not.toContain("Old Name");
-
-		// _index.md should have new collection name
-		const indexContent = readFileSync(
-			`${dataRoot}/canonical/_index.md`,
+		expect(mockGetDocContents).toHaveBeenCalledWith("user-1", ["doc-1"]);
+		const fileText = readFileSync(
+			join(dataRoot, "canonical/0/doc-1.md"),
 			"utf-8",
 		);
-		expect(indexContent).toContain("New Name");
-		expect(indexContent).not.toContain("Old Name");
-
-		// Manifest should store updated names
-		const manifest = await readManifest(dataRoot);
-		expect(manifest.collectionNames).toEqual({ "col-A": "New Name" });
+		expect(fileText).toContain("new body");
+		expect(
+			getMtimeSeconds(join(dataRoot, "canonical/0/doc-1.md")),
+		).toBe(toEpochSeconds("2026-01-02 00:00:00"));
 	});
 
-	it("writes human-readable collection names in frontmatter", async () => {
-		mkdirSync(`${dataRoot}/canonical`, { recursive: true });
+	it("handles a type change: orphans old path and writes new", async () => {
+		// Seed: doc-1 at type 0.
+		writeCanonicalFile(dataRoot, {
+			document_id: "doc-1",
+			type: 0,
+			content: "body",
+			title: "First",
+		});
+		stampMtime(
+			join(dataRoot, "canonical/0/doc-1.md"),
+			"2026-01-01 00:00:00",
+		);
 
-		mockGetManifest.mockResolvedValueOnce([
-			{
+		mockGetAllDocMeta.mockResolvedValueOnce([
+			docMeta({
 				document_id: "doc-1",
-				type: 0,
-				checksum: "c1",
-				collections: ["col-A"],
-				title: "My Article",
-			},
+				type: 3,
+				title: "First",
+				updated_at: "2026-01-02 00:00:00",
+			}),
 		]);
-		mockGetFileContents.mockResolvedValueOnce([
-			{
+		mockGetDocContents.mockResolvedValueOnce([
+			docContent({
 				document_id: "doc-1",
-				type: 0,
-				checksum: "c1",
-				collections: ["col-A"],
-				content: "content",
-				title: "My Article",
-			},
+				type: 3,
+				title: "First",
+				content: "body",
+				updated_at: "2026-01-02 00:00:00",
+			}),
 		]);
-		mockGetCollectionNames.mockResolvedValueOnce([
-			{ collection_id: "col-A", name: "Research" },
+
+		const result = await reconcile({ userId: "user-1" });
+
+		expect(result).toBe(true);
+		expect(existsSync(join(dataRoot, "canonical/0/doc-1.md"))).toBe(false);
+		expect(existsSync(join(dataRoot, "canonical/3/doc-1.md"))).toBe(true);
+	});
+
+	it("deletes a doc and all its hardlinks when it disappears from DB", async () => {
+		writeCanonicalFile(dataRoot, {
+			document_id: "doc-1",
+			type: 0,
+			content: "body",
+			title: "First",
+		});
+		stampMtime(
+			join(dataRoot, "canonical/0/doc-1.md"),
+			"2026-01-01 00:00:00",
+		);
+		mkdirSync(join(dataRoot, "collections/col-A/0"), { recursive: true });
+		require("node:fs").linkSync(
+			join(dataRoot, "canonical/0/doc-1.md"),
+			join(dataRoot, "collections/col-A/0/doc-1.md"),
+		);
+
+		// DB now has no docs and no memberships.
+		const result = await reconcile({ userId: "user-1" });
+
+		expect(result).toBe(true);
+		expect(existsSync(join(dataRoot, "canonical/0/doc-1.md"))).toBe(false);
+		expect(existsSync(join(dataRoot, "collections/col-A/0/doc-1.md"))).toBe(
+			false,
+		);
+	});
+
+	it("creates only a hardlink when membership is added for an existing doc", async () => {
+		const t = "2026-01-01 00:00:00";
+		writeCanonicalFile(dataRoot, {
+			document_id: "doc-1",
+			type: 0,
+			content: "body",
+			title: "First",
+		});
+		stampMtime(join(dataRoot, "canonical/0/doc-1.md"), t);
+		const canonicalMtimeBefore = getMtimeSeconds(
+			join(dataRoot, "canonical/0/doc-1.md"),
+		);
+
+		mockGetAllDocMeta.mockResolvedValueOnce([
+			docMeta({ document_id: "doc-1", title: "First", updated_at: t }),
+		]);
+		mockGetAllMemberships.mockResolvedValueOnce([
+			membership({
+				document_id: "doc-1",
+				collection_id: "col-A",
+				updated_at: "2026-02-01 00:00:00",
+			}),
+		]);
+
+		const result = await reconcile({ userId: "user-1" });
+
+		expect(result).toBe(true);
+		expect(mockGetDocContents).not.toHaveBeenCalled();
+		expect(existsSync(join(dataRoot, "collections/col-A/0/doc-1.md"))).toBe(
+			true,
+		);
+		// Canonical file was NOT rewritten — mtime unchanged.
+		expect(
+			getMtimeSeconds(join(dataRoot, "canonical/0/doc-1.md")),
+		).toBe(canonicalMtimeBefore);
+	});
+
+	it("removes only a hardlink when membership is removed", async () => {
+		const t = "2026-01-01 00:00:00";
+		writeCanonicalFile(dataRoot, {
+			document_id: "doc-1",
+			type: 0,
+			content: "body",
+			title: "First",
+		});
+		stampMtime(join(dataRoot, "canonical/0/doc-1.md"), t);
+		mkdirSync(join(dataRoot, "collections/col-A/0"), { recursive: true });
+		require("node:fs").linkSync(
+			join(dataRoot, "canonical/0/doc-1.md"),
+			join(dataRoot, "collections/col-A/0/doc-1.md"),
+		);
+
+		mockGetAllDocMeta.mockResolvedValueOnce([
+			docMeta({ document_id: "doc-1", title: "First", updated_at: t }),
+		]);
+		// No memberships.
+
+		const result = await reconcile({ userId: "user-1" });
+
+		expect(result).toBe(true);
+		expect(existsSync(join(dataRoot, "canonical/0/doc-1.md"))).toBe(true);
+		expect(existsSync(join(dataRoot, "collections/col-A/0/doc-1.md"))).toBe(
+			false,
+		);
+	});
+
+	it("regenerates _index.md when a collection is renamed without touching canonical", async () => {
+		const t = "2026-01-01 00:00:00";
+		writeCanonicalFile(dataRoot, {
+			document_id: "doc-1",
+			type: 0,
+			content: "body",
+			title: "First",
+		});
+		stampMtime(join(dataRoot, "canonical/0/doc-1.md"), t);
+		const canonicalMtimeBefore = getMtimeSeconds(
+			join(dataRoot, "canonical/0/doc-1.md"),
+		);
+
+		mkdirSync(join(dataRoot, "collections/col-A/0"), { recursive: true });
+		require("node:fs").linkSync(
+			join(dataRoot, "canonical/0/doc-1.md"),
+			join(dataRoot, "collections/col-A/0/doc-1.md"),
+		);
+
+		// Pre-write index matching the OLD membership updated_at (t).
+		writeFileSync(join(dataRoot, "canonical/_index.md"), "old index");
+		stampMtime(join(dataRoot, "canonical/_index.md"), t);
+
+		mockGetAllDocMeta.mockResolvedValueOnce([
+			docMeta({ document_id: "doc-1", title: "First", updated_at: t }),
+		]);
+		mockGetAllMemberships.mockResolvedValueOnce([
+			membership({
+				document_id: "doc-1",
+				collection_id: "col-A",
+				collection_name: "Research Renamed",
+				updated_at: "2026-03-01 00:00:00",
+			}),
+		]);
+
+		const result = await reconcile({ userId: "user-1" });
+
+		expect(result).toBe(true);
+		expect(mockGetDocContents).not.toHaveBeenCalled();
+		expect(
+			getMtimeSeconds(join(dataRoot, "canonical/0/doc-1.md")),
+		).toBe(canonicalMtimeBefore);
+
+		const indexText = readFileSync(
+			join(dataRoot, "canonical/_index.md"),
+			"utf-8",
+		);
+		expect(indexText).toContain("Research Renamed");
+		expect(
+			getMtimeSeconds(join(dataRoot, "canonical/_index.md")),
+		).toBe(toEpochSeconds("2026-03-01 00:00:00"));
+	});
+
+	it("refetches a doc when its canonical file was externally deleted", async () => {
+		const t = "2026-01-01 00:00:00";
+		writeCanonicalFile(dataRoot, {
+			document_id: "doc-1",
+			type: 0,
+			content: "old",
+			title: "First",
+		});
+		stampMtime(join(dataRoot, "canonical/0/doc-1.md"), t);
+		rmSync(join(dataRoot, "canonical/0/doc-1.md"));
+
+		mockGetAllDocMeta.mockResolvedValueOnce([
+			docMeta({ document_id: "doc-1", title: "First", updated_at: t }),
+		]);
+		mockGetDocContents.mockResolvedValueOnce([
+			docContent({
+				document_id: "doc-1",
+				title: "First",
+				content: "restored",
+				updated_at: t,
+			}),
+		]);
+
+		const result = await reconcile({ userId: "user-1" });
+
+		expect(result).toBe(true);
+		expect(existsSync(join(dataRoot, "canonical/0/doc-1.md"))).toBe(true);
+		expect(
+			readFileSync(join(dataRoot, "canonical/0/doc-1.md"), "utf-8"),
+		).toContain("restored");
+	});
+
+	it("writes _index.md with collection names from membership rows", async () => {
+		mockGetAllDocMeta.mockResolvedValueOnce([
+			docMeta({ document_id: "doc-1", title: "Article", updated_at: "2026-01-01 00:00:00" }),
+		]);
+		mockGetDocContents.mockResolvedValueOnce([
+			docContent({ document_id: "doc-1", title: "Article", content: "body" }),
+		]);
+		mockGetAllMemberships.mockResolvedValueOnce([
+			membership({
+				document_id: "doc-1",
+				collection_id: "col-A",
+				collection_name: "Research",
+				updated_at: "2026-01-01 00:00:00",
+			}),
 		]);
 
 		await reconcile({ userId: "user-1" });
 
-		const content = readFileSync(`${dataRoot}/canonical/0/doc-1.md`, "utf-8");
-		expect(content).toContain('collections: ["Research"]');
-		expect(content).not.toContain("col-A");
+		const indexText = readFileSync(
+			join(dataRoot, "canonical/_index.md"),
+			"utf-8",
+		);
+		expect(indexText).toContain("# Collections");
+		expect(indexText).toContain("## Research (col-A)");
+		expect(indexText).toContain("- Article (0/doc-1.md)");
+	});
+
+	it("canonical frontmatter contains only title and cite", async () => {
+		mockGetAllDocMeta.mockResolvedValueOnce([
+			docMeta({ document_id: "doc-new", title: "New Doc", updated_at: "2026-01-01 00:00:00" }),
+		]);
+		mockGetDocContents.mockResolvedValueOnce([
+			docContent({
+				document_id: "doc-new",
+				title: "New Doc",
+				content: "body",
+			}),
+		]);
+		mockGetAllMemberships.mockResolvedValueOnce([
+			membership({
+				document_id: "doc-new",
+				collection_id: "col-B",
+				collection_name: "Books",
+				updated_at: "2026-01-01 00:00:00",
+			}),
+		]);
+
+		await reconcile({ userId: "user-1" });
+
+		const text = readFileSync(
+			join(dataRoot, "canonical/0/doc-new.md"),
+			"utf-8",
+		);
+		expect(text).toContain('title: "New Doc"');
+		expect(text).toContain("cite: detail/0/doc-new");
+		expect(text).not.toContain("collections:");
+		expect(text).not.toContain("checksum");
 	});
 });

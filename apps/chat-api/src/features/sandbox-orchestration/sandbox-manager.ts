@@ -247,15 +247,33 @@ export class SandboxManager {
 		logger: SyncLogger,
 		expectedVersion: string,
 	): Promise<void> {
+		const envs: Record<string, string> = {
+			ANTHROPIC_API_KEY: apiEnv.ANTHROPIC_API_KEY,
+			DATABASE_URL: apiEnv.DATABASE_URL as string,
+			DAEMON_VERSION: expectedVersion,
+		};
+		// Forward optional Claude Code routing/model overrides if set on the
+		// chat-api side. The daemon and its claude CLI subprocess inherit these.
+		const passthrough = [
+			"ANTHROPIC_BASE_URL",
+			"ANTHROPIC_AUTH_TOKEN",
+			"ANTHROPIC_MODEL",
+			"ANTHROPIC_DEFAULT_OPUS_MODEL",
+			"ANTHROPIC_DEFAULT_SONNET_MODEL",
+			"ANTHROPIC_DEFAULT_HAIKU_MODEL",
+			"CLAUDE_CODE_SUBAGENT_MODEL",
+			"CLAUDE_CODE_EFFORT_LEVEL",
+		] as const;
+		for (const key of passthrough) {
+			const value = apiEnv[key];
+			if (value) envs[key] = value;
+		}
+
 		await sandbox.commands.run(
 			`bun ${DAEMON_BUNDLE_PATH} >> /workspace/daemon.log 2>&1`,
 			{
 				background: true,
-				envs: {
-					ANTHROPIC_API_KEY: apiEnv.ANTHROPIC_API_KEY,
-					DATABASE_URL: apiEnv.DATABASE_URL as string,
-					DAEMON_VERSION: expectedVersion,
-				},
+				envs,
 			},
 		);
 

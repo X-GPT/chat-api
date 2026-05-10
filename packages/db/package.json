@@ -9,9 +9,10 @@
 	},
 	"dependencies": {
 		"drizzle-orm": "^0.44.1",
-		"mysql2": "^3.14.1"
+		"pg": "^8.13.1"
 	},
 	"devDependencies": {
+		"@types/pg": "^8.11.10",
 		"drizzle-kit": "^0.31.1"
 	}
 }

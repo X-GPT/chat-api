@@ -1,202 +1,136 @@
 import {
+	buildCanonicalPath,
 	buildCollectionHardlink,
-	clearDataRoot,
-	countCanonicalFiles,
-	type DocFile,
 	ensureDataRoot,
 	getDataRoot,
-	type LocalManifestEntry,
-	readManifest,
+	getMtimeSeconds,
 	removeCanonicalFile,
-	removeCollectionEntries,
+	removeCollectionHardlink,
+	scanCanonicalFiles,
+	scanCollectionLinks,
+	stampMtime,
+	stampMtimeSeconds,
+	toEpochSeconds,
 	writeCanonicalFile,
 	writeIndexFile,
-	writeManifest,
 } from "./materialization";
-import { getCollectionNames, getFileContents, getManifest } from "./queries";
+import {
+	getAllDocMeta,
+	getAllMemberships,
+	getDocContents,
+} from "./queries";
 
 interface ReconcileInput {
 	userId: string;
 }
 
-function collectionsEqual(a: string[], b: string[]): boolean {
-	if (a.length !== b.length) return false;
-	for (let i = 0; i < a.length; i++) {
-		if (a[i] !== b[i]) return false;
-	}
-	return true;
-}
-
-function hasEntryChanged(
-	local: LocalManifestEntry,
-	remote: LocalManifestEntry,
-): boolean {
-	return (
-		local.checksum !== remote.checksum ||
-		local.type !== remote.type ||
-		local.title !== remote.title ||
-		!collectionsEqual(local.collections, remote.collections)
-	);
-}
-
-// Assumes both sides are ordered by document_id. Enforced by
-// getManifest()'s ORDER BY and readManifest's stored order.
-function manifestsEqual(
-	local: LocalManifestEntry[],
-	remote: LocalManifestEntry[],
-): boolean {
-	if (local.length !== remote.length) return false;
-	for (let i = 0; i < local.length; i++) {
-		const l = local[i]!;
-		const r = remote[i]!;
-		if (l.document_id !== r.document_id || hasEntryChanged(l, r)) {
-			return false;
-		}
-	}
-	return true;
-}
-
-/**
- * Compare stored collection names against current names.
- * Returns the set of collection IDs whose names differ (empty if none changed).
- */
-function findRenamedCollections(
-	stored: Record<string, string>,
-	current: Map<string, string>,
-): Set<string> {
-	const renamed = new Set<string>();
-	for (const [id, name] of current) {
-		if (stored[id] !== name) renamed.add(id);
-	}
-	for (const id of Object.keys(stored)) {
-		if (!current.has(id)) renamed.add(id);
-	}
-	return renamed;
-}
-
 /**
  * Reconcile the local filesystem state with the database.
- * Returns true if sync was performed, false if skipped.
+ *
+ * Three independent streams, each with a filesystem-native marker:
+ *  - Canonical files: mtime of canonical/{type}/{id}.md vs user_files.updated_at
+ *  - Hardlinks: existence of collections/{col}/{type}/{id}.md vs file_collection_relationship rows
+ *  - _index.md: mtime vs max(file_collection_relationship.updated_at)
+ *
+ * Returns true if any disk change was made, false if everything was already in sync.
  */
 export async function reconcile(input: ReconcileInput): Promise<boolean> {
 	const { userId } = input;
 	const dataRoot = getDataRoot(userId);
 	ensureDataRoot(dataRoot);
 
-	const [remoteManifest, rawManifest, collectionRows] = await Promise.all([
-		getManifest(userId),
-		readManifest(dataRoot),
-		getCollectionNames(userId),
+	const [docs, memberships] = await Promise.all([
+		getAllDocMeta(userId),
+		getAllMemberships(userId),
 	]);
 
-	// Missing/corrupt manifest — wipe and full resync to prevent orphaned files.
-	if (!rawManifest) {
-		clearDataRoot(dataRoot);
-	}
-	let manifestData = rawManifest ?? { entries: [], collectionNames: {} };
-
-	const collectionNamesMap = new Map(
-		collectionRows.map((r) => [r.collection_id, r.name]),
-	);
-	const renamedCollections = findRenamedCollections(
-		manifestData.collectionNames,
-		collectionNamesMap,
-	);
-	const entriesChanged = !manifestsEqual(manifestData.entries, remoteManifest);
-
-	if (!entriesChanged && renamedCollections.size === 0) {
-		// Verify canonical files exist — if count doesn't match, wipe and
-		// full resync (same as corrupt manifest).
-		if (countCanonicalFiles(dataRoot) !== manifestData.entries.length) {
-			clearDataRoot(dataRoot);
-			manifestData = { entries: [], collectionNames: {} };
-		} else {
-			return false;
+	// 1. Canonical files: per-file mtime diff.
+	const wantedDocKeys = new Set<string>();
+	const docTypeById = new Map<string, number>();
+	const changedIds: string[] = [];
+	for (const d of docs) {
+		wantedDocKeys.add(`${d.type}/${d.document_id}`);
+		docTypeById.set(d.document_id, d.type);
+		const path = buildCanonicalPath(dataRoot, d);
+		if (getMtimeSeconds(path) !== toEpochSeconds(d.updated_at)) {
+			changedIds.push(d.document_id);
 		}
 	}
 
-	const localMap = new Map(
-		manifestData.entries.map((entry) => [entry.document_id, entry]),
-	);
-	const remoteMap = new Map(
-		remoteManifest.map((entry) => [entry.document_id, entry]),
-	);
+	let docsMutated = false;
+	if (changedIds.length > 0) {
+		const contents = await getDocContents(userId, changedIds);
+		for (const c of contents) {
+			writeCanonicalFile(dataRoot, {
+				document_id: c.document_id,
+				type: c.type,
+				content: c.content,
+				title: c.title,
+			});
+			stampMtime(buildCanonicalPath(dataRoot, c), c.updated_at);
+		}
+		docsMutated = true;
+	}
 
-	const creates: string[] = [];
-	const updates: string[] = [];
-	const deletes: LocalManifestEntry[] = [];
-
-	for (const entry of remoteManifest) {
-		const local = localMap.get(entry.document_id);
-		if (!local) {
-			creates.push(entry.document_id);
-		} else if (hasEntryChanged(local, entry)) {
-			updates.push(entry.document_id);
+	// 2. Orphan cleanup for canonical/ — catches deletes and the stale side of
+	//    a type change in one pass.
+	for (const file of scanCanonicalFiles(dataRoot)) {
+		if (!wantedDocKeys.has(`${file.type}/${file.document_id}`)) {
+			removeCanonicalFile(dataRoot, file);
+			docsMutated = true;
 		}
 	}
 
-	for (const entry of manifestData.entries) {
-		if (!remoteMap.has(entry.document_id)) {
-			deletes.push(entry);
+	// 3. Hardlinks: existence-based diff.
+	const wantedLinks = new Set<string>();
+	for (const m of memberships) {
+		const type = docTypeById.get(m.document_id);
+		if (type === undefined) continue; // membership for a deleted doc
+		wantedLinks.add(`${m.collection_id}/${type}/${m.document_id}`);
+	}
+
+	let linksMutated = false;
+	const existingLinks = scanCollectionLinks(dataRoot);
+	const existingSet = new Set<string>();
+	for (const l of existingLinks) {
+		const key = `${l.collection_id}/${l.type}/${l.document_id}`;
+		existingSet.add(key);
+		if (!wantedLinks.has(key)) {
+			removeCollectionHardlink(dataRoot, l, l.collection_id);
+			linksMutated = true;
+		}
+	}
+	for (const m of memberships) {
+		const type = docTypeById.get(m.document_id);
+		if (type === undefined) continue;
+		const key = `${m.collection_id}/${type}/${m.document_id}`;
+		if (!existingSet.has(key)) {
+			buildCollectionHardlink(
+				dataRoot,
+				{ document_id: m.document_id, type },
+				m.collection_id,
+			);
+			linksMutated = true;
 		}
 	}
 
-	if (renamedCollections.size > 0) {
-		const updateSet = new Set(updates);
-		for (const entry of remoteManifest) {
-			if (updateSet.has(entry.document_id)) continue;
-			if (entry.collections.some((id) => renamedCollections.has(id))) {
-				updates.push(entry.document_id);
-				updateSet.add(entry.document_id);
-			}
-		}
+	// 4. _index.md: mtime vs max-membership-updated-at.
+	const indexPath = `${dataRoot}/canonical/_index.md`;
+	let maxMembershipSec = 0;
+	for (const m of memberships) {
+		const sec = toEpochSeconds(m.updated_at);
+		if (sec > maxMembershipSec) maxMembershipSec = sec;
 	}
 
-	const changedIds = [...creates, ...updates];
-	const changedFiles = await getFileContents(userId, changedIds);
+	const indexNeedsRewrite =
+		docsMutated ||
+		linksMutated ||
+		getMtimeSeconds(indexPath) !== maxMembershipSec;
 
-	// Handle deletes
-	for (const entry of deletes) {
-		if (entry.collections.length > 0) {
-			removeCollectionEntries(dataRoot, entry, entry.collections);
-		}
-		removeCanonicalFile(dataRoot, entry);
+	if (indexNeedsRewrite) {
+		await writeIndexFile(dataRoot, docs, memberships);
+		stampMtimeSeconds(indexPath, maxMembershipSec);
 	}
 
-	// Handle creates/updates
-	for (const file of changedFiles) {
-		const local = localMap.get(file.document_id);
-		if (local) {
-			if (local.type !== file.type) {
-				removeCanonicalFile(dataRoot, local);
-			}
-			if (local.collections.length > 0) {
-				removeCollectionEntries(dataRoot, local, local.collections);
-			}
-		}
-
-		const doc: DocFile = {
-			document_id: file.document_id,
-			type: file.type,
-			collections: file.collections,
-			content: file.content,
-			checksum: file.checksum,
-			title: file.title,
-		};
-		writeCanonicalFile(dataRoot, doc, collectionNamesMap);
-
-		for (const colId of file.collections) {
-			buildCollectionHardlink(dataRoot, doc, colId);
-		}
-	}
-
-	await Promise.all([
-		writeManifest(dataRoot, {
-			entries: remoteManifest,
-			collectionNames: Object.fromEntries(collectionNamesMap),
-		}),
-		writeIndexFile(dataRoot, remoteManifest, collectionNamesMap),
-	]);
-
-	return true;
+	return docsMutated || linksMutated || indexNeedsRewrite;
 }

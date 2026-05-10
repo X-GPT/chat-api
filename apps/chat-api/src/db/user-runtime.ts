@@ -38,7 +38,8 @@ export async function upsertRuntime(
 			userId,
 			sandboxId: fields.sandbox_id ?? undefined,
 		})
-		.onDuplicateKeyUpdate({
+		.onConflictDoUpdate({
+			target: userSandboxRuntime.userId,
 			set: {
 				lastSeenAt: sql`NOW()`,
 				...(fields.sandbox_id !== undefined && {

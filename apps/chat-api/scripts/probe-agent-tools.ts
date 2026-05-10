@@ -115,18 +115,17 @@ async function main() {
 		}
 		await sandbox.commands.run(": > /tmp/rg-trace.log", { timeoutMs: 5_000 });
 
-		// New flat layout: real files only, new frontmatter shape with checksum
-		// and collections.
+		// Flat layout: real files only; frontmatter only carries title + cite.
 		await sandbox.commands.run(
 			`mkdir -p ${ROOT}/canonical/0 ${ROOT}/canonical/3`,
 		);
 		await sandbox.files.write(
 			`${ROOT}/canonical/0/doc-1.md`,
-			'---\nsummaryId: doc-1\ntype: 0\nchecksum: sum-1\ncollections: ["col-test"]\n---\n\nThe capital of France is Paris. It is known for the Eiffel Tower.\n',
+			'---\ntitle: "France Travel Notes"\ncite: detail/0/doc-1\n---\n\nThe capital of France is Paris. It is known for the Eiffel Tower.\n',
 		);
 		await sandbox.files.write(
 			`${ROOT}/canonical/3/doc-2.md`,
-			"---\nsummaryId: doc-2\ntype: 3\nchecksum: sum-2\n---\n\nBuy milk, eggs, and bread.\n",
+			'---\ntitle: "Weekly Shopping List"\ncite: notes/3/doc-2\n---\n\nBuy milk, eggs, and bread.\n',
 		);
 
 		const lsRes = await sandbox.commands.run(`find ${ROOT}/canonical -type f`, {
