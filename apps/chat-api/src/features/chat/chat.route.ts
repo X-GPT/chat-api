@@ -6,7 +6,11 @@ import type { Env as PinoEnv } from "hono-pino";
 import { ConversationBusyError } from "@/features/sandbox-orchestration";
 import { complete } from "./chat.controller";
 import { ChatLogger } from "./chat.logger";
-import { ChatRequest, MAX_REQUEST_BODY_BYTES } from "./chat.schema";
+import {
+	ChatBodyRequest,
+	InternalIdentity,
+	MAX_REQUEST_BODY_BYTES,
+} from "./chat.schema";
 import { HonoSSESender } from "./chat.streaming";
 
 const app = new Hono<PinoEnv>();
@@ -17,7 +21,7 @@ app.post(
 		maxSize: MAX_REQUEST_BODY_BYTES,
 		onError: (c) => c.json({ error: "Request body too large" }, 413),
 	}),
-	zValidator("json", ChatRequest, (result, c) => {
+	zValidator("json", ChatBodyRequest, (result, c) => {
 		if (!result.success) {
 			console.error({
 				message: "Invalid request body",
@@ -27,7 +31,28 @@ app.post(
 		}
 	}),
 	async (c) => {
-		const request = c.req.valid("json");
+		const body = c.req.valid("json");
+
+		const identityResult = InternalIdentity.safeParse({
+			memberCode: c.req.header("x-member-code"),
+			memberName: c.req.header("x-member-name"),
+			teamCode: c.req.header("x-team-code"),
+			partnerCode: c.req.header("x-partner-code"),
+			partnerName: c.req.header("x-partner-name"),
+		});
+
+		if (!identityResult.success) {
+			console.error({
+				message: "Missing or invalid internal identity headers",
+				error: identityResult.error,
+			});
+			return c.json(
+				{ error: "Missing or invalid internal identity headers" },
+				401,
+			);
+		}
+
+		const request = { ...body, ...identityResult.data };
 
 		return streamSSE(
 			c,

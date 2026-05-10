@@ -36,11 +36,17 @@ docker-compose up    # Local development
 
 ### Request Flow
 
-1. `POST /api/v1/chat` with the full `ChatRequest` payload (member/partner identity, optional history, optional client-supplied chat/refs IDs)
-2. SSE stream initiated in `chat.route.ts`
-3. `chat.controller.ts::complete()` orchestrates the request from the request body alone — no upstream API calls
+1. `POST /api/v1/chat` with:
+   - **JSON body** (`ChatBodyRequest`): chat payload — `chatContent`, `chatKey`, `chatType`, optional `collectionId`/`summaryId`/`modelType`/`enableKnowledge`/`history`/client-supplied `chatId`/`refsId`
+   - **Identity headers** (`InternalIdentity`): `X-Member-Code` (required), `X-Partner-Code` (required), `X-Team-Code`, `X-Member-Name`, `X-Partner-Name` (all optional)
+2. SSE stream initiated in `chat.route.ts` after body validation (`.strict()`, rejects extra keys) and identity-header validation (401 on missing/invalid)
+3. `chat.controller.ts::complete()` orchestrates the merged request — no upstream API calls
 4. Either `runSandboxChat` (when `SANDBOX_ENABLED` and `enableKnowledge`) or `core/mymemo.ts::runMyMemo()` handles streaming
 5. Events emitted via SSE: `agent.message.delta`, `chat_entity`, etc.
+
+### Trust Boundary
+
+Identity arrives via `X-*` headers, **not** the JSON body. chat-api does not authenticate users itself; the internal caller (gateway / BFF) is responsible for authenticating the user and forwarding their identity. The body schema uses `.strict()` so any attempt to pass identity in the body is rejected with a 400. This service must therefore only be reachable from trusted internal callers; do not expose `POST /api/v1/chat` directly to untrusted networks.
 
 ### Key Modules
 
