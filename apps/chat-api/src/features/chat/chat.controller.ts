@@ -16,6 +16,7 @@ export async function complete(
 		chatType,
 		collectionId,
 		summaryId,
+		sessionId,
 		memberCode,
 		memberName,
 		teamCode,
@@ -87,15 +88,30 @@ export async function complete(
 		await sendChatEntity("0");
 	};
 
+	const onSessionId = (newSessionId: string) => {
+		mymemoEventSender
+			.send({
+				id: crypto.randomUUID(),
+				message: { type: "session_id", sessionId: newSessionId },
+			})
+			.catch((err) => {
+				logger.error({
+					message: "Failed to send session_id event",
+					error: err,
+				});
+			});
+	};
+
 	await runSandboxChat({
 		userId: memberCode,
-		chatKey,
 		query: chatContent,
 		scope,
 		collectionId: normalizedCollectionId,
 		summaryId: normalizedSummaryId,
+		sessionId: sessionId ?? null,
 		onTextDelta,
 		onTextEnd,
+		onSessionId,
 		logger,
 	});
 }

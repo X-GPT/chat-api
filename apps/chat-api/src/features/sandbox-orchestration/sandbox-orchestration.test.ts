@@ -31,9 +31,10 @@ function makeOptions(
 		scope: "general" as const,
 		collectionId: null,
 		summaryId: null,
-		chatKey: "chat-1",
+		sessionId: null,
 		onTextDelta: () => {},
 		onTextEnd: async () => {},
+		onSessionId: () => {},
 		logger: silentLogger,
 		...overrides,
 	};
@@ -43,12 +44,9 @@ describe("runSandboxChat", () => {
 	let runSandboxChat: typeof import("./sandbox-orchestration").runSandboxChat;
 	let singletonModule: typeof import("./singleton");
 	let proxyModule: typeof import("./sandbox-proxy");
-	let sessionsModule: typeof import("@/db/user-sessions");
 	let spyGetOrCreate: ReturnType<typeof spyOn>;
 	let spyEnsureDaemon: ReturnType<typeof spyOn>;
 	let spyForwardTurn: ReturnType<typeof spyOn>;
-	let spyGetSessionId: ReturnType<typeof spyOn>;
-	let spyUpsertSessionId: ReturnType<typeof spyOn>;
 
 	beforeEach(async () => {
 		Bun.env.OPENAI_API_KEY = "test-openai-key";
@@ -57,7 +55,6 @@ describe("runSandboxChat", () => {
 		({ runSandboxChat } = await import("./sandbox-orchestration"));
 		singletonModule = await import("./singleton");
 		proxyModule = await import("./sandbox-proxy");
-		sessionsModule = await import("@/db/user-sessions");
 
 		const sandbox = createMockSandbox();
 		spyGetOrCreate = spyOn(
@@ -68,22 +65,12 @@ describe("runSandboxChat", () => {
 			singletonModule.sandboxManager,
 			"ensureSandboxDaemon",
 		).mockResolvedValue("http://daemon:8080");
-
-		spyGetSessionId = spyOn(sessionsModule, "getSessionId").mockResolvedValue(
-			"prev-session",
-		);
-		spyUpsertSessionId = spyOn(
-			sessionsModule,
-			"upsertSessionId",
-		).mockResolvedValue(undefined);
 	});
 
 	afterEach(() => {
 		spyGetOrCreate.mockRestore();
 		spyEnsureDaemon.mockRestore();
 		spyForwardTurn?.mockRestore();
-		spyGetSessionId.mockRestore();
-		spyUpsertSessionId.mockRestore();
 		mock.restore();
 	});
 
@@ -101,44 +88,42 @@ describe("runSandboxChat", () => {
 		expect(spyForwardTurn).toHaveBeenCalled();
 	});
 
-	it("passes agent_session_id from sessions table", async () => {
+	it("forwards request sessionId as agent_session_id", async () => {
 		spyForwardTurn = spyOn(
 			proxyModule,
 			"forwardChatTurnToSandbox",
 		).mockImplementation(async (opts) => {
-			expect(opts.turnRequest.agent_session_id).toBe("prev-session");
+			expect(opts.turnRequest.agent_session_id).toBe("client-session");
 		});
 
-		await runSandboxChat(makeOptions());
+		await runSandboxChat(makeOptions({ sessionId: "client-session" }));
 	});
 
-	it("persists new session ID via upsertRuntime", async () => {
+	it("omits agent_session_id when no sessionId provided", async () => {
 		spyForwardTurn = spyOn(
 			proxyModule,
 			"forwardChatTurnToSandbox",
 		).mockImplementation(async (opts) => {
-			// Simulate daemon sending session_id
+			expect(opts.turnRequest.agent_session_id).toBeUndefined();
+		});
+
+		await runSandboxChat(makeOptions({ sessionId: null }));
+	});
+
+	it("surfaces daemon-emitted session_id via callback", async () => {
+		const received: string[] = [];
+		spyForwardTurn = spyOn(
+			proxyModule,
+			"forwardChatTurnToSandbox",
+		).mockImplementation(async (opts) => {
 			opts.onSessionId("new-session-123");
 		});
 
-		await runSandboxChat(makeOptions());
-
-		expect(spyUpsertSessionId).toHaveBeenCalledWith(
-			"user-1",
-			"chat-1",
-			"new-session-123",
+		await runSandboxChat(
+			makeOptions({ onSessionId: (id) => received.push(id) }),
 		);
-	});
 
-	it("does not persist session if none received", async () => {
-		spyForwardTurn = spyOn(
-			proxyModule,
-			"forwardChatTurnToSandbox",
-		).mockResolvedValue(undefined);
-
-		await runSandboxChat(makeOptions());
-
-		expect(spyUpsertSessionId).not.toHaveBeenCalled();
+		expect(received).toEqual(["new-session-123"]);
 	});
 
 	it("maps general scope to global", async () => {
@@ -189,18 +174,5 @@ describe("runSandboxChat", () => {
 		await expect(runSandboxChat(makeOptions())).rejects.toThrow(
 			"daemon unreachable",
 		);
-	});
-
-	it("passes no session ID when none exists", async () => {
-		spyGetSessionId.mockResolvedValue(null);
-
-		spyForwardTurn = spyOn(
-			proxyModule,
-			"forwardChatTurnToSandbox",
-		).mockImplementation(async (opts) => {
-			expect(opts.turnRequest.agent_session_id).toBeUndefined();
-		});
-
-		await runSandboxChat(makeOptions());
 	});
 });

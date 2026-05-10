@@ -42,16 +42,3 @@ export const userSandboxRuntime = mysqlTable("user_sandbox_runtime", {
 		.notNull()
 		.defaultNow(),
 });
-
-export const userSandboxSessions = mysqlTable(
-	"user_sandbox_sessions",
-	{
-		userId: varchar("user_id", { length: 255 }).notNull(),
-		chatKey: varchar("chat_key", { length: 255 }).notNull(),
-		sessionId: varchar("session_id", { length: 255 }).notNull(),
-		updatedAt: timestamp("updated_at", { mode: "string" })
-			.notNull()
-			.defaultNow(),
-	},
-	(table) => [primaryKey({ columns: [table.userId, table.chatKey] })],
-);

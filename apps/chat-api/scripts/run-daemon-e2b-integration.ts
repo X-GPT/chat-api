@@ -14,7 +14,6 @@ import {
 	userCollections,
 	userFiles,
 	userSandboxRuntime,
-	userSandboxSessions,
 } from "@mymemo/db";
 import { and, eq } from "drizzle-orm";
 import type { Sandbox } from "e2b";
@@ -104,9 +103,6 @@ async function cleanupTestData() {
 		db.delete(userFiles).where(eq(userFiles.userId, userId)),
 		db.delete(userCollections).where(eq(userCollections.userId, userId)),
 		db.delete(userSandboxRuntime).where(eq(userSandboxRuntime.userId, userId)),
-		db
-			.delete(userSandboxSessions)
-			.where(eq(userSandboxSessions.userId, userId)),
 	]);
 }
 
