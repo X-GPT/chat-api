@@ -9,6 +9,8 @@ import type { Config } from "./core/config";
 import type { ConversationHistory } from "./core/history";
 import { runMyMemo } from "./core/mymemo";
 
+const DEFAULT_MODEL_TYPE = "gpt-4o";
+
 export async function complete(
 	request: ChatRequest,
 	mymemoEventSender: MymemoEventSender,
@@ -36,7 +38,7 @@ export async function complete(
 	const chatId = request.chatId ?? crypto.randomUUID();
 	const refsId = request.refsId ?? crypto.randomUUID();
 
-	const resolvedModelType = modelType ?? "gpt-4o";
+	const resolvedModelType = modelType ?? DEFAULT_MODEL_TYPE;
 	const resolvedEnableKnowledge = enableKnowledge ?? false;
 
 	const historyMessages = adaptHistoryToModelMessages(history ?? []);
@@ -50,12 +52,7 @@ export async function complete(
 
 	const mymemoConfig: Config = {
 		scope,
-		chatKey,
-		collectionId: normalizedCollectionId,
-		summaryId: normalizedSummaryId,
 		modelId: resolvedModelType,
-		memberCode,
-		partnerCode,
 		enableKnowledge: resolvedEnableKnowledge,
 	};
 
@@ -66,71 +63,46 @@ export async function complete(
 
 	let accumulatedContent = "";
 
-	const onTextDelta = (text: string) => {
-		accumulatedContent += text;
-		const chatEntity: ChatEntity = {
-			id: chatId,
-			chatKey,
-			readFlag: "1",
-			delFlag: "0",
-			teamCode: teamCode ?? null,
-			memberCode,
-			memberName: memberName ?? null,
-			partnerCode,
-			partnerName: partnerName ?? null,
-			chatType,
-			senderType: "AI",
-			senderCode: partnerCode,
-			chatContent: accumulatedContent,
-			followup: "",
-			endFlag: 1,
-			collectionId: normalizedCollectionId,
-			summaryId: normalizedSummaryId,
-			refsId,
-			collapseFlag: "1",
-			refsContent: null,
-		};
+	const buildChatEntity = (readFlag: "0" | "1"): ChatEntity => ({
+		id: chatId,
+		chatKey,
+		readFlag,
+		delFlag: "0",
+		teamCode: teamCode ?? null,
+		memberCode,
+		memberName: memberName ?? null,
+		partnerCode,
+		partnerName: partnerName ?? null,
+		chatType,
+		senderType: "AI",
+		senderCode: partnerCode,
+		chatContent: accumulatedContent,
+		followup: "",
+		endFlag: 1,
+		collectionId: normalizedCollectionId,
+		summaryId: normalizedSummaryId,
+		refsId,
+		collapseFlag: "1",
+		refsContent: null,
+	});
 
+	const sendChatEntity = (readFlag: "0" | "1") => {
 		mymemoEventSender.send({
 			id: crypto.randomUUID(),
 			message: {
 				type: "chat_entity",
-				...chatEntity,
+				...buildChatEntity(readFlag),
 			},
 		});
 	};
 
-	const onTextEnd = async () => {
-		const chatEntity: ChatEntity = {
-			id: chatId,
-			chatKey,
-			readFlag: "0",
-			delFlag: "0",
-			teamCode: teamCode ?? null,
-			memberCode,
-			memberName: memberName ?? null,
-			partnerCode,
-			partnerName: partnerName ?? null,
-			chatType,
-			senderType: "AI",
-			senderCode: partnerCode,
-			chatContent: accumulatedContent,
-			followup: "",
-			endFlag: 1,
-			collectionId: normalizedCollectionId,
-			summaryId: normalizedSummaryId,
-			refsId,
-			collapseFlag: "1",
-			refsContent: null,
-		};
+	const onTextDelta = (text: string) => {
+		accumulatedContent += text;
+		sendChatEntity("1");
+	};
 
-		mymemoEventSender.send({
-			id: crypto.randomUUID(),
-			message: {
-				type: "chat_entity",
-				...chatEntity,
-			},
-		});
+	const onTextEnd = async () => {
+		sendChatEntity("0");
 	};
 
 	const onEvent = (event: EventMessage) => {
@@ -140,7 +112,12 @@ export async function complete(
 		});
 	};
 
-	if (isSandboxEnabled() && resolvedEnableKnowledge && memberCode && partnerCode) {
+	if (
+		isSandboxEnabled() &&
+		resolvedEnableKnowledge &&
+		memberCode &&
+		partnerCode
+	) {
 		await runSandboxChat({
 			userId: memberCode,
 			chatKey,

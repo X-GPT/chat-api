@@ -1,5 +1,4 @@
 import { type LanguageModel, type ModelMessage, streamText } from "ai";
-import type { ChatMessagesScope } from "@/config/env";
 import type { EventMessage } from "../chat.events";
 import {
 	type LanguageModelProvider,
@@ -21,6 +20,16 @@ import type { ConversationHistory } from "./history";
 export type Session = {
 	messages: ModelMessage[];
 };
+
+function selectSystemPrompt(config: Config): string {
+	if (config.scope === "document") {
+		return getSingleFilePrompt();
+	}
+	if (!config.enableKnowledge) {
+		return getNoKnowledgePrompt();
+	}
+	return getSystemPrompt();
+}
 
 function buildSession({
 	config,
@@ -45,32 +54,15 @@ function buildSession({
 		});
 	}
 
-	let systemPrompt = getSystemPrompt();
-	if (config.scope === "document") {
-		systemPrompt = getSingleFilePrompt();
-	} else if (config.scope === "collection") {
-		systemPrompt = getSystemPrompt();
-	} else if (!config.enableKnowledge) {
-		systemPrompt = getNoKnowledgePrompt();
-	}
-
-	const identity = buildIdentity(config.modelId);
-
 	const turnContext: TurnContext = {
 		model,
 		provider,
-		systemPrompt,
-		identity,
-		scope: config.scope,
-		summaryId: config.summaryId,
-		collectionId: config.collectionId,
-		memberCode: config.memberCode,
-		partnerCode: config.partnerCode,
-		enableKnowledge: config.enableKnowledge,
+		systemPrompt: selectSystemPrompt(config),
+		identity: buildIdentity(config.modelId),
 		logger,
 	};
 
-	const session = {
+	const session: Session = {
 		messages:
 			conversationHistory.type === "continued"
 				? conversationHistory.messages
@@ -85,12 +77,6 @@ export type TurnContext = {
 	provider: LanguageModelProvider;
 	systemPrompt: string;
 	identity: string | null;
-	scope: ChatMessagesScope;
-	summaryId: string | null;
-	collectionId: string | null;
-	memberCode: string;
-	partnerCode: string;
-	enableKnowledge: boolean;
 	logger: ChatLogger;
 };
 
@@ -102,7 +88,6 @@ type TurnRunResult = {
 };
 
 async function runTurn(
-	_session: Session,
 	turnContext: TurnContext,
 	turnInput: ModelMessage[],
 	onTextDelta: (text: string) => void,
@@ -114,8 +99,6 @@ async function runTurn(
 		systemPrompt: turnContext.systemPrompt,
 		identity: turnContext.identity,
 		messages: turnInput,
-		scope: turnContext.scope,
-		enableKnowledge: turnContext.enableKnowledge,
 		tools,
 	});
 
@@ -152,12 +135,14 @@ async function runTurn(
 				break;
 			}
 			case "text-end": {
-				console.log("Text end");
 				await onTextEnd();
 				break;
 			}
 			case "tool-call": {
-				console.log("Calling tool:", event.toolName);
+				turnContext.logger.info({
+					message: "Tool call requested",
+					toolName: event.toolName,
+				});
 				break;
 			}
 		}
@@ -235,7 +220,6 @@ async function runTask({
 
 	while (true) {
 		const { processedItems } = await runTurn(
-			session,
 			turnContext,
 			turnInput,
 			onTextDelta,

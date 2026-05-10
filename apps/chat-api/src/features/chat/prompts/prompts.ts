@@ -1,6 +1,5 @@
 import { readFileSync } from "node:fs";
 import type { ModelMessage } from "ai";
-import type { ChatMessagesScope } from "@/config/env";
 import { getAllowedTools, type getTools } from "../tools/tools";
 
 const SYSTEM_PROMPT_URL = new URL("./system-prompt.md", import.meta.url);
@@ -54,24 +53,18 @@ export function buildPrompt({
 	systemPrompt,
 	identity,
 	tools,
-	scope,
-	enableKnowledge,
 	messages,
 }: {
 	systemPrompt: string;
 	identity?: string | null;
 	tools: ReturnType<typeof getTools>;
-	scope: ChatMessagesScope;
-	enableKnowledge: boolean;
 	messages: ModelMessage[];
 }) {
-	const allowedTools = getAllowedTools(scope, enableKnowledge);
-
 	const identityPrefix = identity ? `${identity}\n\n` : "";
 	return {
 		system: `${identityPrefix}${systemPrompt}`,
 		tools,
 		messages,
-		allowedTools,
+		allowedTools: getAllowedTools(),
 	};
 }
