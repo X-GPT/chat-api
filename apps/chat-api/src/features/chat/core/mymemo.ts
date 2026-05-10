@@ -19,7 +19,6 @@ import { handleListAllFiles } from "../tools/list-all-files";
 import { handleListCollectionFiles } from "../tools/list-collection-files";
 import { handleReadFile } from "../tools/read-file";
 import { handleSearchDocuments } from "../tools/search-documents";
-import { handleSearchKnowledge } from "../tools/search-knowledge";
 import { getTools } from "../tools/tools";
 import { handleUpdatePlan } from "../tools/update-plan";
 import type { RequestCache } from "./cache";
@@ -311,36 +310,6 @@ async function runTurn(
 								toolCallId: toolCall.toolCallId,
 								type: "tool-result" as const,
 								output: { type: "text" as const, value: toolOutput }, // update depending on the tool's output format
-							},
-						],
-					},
-				});
-			} else if (
-				toolCall.toolName === "search_knowledge" &&
-				!toolCall.dynamic
-			) {
-				const toolOutput = await handleSearchKnowledge({
-					query: toolCall.input.query,
-					memberCode: turnContext.memberCode,
-					summaryId: turnContext.summaryId,
-					collectionId: turnContext.collectionId,
-					protectedFetchOptions: {
-						memberAuthToken: turnContext.memberAuthToken,
-					},
-					summaryCache: turnContext.summaryCache,
-					logger: turnContext.logger,
-					onEvent,
-				});
-				output.push({
-					response: null,
-					toolResult: {
-						role: "tool" as const,
-						content: [
-							{
-								toolName: toolCall.toolName,
-								toolCallId: toolCall.toolCallId,
-								type: "tool-result" as const,
-								output: { type: "text" as const, value: toolOutput },
 							},
 						],
 					},
