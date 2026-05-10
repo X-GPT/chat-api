@@ -1,17 +1,22 @@
 import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
 import { streamSSE } from "hono/streaming";
 import { validator as zValidator } from "hono-openapi";
 import type { Env as PinoEnv } from "hono-pino";
 import { ConversationBusyError } from "@/features/sandbox-orchestration";
 import { complete } from "./chat.controller";
 import { ChatLogger } from "./chat.logger";
-import { ChatRequest } from "./chat.schema";
+import { ChatRequest, MAX_REQUEST_BODY_BYTES } from "./chat.schema";
 import { HonoSSESender } from "./chat.streaming";
 
 const app = new Hono<PinoEnv>();
 
 app.post(
 	"/",
+	bodyLimit({
+		maxSize: MAX_REQUEST_BODY_BYTES,
+		onError: (c) => c.json({ error: "Request body too large" }, 413),
+	}),
 	zValidator("json", ChatRequest, (result, c) => {
 		if (!result.success) {
 			console.error({

@@ -2,25 +2,27 @@ import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { Sandbox } from "e2b";
 
-function extractReferencesFromText(
-	markdownText: string,
-): Array<{ id: string; type: number; index: number }> {
+type Reference = { id: string; type: number; index: number };
+
+function extractReferencesFromText(markdownText: string): Reference[] {
 	if (!markdownText) return [];
 
-	const references: Array<{ id: string; type: number; index: number }> = [];
+	const references: Reference[] = [];
 	const referencePattern = /\[c(\d+)\]:\s*(?:(?:detail|notes)\/)?(\d+)\/(\d+)/g;
 	const seen = new Set<string>();
 
 	let match: RegExpExecArray | null = referencePattern.exec(markdownText);
 	while (match !== null) {
-		const index = parseInt(match[1] ?? "0", 10) || 0;
-		const type = parseInt(match[2] ?? "0", 10) || 0;
-		const id = match[3] ?? "";
-		const key = `${type}/${id}`;
+		const [, indexStr, typeStr, id] = match;
+		const key = `${typeStr}/${id}`;
 
 		if (!seen.has(key) && id) {
 			seen.add(key);
-			references.push({ id, type, index });
+			references.push({
+				id,
+				type: Number(typeStr),
+				index: Number(indexStr),
+			});
 		}
 		match = referencePattern.exec(markdownText);
 	}
