@@ -19,14 +19,6 @@ bun run dev
 
 See [apps/chat-api/README.md](./apps/chat-api/README.md) for detailed documentation.
 
-## Shared Infrastructure
-
-The following directories contain shared infrastructure and deployment configuration:
-
-- `infra/` - Infrastructure configuration (nginx templates, etc.)
-- `scripts/` - Deployment and utility scripts
-- `compose*.yaml` - Docker Compose configurations for different environments
-
 ## Repository Structure
 
 ```
@@ -36,29 +28,20 @@ The following directories contain shared infrastructure and deployment configura
 │       ├── src/
 │       ├── package.json
 │       └── ...
-├── infra/              # Shared infrastructure
-├── scripts/            # Shared scripts
-├── compose*.yaml       # Shared Docker Compose files
+├── packages/           # Shared libraries
+├── compose.yaml        # Local Docker Compose file
 └── README.md           # This file
 ```
-
-### Future Growth
-
-As the monorepo grows, you can add:
-- `packages/` - Shared libraries and utilities
-- `tools/` - Development tools and scripts
-- `docs/` - Centralized documentation
 
 ## Development
 
 Each project can be developed independently. Navigate to the respective project directory and follow its setup instructions.
 
-## Deployment
+## Local Docker
 
-Deployment configurations are managed at the root level using Docker Compose files:
+`compose.yaml` builds and runs chat-api locally:
 
-- `compose.yaml` - Local development
-- `compose.preview.yaml` - Preview environment
-- `compose.staging.yaml` - Staging environment
-- `compose.production.yaml` - Production environment
+```sh
+docker-compose up
+```
 

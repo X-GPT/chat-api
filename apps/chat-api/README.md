@@ -1,6 +1,6 @@
 # Chat API
 
-A modern chat API built with Bun, Hono, and OpenAI integration. This API provides streaming chat functionality with GPT-4o and includes comprehensive preview deployment capabilities for testing pull requests.
+A modern chat API built with Bun, Hono, and OpenAI integration. This API provides streaming chat functionality with GPT-4o.
 
 ## Features
 
@@ -9,7 +9,6 @@ A modern chat API built with Bun, Hono, and OpenAI integration. This API provide
 - 🔄 **Streaming Responses**: Real-time chat with streaming text generation
 - 📚 **OpenAPI Documentation**: Auto-generated API documentation
 - 🐳 **Docker Support**: Containerized for easy deployment
-- 🚀 **Preview Deployments**: Automatic preview environments for pull requests
 - 🔧 **Modern Tooling**: TypeScript, Biome for linting/formatting, Zod for validation
 
 ## Technology Stack
@@ -22,7 +21,6 @@ A modern chat API built with Bun, Hono, and OpenAI integration. This API provide
 - **Documentation**: Scalar API Reference
 - **Linting/Formatting**: Biome
 - **Containerization**: Docker
-- **Deployment**: AWS (ECR, EC2, nginx)
 
 ## Prerequisites
 
@@ -122,14 +120,6 @@ docker run -p 3000:3000 -e OPENAI_API_KEY=your_key chat-api
 ```sh
 docker-compose up
 ```
-
-## Preview Deployments
-
-This project includes an automated preview deployment system that creates isolated environments for each pull request. When you create a PR, a preview environment will be automatically deployed and accessible at:
-
-`https://chat-api-pr-{PR_NUMBER}.preview.mymemo.ai`
-
-For more details, see [PREVIEW_DEPLOYMENT.md](PREVIEW_DEPLOYMENT.md).
 
 ## API Documentation
 
