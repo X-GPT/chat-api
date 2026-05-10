@@ -1,6 +1,6 @@
 import type { ChatMessagesScope } from "@/config/env";
 import { runSandboxChat } from "@/features/sandbox-orchestration";
-import type { ChatEntity } from "./chat.events";
+import type { ChatEntity, EventMessage } from "./chat.events";
 import type { ChatLogger } from "./chat.logger";
 import type { ChatRequest } from "./chat.schema";
 import type { MymemoEventSender } from "./chat.streaming";
@@ -62,15 +62,11 @@ export async function complete(
 		refsContent: null,
 	});
 
-	const sendChatEntity = (readFlag: "0" | "1"): Promise<void> => {
-		return mymemoEventSender.send({
-			id: crypto.randomUUID(),
-			message: {
-				type: "chat_entity",
-				...buildChatEntity(readFlag),
-			},
-		});
-	};
+	const sendEvent = (message: EventMessage): Promise<void> =>
+		mymemoEventSender.send({ id: crypto.randomUUID(), message });
+
+	const sendChatEntity = (readFlag: "0" | "1"): Promise<void> =>
+		sendEvent({ type: "chat_entity", ...buildChatEntity(readFlag) });
 
 	const onTextDelta = (text: string) => {
 		accumulatedContent += text;
@@ -89,17 +85,14 @@ export async function complete(
 	};
 
 	const onSessionId = (newSessionId: string) => {
-		mymemoEventSender
-			.send({
-				id: crypto.randomUUID(),
-				message: { type: "session_id", sessionId: newSessionId },
-			})
-			.catch((err) => {
-				logger.error({
-					message: "Failed to send session_id event",
-					error: err,
-				});
+		// Skip echoing a sessionId the client already supplied.
+		if (newSessionId === sessionId) return;
+		sendEvent({ type: "session_id", sessionId: newSessionId }).catch((err) => {
+			logger.error({
+				message: "Failed to send session_id event",
+				error: err,
 			});
+		});
 	};
 
 	await runSandboxChat({
