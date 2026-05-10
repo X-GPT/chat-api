@@ -71,8 +71,8 @@ export async function complete(
 		refsContent: null,
 	});
 
-	const sendChatEntity = (readFlag: "0" | "1") => {
-		mymemoEventSender.send({
+	const sendChatEntity = (readFlag: "0" | "1"): Promise<void> => {
+		return mymemoEventSender.send({
 			id: crypto.randomUUID(),
 			message: {
 				type: "chat_entity",
@@ -83,11 +83,13 @@ export async function complete(
 
 	const onTextDelta = (text: string) => {
 		accumulatedContent += text;
-		sendChatEntity("1");
+		// Intentional fire-and-forget on the hot path; the final entity in
+		// onTextEnd is awaited so the stream is not closed before it flushes.
+		void sendChatEntity("1");
 	};
 
 	const onTextEnd = async () => {
-		sendChatEntity("0");
+		await sendChatEntity("0");
 	};
 
 	const onEvent = (event: EventMessage) => {
