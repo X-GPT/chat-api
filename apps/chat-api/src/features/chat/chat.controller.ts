@@ -50,11 +50,7 @@ export async function complete(
 		scope = "collection";
 	}
 
-	const mymemoConfig: Config = {
-		scope,
-		modelId: resolvedModelType,
-		enableKnowledge: resolvedEnableKnowledge,
-	};
+	const mymemoConfig: Config = { modelId: resolvedModelType };
 
 	const conversationHistory: ConversationHistory =
 		historyMessages.length > 0
@@ -124,15 +120,23 @@ export async function complete(
 			onTextEnd,
 			logger,
 		});
-	} else {
-		await runMyMemo({
-			config: mymemoConfig,
-			conversationHistory,
-			userInput: chatContent,
-			onTextDelta,
-			onTextEnd,
-			onEvent,
-			logger,
+		return;
+	}
+
+	if (resolvedEnableKnowledge) {
+		logger.warn({
+			message:
+				"enableKnowledge requested but sandbox path unavailable; falling back to general assistant without document access",
 		});
 	}
+
+	await runMyMemo({
+		config: mymemoConfig,
+		conversationHistory,
+		userInput: chatContent,
+		onTextDelta,
+		onTextEnd,
+		onEvent,
+		logger,
+	});
 }

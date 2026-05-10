@@ -6,12 +6,7 @@ import {
 } from "../chat.language-models";
 import type { ChatLogger } from "../chat.logger";
 import { buildIdentity } from "../prompts/identity";
-import {
-	buildPrompt,
-	getNoKnowledgePrompt,
-	getSingleFilePrompt,
-	getSystemPrompt,
-} from "../prompts/prompts";
+import { buildPrompt, getSystemPrompt } from "../prompts/prompts";
 import { getTools } from "../tools/tools";
 import { handleUpdatePlan } from "../tools/update-plan";
 import type { Config } from "./config";
@@ -20,16 +15,6 @@ import type { ConversationHistory } from "./history";
 export type Session = {
 	messages: ModelMessage[];
 };
-
-function selectSystemPrompt(config: Config): string {
-	if (config.scope === "document") {
-		return getSingleFilePrompt();
-	}
-	if (!config.enableKnowledge) {
-		return getNoKnowledgePrompt();
-	}
-	return getSystemPrompt();
-}
 
 function buildSession({
 	config,
@@ -57,7 +42,7 @@ function buildSession({
 	const turnContext: TurnContext = {
 		model,
 		provider,
-		systemPrompt: selectSystemPrompt(config),
+		systemPrompt: getSystemPrompt(),
 		identity: buildIdentity(config.modelId),
 		logger,
 	};
