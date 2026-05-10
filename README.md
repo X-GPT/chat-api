@@ -19,21 +19,6 @@ bun run dev
 
 See [apps/chat-api/README.md](./apps/chat-api/README.md) for detailed documentation.
 
-### 🐍 rag-python (Python)
-
-RAG (Retrieval-Augmented Generation) service built with Python and uv.
-
-**Location:** `apps/rag-python/`
-
-**Setup:**
-```bash
-cd apps/rag-python
-uv sync
-source .venv/bin/activate
-```
-
-See [apps/rag-python/README.md](./apps/rag-python/README.md) for detailed documentation.
-
 ## Shared Infrastructure
 
 The following directories contain shared infrastructure and deployment configuration:
@@ -47,13 +32,9 @@ The following directories contain shared infrastructure and deployment configura
 ```
 .
 ├── apps/               # Deployable applications
-│   ├── chat-api/       # TypeScript chat API service
-│   │   ├── src/
-│   │   ├── package.json
-│   │   └── ...
-│   └── rag-python/     # Python RAG service
+│   └── chat-api/       # TypeScript chat API service
 │       ├── src/
-│       ├── pyproject.toml
+│       ├── package.json
 │       └── ...
 ├── infra/              # Shared infrastructure
 ├── scripts/            # Shared scripts

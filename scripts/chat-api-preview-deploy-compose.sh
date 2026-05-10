@@ -5,10 +5,8 @@ set -x
 
 BRANCH_SLUG="$1"         # e.g. "pr-123" (lowercase, non-alnum -> '-')
 IMAGE="$2"               # full ECR image ref for chat-api
-RAG_API_IMAGE="${3:-$2}" # full ECR image ref for rag-api
-RAG_WORKER_IMAGE="${4:-$3}" # full ECR image ref for rag-worker
-CONTAINER_PORT="${5:-3000}"
-REPO_SLUG="${6:-chat-api}" # repository identifier to avoid conflicts
+CONTAINER_PORT="${3:-3000}"
+REPO_SLUG="${4:-chat-api}" # repository identifier to avoid conflicts
 
 # Sanitize/validate the slug (lowercase letters, digits, dash)
 if [[ ! "$BRANCH_SLUG" =~ ^[a-z0-9-]+$ ]]; then
@@ -29,8 +27,6 @@ echo "Creating state directory: $STATE_DIR"
 sudo -n mkdir -p "$STATE_DIR" || { echo "Failed to create state directory"; exit 1; }
 
 API_CONTAINER="preview-$REPO_SLUG-$BRANCH_SLUG-api"
-RAG_API_CONTAINER="preview-$REPO_SLUG-$BRANCH_SLUG-rag-api"
-RAG_WORKER_CONTAINER="preview-$REPO_SLUG-$BRANCH_SLUG-rag-worker"
 PROJECT_NAME="preview-$REPO_SLUG-$BRANCH_SLUG"
 # Use absolute path to compose file in shared location
 COMPOSE_FILE="/etc/mymemo/chat-api/compose.preview.yaml"
@@ -39,21 +35,17 @@ COMPOSE_FILE="/etc/mymemo/chat-api/compose.preview.yaml"
 export REPO_SLUG
 export BRANCH_SLUG
 export IMAGE
-export RAG_API_IMAGE
-export RAG_WORKER_IMAGE
 export CONTAINER_PORT
 
-echo "Pulling Docker images..."
+echo "Pulling Docker image..."
 sudo -n docker pull "$IMAGE" || { echo "Failed to pull chat-api image"; exit 1; }
-sudo -n docker pull "$RAG_API_IMAGE" || { echo "Failed to pull rag-api image"; exit 1; }
-sudo -n docker pull "$RAG_WORKER_IMAGE" || { echo "Failed to pull rag-worker image"; exit 1; }
 
 echo "Stopping existing compose project if any"
-sudo -n API_IMAGE="$IMAGE" RAG_API_IMAGE="$RAG_API_IMAGE" RAG_WORKER_IMAGE="$RAG_WORKER_IMAGE" CONTAINER_PORT="$CONTAINER_PORT" REPO_SLUG="$REPO_SLUG" BRANCH_SLUG="$BRANCH_SLUG" \
+sudo -n API_IMAGE="$IMAGE" CONTAINER_PORT="$CONTAINER_PORT" REPO_SLUG="$REPO_SLUG" BRANCH_SLUG="$BRANCH_SLUG" \
   docker-compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" down || true
 
 echo "Starting new container via docker compose"
-sudo -n API_IMAGE="$IMAGE" RAG_API_IMAGE="$RAG_API_IMAGE" RAG_WORKER_IMAGE="$RAG_WORKER_IMAGE" CONTAINER_PORT="$CONTAINER_PORT" REPO_SLUG="$REPO_SLUG" BRANCH_SLUG="$BRANCH_SLUG" \
+sudo -n API_IMAGE="$IMAGE" CONTAINER_PORT="$CONTAINER_PORT" REPO_SLUG="$REPO_SLUG" BRANCH_SLUG="$BRANCH_SLUG" \
   docker-compose -f "$COMPOSE_FILE" -p "$PROJECT_NAME" up -d || {
   echo "Failed to start Docker container via compose";
   exit 1;
@@ -87,24 +79,7 @@ done
 if [[ "$READY" -ne 1 ]]; then
   echo "Error: API service did not become available on 127.0.0.1:$PORT after 30 attempts" >&2
   sudo -n docker logs "$API_CONTAINER" || true
-  echo "RAG API logs:" >&2
-  sudo -n docker logs "$RAG_API_CONTAINER" || true
-  echo "RAG Worker logs:" >&2
-  sudo -n docker logs "$RAG_WORKER_CONTAINER" || true
   exit 1
-fi
-
-# Verify RAG containers are running
-echo "Verifying RAG API container is running"
-if ! sudo -n docker ps --format '{{.Names}}' | grep -q "^$RAG_API_CONTAINER$"; then
-  echo "Warning: RAG API container is not running" >&2
-  sudo -n docker logs "$RAG_API_CONTAINER" || true
-fi
-
-echo "Verifying RAG worker container is running"
-if ! sudo -n docker ps --format '{{.Names}}' | grep -q "^$RAG_WORKER_CONTAINER$"; then
-  echo "Warning: RAG worker container is not running" >&2
-  sudo -n docker logs "$RAG_WORKER_CONTAINER" || true
 fi
 
 # Generate Nginx API config via sed + tee (no root redirection needed)
@@ -124,10 +99,6 @@ echo "Deployment successful!"
 echo "API: https://${REPO_SLUG}-${BRANCH_SLUG}.preview.mymemo.ai"
 echo "Containers:"
 echo "  - $API_CONTAINER (port $PORT)"
-echo "  - $RAG_API_CONTAINER"
-echo "  - $RAG_WORKER_CONTAINER"
 echo "Images:"
 echo "  - Chat API: $IMAGE"
-echo "  - RAG API: $RAG_API_IMAGE"
-echo "  - RAG Worker: $RAG_WORKER_IMAGE"
 echo "========================================="

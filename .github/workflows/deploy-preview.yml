@@ -53,21 +53,6 @@ jobs:
         working-directory: ./apps/chat-api
         run: bun test || echo "No tests found for chat-api"
 
-      # Test RAG Python
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Run RAG Python tests
-        working-directory: ./apps/rag-python
-        run: |
-          uv sync --locked
-          uv run pytest tests/ -v --tb=short
-
   build-and-push:
     name: Build and Push Docker Images
     runs-on: ubuntu-latest
@@ -77,10 +62,6 @@ jobs:
       registry: ${{ steps.ecr-login.outputs.registry }}
       image_sha_tag: ${{ steps.meta.outputs.image_sha_tag }}
       image_pr_tag: ${{ steps.meta.outputs.image_pr_tag }}
-      rag_api_image_sha_tag: ${{ steps.meta.outputs.rag_api_image_sha_tag }}
-      rag_api_image_pr_tag: ${{ steps.meta.outputs.rag_api_image_pr_tag }}
-      worker_image_sha_tag: ${{ steps.meta.outputs.worker_image_sha_tag }}
-      worker_image_pr_tag: ${{ steps.meta.outputs.worker_image_pr_tag }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -112,20 +93,10 @@ jobs:
           echo "image_sha_tag=${REG}/${REPO}:pr-${PR_NUMBER}-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
           echo "image_pr_tag=${REG}/${REPO}:pr-${PR_NUMBER}" >> "$GITHUB_OUTPUT"
 
-          # RAG API image tags
-          echo "rag_api_image_sha_tag=${REG}/${REPO}-rag-api:pr-${PR_NUMBER}-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
-          echo "rag_api_image_pr_tag=${REG}/${REPO}-rag-api:pr-${PR_NUMBER}" >> "$GITHUB_OUTPUT"
-
-          # RAG Worker image tags
-          echo "worker_image_sha_tag=${REG}/${REPO}-rag-worker:pr-${PR_NUMBER}-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
-          echo "worker_image_pr_tag=${REG}/${REPO}-rag-worker:pr-${PR_NUMBER}" >> "$GITHUB_OUTPUT"
-
       - name: Ensure ECR repositories exist
         run: |
           set -euo pipefail
           REPO="${{ env.ECR_REPO }}"
-          RAG_API_REPO="${REPO}-rag-api"
-          RAG_WORKER_REPO="${REPO}-rag-worker"
           REGION="${{ env.AWS_REGION }}"
 
           # Create Chat API repository
@@ -133,26 +104,6 @@ jobs:
             echo "Creating ECR repository: $REPO in $REGION"
             aws ecr create-repository \
               --repository-name "$REPO" \
-              --image-scanning-configuration scanOnPush=true \
-              --encryption-configuration encryptionType=AES256 \
-              --region "$REGION" >/dev/null
-          fi
-
-          # Create RAG API repository
-          if ! aws ecr describe-repositories --repository-names "$RAG_API_REPO" --region "$REGION" >/dev/null 2>&1; then
-            echo "Creating ECR repository: $RAG_API_REPO in $REGION"
-            aws ecr create-repository \
-              --repository-name "$RAG_API_REPO" \
-              --image-scanning-configuration scanOnPush=true \
-              --encryption-configuration encryptionType=AES256 \
-              --region "$REGION" >/dev/null
-          fi
-
-          # Create RAG Worker repository
-          if ! aws ecr describe-repositories --repository-names "$RAG_WORKER_REPO" --region "$REGION" >/dev/null 2>&1; then
-            echo "Creating ECR repository: $RAG_WORKER_REPO in $REGION"
-            aws ecr create-repository \
-              --repository-name "$RAG_WORKER_REPO" \
               --image-scanning-configuration scanOnPush=true \
               --encryption-configuration encryptionType=AES256 \
               --region "$REGION" >/dev/null
@@ -169,32 +120,6 @@ jobs:
             ${{ steps.meta.outputs.image_pr_tag }}
           cache-from: type=registry,ref=${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPO }}:build-cache
           cache-to: type=registry,ref=${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPO }}:build-cache,mode=max
-
-      - name: Build & Push RAG API image (with cache)
-        uses: docker/build-push-action@v6
-        with:
-          context: ./apps/rag-python
-          file: ./apps/rag-python/Dockerfile
-          target: api
-          push: true
-          tags: |
-            ${{ steps.meta.outputs.rag_api_image_sha_tag }}
-            ${{ steps.meta.outputs.rag_api_image_pr_tag }}
-          cache-from: type=registry,ref=${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPO }}-rag-api:build-cache
-          cache-to: type=registry,ref=${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPO }}-rag-api:build-cache,mode=max
-
-      - name: Build & Push RAG Worker image (with cache)
-        uses: docker/build-push-action@v6
-        with:
-          context: ./apps/rag-python
-          file: ./apps/rag-python/Dockerfile
-          target: worker
-          push: true
-          tags: |
-            ${{ steps.meta.outputs.worker_image_sha_tag }}
-            ${{ steps.meta.outputs.worker_image_pr_tag }}
-          cache-from: type=registry,ref=${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPO }}-rag-worker:build-cache
-          cache-to: type=registry,ref=${{ steps.ecr-login.outputs.registry }}/${{ env.ECR_REPO }}-rag-worker:build-cache,mode=max
 
   deploy-preview:
     name: Deploy Preview Environment
@@ -231,8 +156,6 @@ jobs:
             AWS_REGION="${{ env.AWS_REGION }}"
             CONTAINER_PORT="${{ env.CONTAINER_PORT }}"
             IMAGE="${{ needs.build-and-push.outputs.image_pr_tag }}"
-            RAG_API_IMAGE="${{ needs.build-and-push.outputs.rag_api_image_pr_tag }}"
-            RAG_WORKER_IMAGE="${{ needs.build-and-push.outputs.worker_image_pr_tag }}"
             PR_NUMBER="${{ github.event.pull_request.number }}"
             BRANCH_SLUG="pr-$PR_NUMBER"
             REPO_SLUG="${{ github.event.repository.name }}"
@@ -260,8 +183,8 @@ jobs:
             # Ensure state directory structure exists
             sudo -n mkdir -p /var/preview
 
-            # Deploy preview using the compose script with separate RAG images
-            chat-api-preview-deploy-compose.sh "$BRANCH_SLUG" "$IMAGE" "$RAG_API_IMAGE" "$RAG_WORKER_IMAGE" "$CONTAINER_PORT" "$REPO_SLUG"
+            # Deploy preview using the compose script
+            chat-api-preview-deploy-compose.sh "$BRANCH_SLUG" "$IMAGE" "$CONTAINER_PORT" "$REPO_SLUG"
 
       - name: Comment preview URL on PR
         uses: marocchino/sticky-pull-request-comment@v2

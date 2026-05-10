@@ -18,12 +18,10 @@ env:
   # Staging Environment
   STAGING_HOST_PORT: 8094
   STAGING_CONTAINER_PORT: 3000
-  STAGING_RAG_API_PORT: 8096
 
   # Production Environment
   PROD_HOST_PORT: 8095
   PROD_CONTAINER_PORT: 3000
-  PROD_RAG_API_PORT: 8097
 
   AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
   AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
@@ -61,21 +59,6 @@ jobs:
         working-directory: ./apps/chat-api
         run: bun test || echo "No tests found for chat-api"
 
-      # Test RAG Python
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.13'
-
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
-
-      - name: Run RAG Python tests
-        working-directory: ./apps/rag-python
-        run: |
-          uv sync --locked
-          uv run pytest tests/ -v --tb=short
-
   build-and-push:
     name: Build and Push Docker Images
     runs-on: ubuntu-latest
@@ -84,10 +67,6 @@ jobs:
       registry: ${{ steps.ecr-login.outputs.registry }}
       api_image_sha_tag: ${{ steps.meta.outputs.api_image_sha_tag }}
       api_image_latest_tag: ${{ steps.meta.outputs.api_image_latest_tag }}
-      rag_api_image_sha_tag: ${{ steps.meta.outputs.rag_api_image_sha_tag }}
-      rag_api_image_latest_tag: ${{ steps.meta.outputs.rag_api_image_latest_tag }}
-      worker_image_sha_tag: ${{ steps.meta.outputs.worker_image_sha_tag }}
-      worker_image_latest_tag: ${{ steps.meta.outputs.worker_image_latest_tag }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v5
@@ -118,20 +97,10 @@ jobs:
           echo "api_image_sha_tag=${REG}/${REPO}:staging-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
           echo "api_image_latest_tag=${REG}/${REPO}:staging-latest" >> "$GITHUB_OUTPUT"
 
-          # RAG API image tags
-          echo "rag_api_image_sha_tag=${REG}/${REPO}-rag-api:staging-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
-          echo "rag_api_image_latest_tag=${REG}/${REPO}-rag-api:staging-latest" >> "$GITHUB_OUTPUT"
-
-          # RAG Worker image tags
-          echo "worker_image_sha_tag=${REG}/${REPO}-rag-worker:staging-${GITHUB_SHA:0:7}" >> "$GITHUB_OUTPUT"
-          echo "worker_image_latest_tag=${REG}/${REPO}-rag-worker:staging-latest" >> "$GITHUB_OUTPUT"
-
       - name: Ensure ECR repositories exist
         run: |
           set -euo pipefail
           REPO="${{ env.ECR_REPO }}"
-          RAG_API_REPO="${REPO}-rag-api"
-          RAG_WORKER_REPO="${REPO}-rag-worker"
           REGION="${{ env.AWS_REGION }}"
 
           # Create Chat API repository
@@ -139,26 +108,6 @@ jobs:
             echo "Creating ECR repository: $REPO in $REGION"
             aws ecr create-repository \
               --repository-name "$REPO" \
-              --image-scanning-configuration scanOnPush=true \
-              --encryption-configuration encryptionType=AES256 \
-              --region "$REGION" >/dev/null
-          fi
-
-          # Create RAG API repository
-          if ! aws ecr describe-repositories --repository-names "$RAG_API_REPO" --region "$REGION" >/dev/null 2>&1; then
-            echo "Creating ECR repository: $RAG_API_REPO in $REGION"
-            aws ecr create-repository \
-              --repository-name "$RAG_API_REPO" \
-              --image-scanning-configuration scanOnPush=true \
-              --encryption-configuration encryptionType=AES256 \
-              --region "$REGION" >/dev/null
-          fi
-
-          # Create RAG Worker repository
-          if ! aws ecr describe-repositories --repository-names "$RAG_WORKER_REPO" --region "$REGION" >/dev/null 2>&1; then
-            echo "Creating ECR repository: $RAG_WORKER_REPO in $REGION"
-            aws ecr create-repository \
-              --repository-name "$RAG_WORKER_REPO" \
               --image-scanning-configuration scanOnPush=true \
               --encryption-configuration encryptionType=AES256 \
               --region "$REGION" >/dev/null
@@ -175,32 +124,6 @@ jobs:
             ${{ steps.meta.outputs.api_image_latest_tag }}
           cache-from: type=gha,scope=chat-api
           cache-to: type=gha,mode=max,scope=chat-api
-
-      - name: Build & Push RAG API image (with cache)
-        uses: docker/build-push-action@v6
-        with:
-          context: ./apps/rag-python
-          file: ./apps/rag-python/Dockerfile
-          target: api
-          push: true
-          tags: |
-            ${{ steps.meta.outputs.rag_api_image_sha_tag }}
-            ${{ steps.meta.outputs.rag_api_image_latest_tag }}
-          cache-from: type=gha,scope=rag-api
-          cache-to: type=gha,mode=max,scope=rag-api
-
-      - name: Build & Push RAG Worker image (with cache)
-        uses: docker/build-push-action@v6
-        with:
-          context: ./apps/rag-python
-          file: ./apps/rag-python/Dockerfile
-          target: worker
-          push: true
-          tags: |
-            ${{ steps.meta.outputs.worker_image_sha_tag }}
-            ${{ steps.meta.outputs.worker_image_latest_tag }}
-          cache-from: type=gha,scope=rag-worker
-          cache-to: type=gha,mode=max,scope=rag-worker
 
   deploy-to-staging:
     name: Deploy to Staging EC2
@@ -236,22 +159,17 @@ jobs:
             REPO_NAME="${{ env.ECR_REPO }}"
             HOST_PORT="${{ env.STAGING_HOST_PORT }}"
             CONTAINER_PORT="${{ env.STAGING_CONTAINER_PORT }}"
-            RAG_API_PORT="${{ env.STAGING_RAG_API_PORT }}"
             API_IMAGE="${{ needs.build-and-push.outputs.api_image_sha_tag }}"
-            RAG_API_IMAGE="${{ needs.build-and-push.outputs.rag_api_image_sha_tag }}"
-            RAG_WORKER_IMAGE="${{ needs.build-and-push.outputs.worker_image_sha_tag }}"
 
-            echo "🚀 Deploying to staging: API=$API_IMAGE, RAG_API=$RAG_API_IMAGE, RAG_WORKER=$RAG_WORKER_IMAGE"
+            echo "🚀 Deploying to staging: API=$API_IMAGE"
 
             # Login to ECR
             REGISTRY="${API_IMAGE%%/*}"
             aws ecr get-login-password --region "$AWS_REGION" \
               | sudo docker login --username AWS --password-stdin "$REGISTRY"
 
-            # Pull the new images
+            # Pull the new image
             sudo docker pull "$API_IMAGE"
-            sudo docker pull "$RAG_API_IMAGE"
-            sudo docker pull "$RAG_WORKER_IMAGE"
 
             # Install/update compose file in shared config location
             sudo -n mkdir -p /etc/mymemo/chat-api
@@ -261,21 +179,18 @@ jobs:
             # Export environment variables for compose
             export REPO_NAME
             export API_IMAGE
-            export RAG_API_IMAGE
-            export RAG_WORKER_IMAGE
             export HOST_PORT
             export CONTAINER_PORT
-            export RAG_API_PORT
 
             # Stop and remove old containers
-            sudo -n API_IMAGE="$API_IMAGE" RAG_API_IMAGE="$RAG_API_IMAGE" RAG_WORKER_IMAGE="$RAG_WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" RAG_API_PORT="$RAG_API_PORT" REPO_NAME="$REPO_NAME" \
+            sudo -n API_IMAGE="$API_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" REPO_NAME="$REPO_NAME" \
               docker-compose -f "${{ env.STAGING_COMPOSE_FILE }}" -p chat-api-staging down || true
 
             # Start new containers
-            sudo -n API_IMAGE="$API_IMAGE" RAG_API_IMAGE="$RAG_API_IMAGE" RAG_WORKER_IMAGE="$RAG_WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" RAG_API_PORT="$RAG_API_PORT" REPO_NAME="$REPO_NAME" \
+            sudo -n API_IMAGE="$API_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" REPO_NAME="$REPO_NAME" \
               docker-compose -f "${{ env.STAGING_COMPOSE_FILE }}" -p chat-api-staging up -d
 
-            echo "✅ Staging deployment completed - API on port $HOST_PORT, Worker running"
+            echo "✅ Staging deployment completed - API on port $HOST_PORT"
 
             # Show container status
             echo "📋 Staging Container Status:"
@@ -301,10 +216,7 @@ jobs:
 
             REPO_NAME="${{ env.ECR_REPO }}"
             API_CONTAINER_NAME="${REPO_NAME}-staging-api"
-            RAG_API_CONTAINER_NAME="${REPO_NAME}-staging-rag-api"
-            RAG_WORKER_CONTAINER_NAME="${REPO_NAME}-staging-rag-worker"
             HOST_PORT="${{ env.STAGING_HOST_PORT }}"
-            RAG_API_PORT="${{ env.STAGING_RAG_API_PORT }}"
 
             echo "🔍 Running staging health checks..."
 
@@ -322,22 +234,6 @@ jobs:
                   echo "⚠️ Staging Chat API endpoints responding but may have issues"
                 fi
 
-                # Check RAG API container is running
-                if sudo docker ps --format '{{.Names}}' | grep -q "^$RAG_API_CONTAINER_NAME$"; then
-                  echo "🚀 Staging RAG API container running ✅"
-                else
-                  echo "⚠️ Staging RAG API container not running"
-                  sudo docker logs "$RAG_API_CONTAINER_NAME" || true
-                fi
-
-                # Check RAG worker container is running
-                if sudo docker ps --format '{{.Names}}' | grep -q "^$RAG_WORKER_CONTAINER_NAME$"; then
-                  echo "🚀 Staging RAG Worker container running ✅"
-                else
-                  echo "⚠️ Staging RAG Worker container not running"
-                  sudo docker logs "$RAG_WORKER_CONTAINER_NAME" || true
-                fi
-
                 exit 0
               fi
               echo "Waiting for staging health... ($i/30)"; sleep 2
@@ -347,10 +243,6 @@ jobs:
             echo "Chat API logs:"
             sudo docker logs "$API_CONTAINER_NAME" || true
             sudo docker inspect "$API_CONTAINER_NAME" --format 'Exit={{.State.ExitCode}} OOM={{.State.OOMKilled}} Error={{.State.Error}}' || true
-            echo "RAG API logs:"
-            sudo docker logs "$RAG_API_CONTAINER_NAME" || true
-            echo "RAG Worker logs:"
-            sudo docker logs "$RAG_WORKER_CONTAINER_NAME" || true
             exit 1
 
   deploy-to-production:
@@ -378,16 +270,10 @@ jobs:
       - name: Set staging image for production
         id: set-image
         run: |
-          # Use images from staging deployment
+          # Use image from staging deployment
           API_STAGING_IMAGE="${{ needs.build-and-push.outputs.api_image_sha_tag }}"
-          RAG_API_STAGING_IMAGE="${{ needs.build-and-push.outputs.rag_api_image_sha_tag }}"
-          WORKER_STAGING_IMAGE="${{ needs.build-and-push.outputs.worker_image_sha_tag }}"
           echo "📦 Using chat api staging image for production: ${API_STAGING_IMAGE}"
           echo "api_staging_image=${API_STAGING_IMAGE}" >> $GITHUB_OUTPUT
-          echo "📦 Using rag api staging image for production: ${RAG_API_STAGING_IMAGE}"
-          echo "rag_api_staging_image=${RAG_API_STAGING_IMAGE}" >> $GITHUB_OUTPUT
-          echo "📦 Using rag worker staging image for production: ${WORKER_STAGING_IMAGE}"
-          echo "worker_staging_image=${WORKER_STAGING_IMAGE}" >> $GITHUB_OUTPUT
 
       - name: Copy compose file to EC2
         uses: appleboy/scp-action@v1
@@ -414,22 +300,17 @@ jobs:
             REPO_NAME="${{ env.ECR_REPO }}"
             HOST_PORT="${{ env.PROD_HOST_PORT }}"
             CONTAINER_PORT="${{ env.PROD_CONTAINER_PORT }}"
-            RAG_API_PORT="${{ env.PROD_RAG_API_PORT }}"
             API_IMAGE="${{ steps.set-image.outputs.api_staging_image }}"
-            RAG_API_IMAGE="${{ steps.set-image.outputs.rag_api_staging_image }}"
-            RAG_WORKER_IMAGE="${{ steps.set-image.outputs.worker_staging_image }}"
 
-            echo "🚀 Deploying staging images to production: API=$API_IMAGE, RAG_API=$RAG_API_IMAGE, RAG_WORKER=$RAG_WORKER_IMAGE"
+            echo "🚀 Deploying staging image to production: API=$API_IMAGE"
 
             # Login to ECR
             REGISTRY="${API_IMAGE%%/*}"
             aws ecr get-login-password --region "$AWS_REGION" \
               | sudo docker login --username AWS --password-stdin "$REGISTRY"
 
-            # Pull the staging images for production use
+            # Pull the staging image for production use
             sudo docker pull "$API_IMAGE"
-            sudo docker pull "$RAG_API_IMAGE"
-            sudo docker pull "$RAG_WORKER_IMAGE"
 
             # Install/update compose file in shared config location
             sudo -n mkdir -p /etc/mymemo/chat-api
@@ -439,21 +320,18 @@ jobs:
             # Export environment variables for compose
             export REPO_NAME
             export API_IMAGE
-            export RAG_API_IMAGE
-            export RAG_WORKER_IMAGE
             export HOST_PORT
             export CONTAINER_PORT
-            export RAG_API_PORT
 
             # Stop and remove old containers
-            sudo -n API_IMAGE="$API_IMAGE" RAG_API_IMAGE="$RAG_API_IMAGE" RAG_WORKER_IMAGE="$RAG_WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" RAG_API_PORT="$RAG_API_PORT" REPO_NAME="$REPO_NAME" \
+            sudo -n API_IMAGE="$API_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" REPO_NAME="$REPO_NAME" \
               docker-compose -f "${{ env.PROD_COMPOSE_FILE }}" -p chat-api-production down || true
 
             # Start new containers
-            sudo -n API_IMAGE="$API_IMAGE" RAG_API_IMAGE="$RAG_API_IMAGE" RAG_WORKER_IMAGE="$RAG_WORKER_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" RAG_API_PORT="$RAG_API_PORT" REPO_NAME="$REPO_NAME" \
+            sudo -n API_IMAGE="$API_IMAGE" HOST_PORT="$HOST_PORT" CONTAINER_PORT="$CONTAINER_PORT" REPO_NAME="$REPO_NAME" \
               docker-compose -f "${{ env.PROD_COMPOSE_FILE }}" -p chat-api-production up -d
 
-            echo "✅ Production deployment completed - API on port $HOST_PORT, Worker running"
+            echo "✅ Production deployment completed - API on port $HOST_PORT"
 
             # Show container status
             echo "📋 Production Container Status:"
@@ -479,10 +357,7 @@ jobs:
 
             REPO_NAME="${{ env.ECR_REPO }}"
             API_CONTAINER_NAME="${REPO_NAME}-production-api"
-            RAG_API_CONTAINER_NAME="${REPO_NAME}-production-rag-api"
-            RAG_WORKER_CONTAINER_NAME="${REPO_NAME}-production-rag-worker"
             HOST_PORT="${{ env.PROD_HOST_PORT }}"
-            RAG_API_PORT="${{ env.PROD_RAG_API_PORT }}"
 
             echo "🔍 Running production health checks..."
 
@@ -496,25 +371,9 @@ jobs:
                   -H "Content-Type: application/json" \
                   -d '{"messages":[]}' > /dev/null 2>&1; then
                   echo "🚀 Production Chat API endpoints healthy ✅"
-                else
-                  echo "⚠️ Production Chat API endpoints responding but may have issues"
-                fi
-
-                # Check RAG API container is running
-                if sudo docker ps --format '{{.Names}}' | grep -q "^$RAG_API_CONTAINER_NAME$"; then
-                  echo "🚀 Production RAG API container running ✅"
-                else
-                  echo "⚠️ Production RAG API container not running"
-                  sudo docker logs "$RAG_API_CONTAINER_NAME" || true
-                fi
-
-                # Check RAG worker container is running
-                if sudo docker ps --format '{{.Names}}' | grep -q "^$RAG_WORKER_CONTAINER_NAME$"; then
-                  echo "🚀 Production RAG Worker container running ✅"
                   echo "🎉 Production deployment completed successfully!"
                 else
-                  echo "⚠️ Production RAG Worker container not running"
-                  sudo docker logs "$RAG_WORKER_CONTAINER_NAME" || true
+                  echo "⚠️ Production Chat API endpoints responding but may have issues"
                 fi
 
                 exit 0
@@ -526,9 +385,5 @@ jobs:
             echo "Chat API logs:"
             sudo docker logs "$API_CONTAINER_NAME" || true
             sudo docker inspect "$API_CONTAINER_NAME" --format 'Exit={{.State.ExitCode}} OOM={{.State.OOMKilled}} Error={{.State.Error}}' || true
-            echo "RAG API logs:"
-            sudo docker logs "$RAG_API_CONTAINER_NAME" || true
-            echo "RAG Worker logs:"
-            sudo docker logs "$RAG_WORKER_CONTAINER_NAME" || true
             exit 1
 

@@ -22,8 +22,6 @@ export type EventMessage =
 	| ListAllFilesCompletedEvent
 	| ReadFileStartedEvent
 	| ReadFileCompletedEvent
-	| SearchKnowledgeStartedEvent
-	| SearchKnowledgeCompletedEvent
 	| SearchDocumentsStartedEvent
 	| SearchDocumentsCompletedEvent
 	| TaskStatusEvent;
@@ -116,18 +114,6 @@ export interface ChatEntityEvent {
 }
 
 export type ChatEntity = Omit<ChatEntityEvent, "type">;
-
-export type SearchKnowledgeStartedEvent = {
-	type: "search_knowledge.started";
-	query: string;
-};
-
-export type SearchKnowledgeCompletedEvent = {
-	type: "search_knowledge.completed";
-	query: string;
-	totalResults: number;
-	error?: string;
-};
 
 export type SearchDocumentsStartedEvent = {
 	type: "search_documents.started";

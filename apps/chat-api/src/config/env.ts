@@ -2,7 +2,6 @@ import invariant from "tiny-invariant";
 
 const DEFAULT_PROTECTED_API_ORIGIN = "http://127.0.0.1";
 const DEFAULT_PROTECTED_API_PREFIX = "/beta-api";
-const DEFAULT_RAG_API_ORIGIN = "http://rag-api:8000";
 const DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash";
 
 /**
@@ -45,7 +44,6 @@ export const apiEnv = (() => {
 			Bun.env.API_PREFIX ||
 			DEFAULT_PROTECTED_API_PREFIX,
 		PROTECTED_API_TOKEN: Bun.env.PROTECTED_API_TOKEN,
-		RAG_API_ORIGIN: Bun.env.RAG_API_ORIGIN || DEFAULT_RAG_API_ORIGIN,
 		LOG_LEVEL: Bun.env.LOG_LEVEL || "info",
 		E2B_TEMPLATE: Bun.env.E2B_TEMPLATE || "sandbox-template-dev",
 	} as const;
@@ -368,7 +366,3 @@ export const getProtectedFullSummariesEndpoint = (
 	return url.toString();
 };
 
-export const getRagSearchEndpoint = () => {
-	const origin = apiEnv.RAG_API_ORIGIN;
-	return new URL("/api/v1/search", origin).toString();
-};
