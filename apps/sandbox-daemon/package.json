@@ -3,6 +3,7 @@
 	"version": "0.1.0",
 	"type": "module",
 	"scripts": {
+		"build": "bun build ./index.ts --target=bun --minify --outfile=dist/index.js",
 		"format": "biome format --write",
 		"lint": "biome lint --write",
 		"check": "biome check --write"

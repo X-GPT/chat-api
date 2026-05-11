@@ -10,17 +10,20 @@ const DAEMON_PORT = 8080;
 const DAEMON_STARTUP_TIMEOUT_MS = 15_000;
 const DAEMON_HEALTH_CHECK_INTERVAL_MS = 500;
 const DAEMON_BUNDLE_PATH = "/workspace/daemon.js";
+const DAEMON_PREBUILT_PATH = resolve(
+	import.meta.dirname,
+	"../../../../sandbox-daemon/dist/index.js",
+);
 
 let bundlePromise: Promise<{ code: string; version: string }> | null = null;
 
 /**
- * Build the daemon into a single JS bundle using Bun.build().
- * Runs once at first request, cached for process lifetime.
- * Caches the promise to prevent duplicate builds on concurrent cold-start calls.
+ * Load the prebuilt daemon bundle from disk.
+ * Cached for process lifetime; rebuild via `bun run build:daemon`.
  */
 function getDaemonBundle(): Promise<{ code: string; version: string }> {
 	if (!bundlePromise) {
-		bundlePromise = buildDaemonBundle().catch((err) => {
+		bundlePromise = loadDaemonBundle().catch((err) => {
 			bundlePromise = null;
 			throw err;
 		});
@@ -28,26 +31,14 @@ function getDaemonBundle(): Promise<{ code: string; version: string }> {
 	return bundlePromise;
 }
 
-async function buildDaemonBundle(): Promise<{ code: string; version: string }> {
-	const entrypoint = resolve(
-		import.meta.dirname,
-		"../../../../sandbox-daemon/index.ts",
-	);
-	const result = await Bun.build({
-		entrypoints: [entrypoint],
-		target: "bun",
-		minify: true,
-	});
-	if (!result.success) {
+async function loadDaemonBundle(): Promise<{ code: string; version: string }> {
+	const file = Bun.file(DAEMON_PREBUILT_PATH);
+	if (!(await file.exists())) {
 		throw new Error(
-			`Daemon build failed: ${result.logs.map((l) => l.message).join("\n")}`,
+			`Prebuilt daemon bundle missing at ${DAEMON_PREBUILT_PATH}. Run \`bun run build:daemon\` from apps/chat-api.`,
 		);
 	}
-	const output = result.outputs[0];
-	if (!output) {
-		throw new Error("Daemon build produced no output");
-	}
-	const code = await output.text();
+	const code = await file.text();
 	const version = new Bun.CryptoHasher("sha256")
 		.update(code)
 		.digest("hex")
