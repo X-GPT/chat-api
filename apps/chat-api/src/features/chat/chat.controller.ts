@@ -32,41 +32,36 @@ export async function complete(
 	const sendEvent = (message: EventMessage): Promise<void> =>
 		mymemoEventSender.send({ id: crypto.randomUUID(), message });
 
-	const onTextDelta = (text: string) => {
-		// Fire-and-forget on the hot path; the final `done` event in onTextEnd
-		// is awaited so the stream stays open until it flushes.
-		sendEvent({ type: "text_delta", text }).catch((err) => {
-			logger.error({
-				message: "Failed to send text_delta",
-				error: err,
-			});
-		});
+	const onTextDelta = async (text: string) => {
+		try {
+			await sendEvent({ type: "text_delta", text });
+		} catch (err) {
+			logger.error({ message: "Failed to send text_delta", error: err });
+		}
 	};
 
 	const onTextEnd = async () => {
 		await sendEvent({ type: "done" });
 	};
 
-	const onSessionId = (newSessionId: string) => {
+	const onSessionId = async (newSessionId: string) => {
 		// Skip echoing a sessionId the client already supplied.
 		if (newSessionId === sessionId) return;
-		sendEvent({ type: "session_id", sessionId: newSessionId }).catch((err) => {
-			logger.error({
-				message: "Failed to send session_id event",
-				error: err,
-			});
-		});
+		try {
+			await sendEvent({ type: "session_id", sessionId: newSessionId });
+		} catch (err) {
+			logger.error({ message: "Failed to send session_id event", error: err });
+		}
 	};
 
-	const onSandboxId = (newSandboxId: string) => {
+	const onSandboxId = async (newSandboxId: string) => {
 		// Skip echoing a sandboxId the client already supplied.
 		if (newSandboxId === sandboxId) return;
-		sendEvent({ type: "sandbox_id", sandboxId: newSandboxId }).catch((err) => {
-			logger.error({
-				message: "Failed to send sandbox_id event",
-				error: err,
-			});
-		});
+		try {
+			await sendEvent({ type: "sandbox_id", sandboxId: newSandboxId });
+		} catch (err) {
+			logger.error({ message: "Failed to send sandbox_id event", error: err });
+		}
 	};
 
 	await runSandboxChat({

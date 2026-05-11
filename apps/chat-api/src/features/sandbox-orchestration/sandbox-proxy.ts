@@ -14,9 +14,9 @@ export interface TurnRequest {
 interface ForwardOptions {
 	daemonUrl: string;
 	turnRequest: TurnRequest;
-	onTextDelta: (text: string) => void;
+	onTextDelta: (text: string) => Promise<void>;
 	onTextEnd: () => Promise<void>;
-	onSessionId: (id: string) => void;
+	onSessionId: (id: string) => Promise<void>;
 }
 
 /**
@@ -67,36 +67,39 @@ export async function forwardChatTurnToSandbox(
 			buffer = buffer.slice(newlineIndex + 1);
 
 			if (line) {
+				let parsed: unknown;
 				try {
-					const parsed = JSON.parse(line);
-					if (typeof parsed === "object" && parsed !== null) {
-						switch (parsed.type) {
-							case "text_delta":
-								if (typeof parsed.text === "string") {
-									onTextDelta(parsed.text);
-								}
-								break;
-							case "session_id":
-								if (typeof parsed.sessionId === "string") {
-									onSessionId(parsed.sessionId);
-								}
-								break;
-							case "completed":
-								break;
-							case "failed":
-								agentError = parsed.message ?? "Turn failed";
-								break;
-							case "started":
-								break;
-							case "result":
-								break;
-							case "error":
-								agentError = parsed.message ?? "Unknown agent error";
-								break;
-						}
-					}
+					parsed = JSON.parse(line);
 				} catch {
 					// Non-JSON line, ignore
+					parsed = null;
+				}
+				if (typeof parsed === "object" && parsed !== null) {
+					const evt = parsed as { type?: string } & Record<string, unknown>;
+					switch (evt.type) {
+						case "text_delta":
+							if (typeof evt.text === "string") {
+								await onTextDelta(evt.text);
+							}
+							break;
+						case "session_id":
+							if (typeof evt.sessionId === "string") {
+								await onSessionId(evt.sessionId);
+							}
+							break;
+						case "completed":
+							break;
+						case "failed":
+							agentError = (evt.message as string) ?? "Turn failed";
+							break;
+						case "started":
+							break;
+						case "result":
+							break;
+						case "error":
+							agentError = (evt.message as string) ?? "Unknown agent error";
+							break;
+					}
 				}
 			}
 

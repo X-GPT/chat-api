@@ -33,10 +33,10 @@ function makeOptions(
 		summaryId: null,
 		sessionId: null,
 		sandboxId: null,
-		onTextDelta: () => {},
+		onTextDelta: async () => {},
 		onTextEnd: async () => {},
-		onSessionId: () => {},
-		onSandboxId: () => {},
+		onSessionId: async () => {},
+		onSandboxId: async () => {},
 		logger: silentLogger,
 		...overrides,
 	};
@@ -150,7 +150,11 @@ describe("runSandboxChat", () => {
 
 		const received: string[] = [];
 		await runSandboxChat(
-			makeOptions({ onSandboxId: (id) => received.push(id) }),
+			makeOptions({
+				onSandboxId: async (id) => {
+					received.push(id);
+				},
+			}),
 		);
 
 		expect(received).toEqual(["sbx-123"]);
@@ -162,11 +166,15 @@ describe("runSandboxChat", () => {
 			proxyModule,
 			"forwardChatTurnToSandbox",
 		).mockImplementation(async (opts) => {
-			opts.onSessionId("new-session-123");
+			await opts.onSessionId("new-session-123");
 		});
 
 		await runSandboxChat(
-			makeOptions({ onSessionId: (id) => received.push(id) }),
+			makeOptions({
+				onSessionId: async (id) => {
+					received.push(id);
+				},
+			}),
 		);
 
 		expect(received).toEqual(["new-session-123"]);
