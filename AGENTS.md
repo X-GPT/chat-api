@@ -96,15 +96,16 @@ docker-compose up    # Local development
 ### Request Flow
 
 1. `POST /api/v1/chat` with:
-   - **JSON body** (`ChatBodyRequest`): chat payload — `chatContent`, optional `collectionId`/`summaryId`/`sessionId`
+   - **JSON body** (`ChatBodyRequest`): chat payload — `chatContent`, optional `collectionId`/`summaryId`/`sessionId`/`sandboxId`
    - **Identity headers** (`InternalIdentity`): `X-Member-Code` (required), `X-Partner-Code` (required), `X-Team-Code`, `X-Member-Name`, `X-Partner-Name` (all optional)
 2. SSE stream initiated in `chat.route.ts` after body validation (`.strict()`, rejects extra keys) and identity-header validation (401 on missing/invalid)
 3. `chat.controller.ts::complete()` orchestrates the merged request — no upstream API calls
-4. `runSandboxChat` is the sole agent path: forwards the turn to a per-user E2B sandbox daemon. The optional `sessionId` from the request body is passed through as the daemon's `agent_session_id`; when omitted, the daemon allocates a new session.
+4. `runSandboxChat` is the sole agent path: forwards the turn to a per-user E2B sandbox daemon. The optional `sessionId` from the request body is passed through as the daemon's `agent_session_id`; when omitted, the daemon allocates a new session. The optional `sandboxId` is used to reconnect to an existing E2B sandbox; when omitted (or reconnection fails), a new sandbox is created.
 5. Events emitted via SSE:
    - `text_delta` — `{ text }` payload, one event per streamed token chunk; the client concatenates these to build the full response
    - `done` — `{}` payload, marks end-of-stream after the final `text_delta`
    - `session_id` — `{ sessionId }`, daemon-assigned conversation session; clients must persist and echo back to resume
+   - `sandbox_id` — `{ sandboxId }`, the active E2B sandbox; clients must persist and echo back to reuse the same sandbox across requests
    - `error` — `{ message }`, surfaced on agent or transport failure
 
 ### Trust Boundary

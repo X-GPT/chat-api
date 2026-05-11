@@ -10,15 +10,10 @@
  */
 
 import assert from "node:assert/strict";
-import {
-	userCollections,
-	userFiles,
-	userSandboxRuntime,
-} from "@mymemo/db";
+import { userCollections, userFiles } from "@mymemo/db";
 import { and, eq } from "drizzle-orm";
 import type { Sandbox } from "e2b";
 import { closeDb, getDb } from "@/db/client";
-import { getRuntime } from "@/db/user-runtime";
 import type { SyncLogger } from "@/features/sandbox";
 import { buildSandboxAgentPrompt } from "@/features/sandbox-agent";
 import {
@@ -102,13 +97,12 @@ async function cleanupTestData() {
 	await Promise.all([
 		db.delete(userFiles).where(eq(userFiles.userId, userId)),
 		db.delete(userCollections).where(eq(userCollections.userId, userId)),
-		db.delete(userSandboxRuntime).where(eq(userSandboxRuntime.userId, userId)),
 	]);
 }
 
 async function setup() {
 	console.log("\n=== Setup: Creating sandbox ===");
-	sandbox = await sandboxManager.getOrCreateSandbox(userId, logger);
+	sandbox = await sandboxManager.getOrCreateSandbox(userId, null, logger);
 	console.log(`Sandbox created: ${sandbox.sandboxId}`);
 }
 
@@ -694,30 +688,23 @@ async function testUnknownSessionResume() {
 	);
 }
 
-async function testSandboxIdPersistence() {
-	console.log("\n=== Test 13: Sandbox ID Persistence in Postgres ===");
+async function testSandboxIdReconnect() {
+	console.log("\n=== Test 13: Reconnect via Caller-Supplied Sandbox ID ===");
 
-	const runtime = await getRuntime(userId);
-	const persistedId = runtime?.sandbox_id;
-	assert.ok(persistedId, "sandbox_id should be persisted in Postgres");
-	assert.equal(
-		persistedId,
-		sandbox.sandboxId,
-		"Persisted sandbox_id should match the active sandbox",
-	);
-	console.log(`✓ sandbox_id persisted: ${persistedId}`);
-
-	// A fresh SandboxManager (no in-memory state) should reconnect via Postgres
+	// A fresh SandboxManager (no in-memory state) should reconnect when the
+	// caller supplies the sandboxId.
 	const freshManager = new SandboxManager();
-	const reconnected = await freshManager.getOrCreateSandbox(userId, logger);
+	const reconnected = await freshManager.getOrCreateSandbox(
+		userId,
+		sandbox.sandboxId,
+		logger,
+	);
 	assert.equal(
 		reconnected.sandboxId,
 		sandbox.sandboxId,
-		"Fresh manager should reconnect to the same sandbox via Postgres lookup",
+		"Fresh manager should reconnect to the supplied sandboxId",
 	);
-	console.log(
-		"✓ Fresh SandboxManager reconnected via Postgres (no Sandbox.list)",
-	);
+	console.log(`✓ Fresh SandboxManager reconnected to ${sandbox.sandboxId}`);
 }
 
 async function cleanup() {
@@ -754,7 +741,7 @@ async function main() {
 		await testCollectionRename();
 		await testTitleOnlyChange();
 		await testUnknownSessionResume();
-		await testSandboxIdPersistence();
+		await testSandboxIdReconnect();
 		console.log("\n✓ All E2B daemon integration tests passed");
 	} catch (err) {
 		console.error("\n✗ Test failed:", err);
