@@ -2,7 +2,6 @@ import { resolve } from "node:path";
 import { Sandbox } from "e2b";
 import { apiEnv } from "@/config/env";
 import { getRuntime, upsertRuntime } from "@/db/user-runtime";
-import { clearUserSessions } from "@/db/user-sessions";
 import type { SyncLogger } from "@/features/sandbox";
 import { SandboxCreationError } from "./errors";
 
@@ -105,10 +104,7 @@ export class SandboxManager {
 				metadata: { userId },
 			});
 
-			await Promise.all([
-				upsertRuntime(userId, { sandbox_id: sandbox.sandboxId }),
-				clearUserSessions(userId).catch(() => {}),
-			]);
+			await upsertRuntime(userId, { sandbox_id: sandbox.sandboxId });
 			logger.info({
 				msg: "Sandbox created",
 				userId,
@@ -140,10 +136,7 @@ export class SandboxManager {
 			return;
 		}
 
-		await Promise.all([
-			upsertRuntime(userId, { sandbox_id: null }).catch(() => {}),
-			clearUserSessions(userId).catch(() => {}),
-		]);
+		await upsertRuntime(userId, { sandbox_id: null }).catch(() => {});
 		logger.info({
 			msg: "Sandbox killed",
 			userId,

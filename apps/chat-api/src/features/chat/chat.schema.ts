@@ -21,6 +21,12 @@ export const ChatBodyRequest = z
 
 		chatId: z.string().uuid().optional(),
 		refsId: z.string().uuid().optional(),
+
+		// Daemon-managed conversation session. When omitted, the daemon
+		// allocates a new session; when present, the daemon resumes that
+		// session. Clients are responsible for persisting the latest
+		// sessionId emitted via the `session_id` SSE event.
+		sessionId: z.string().min(1).max(MAX_IDENTIFIER_LENGTH).optional(),
 	})
 	.strict();
 export type ChatBodyRequest = z.infer<typeof ChatBodyRequest>;

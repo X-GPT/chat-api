@@ -25,12 +25,3 @@ CREATE TABLE IF NOT EXISTS user_sandbox_runtime (
   sandbox_id        VARCHAR(255),
   last_seen_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- Per-chat agent session IDs for conversation resume
-CREATE TABLE IF NOT EXISTS user_sandbox_sessions (
-  user_id    VARCHAR(255) NOT NULL,
-  chat_key   VARCHAR(255) NOT NULL,
-  session_id VARCHAR(255) NOT NULL,
-  updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  PRIMARY KEY (user_id, chat_key)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

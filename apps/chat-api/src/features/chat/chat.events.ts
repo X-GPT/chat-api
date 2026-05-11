@@ -3,11 +3,16 @@ export interface MymemoEvent {
 	message: EventMessage;
 }
 
-export type EventMessage = ErrorEvent | ChatEntityEvent;
+export type EventMessage = ErrorEvent | ChatEntityEvent | SessionIdEvent;
 
 export interface ErrorEvent {
 	type: "error";
 	message: string;
+}
+
+export interface SessionIdEvent {
+	type: "session_id";
+	sessionId: string;
 }
 
 export interface ChatEntityEvent {

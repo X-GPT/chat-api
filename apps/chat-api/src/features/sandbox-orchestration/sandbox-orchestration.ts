@@ -1,5 +1,4 @@
 import type { ChatMessagesScope } from "@/config/env";
-import { getSessionId, upsertSessionId } from "@/db/user-sessions";
 import type { ChatLogger } from "@/features/chat/chat.logger";
 import { sanitizePathSegment } from "@/features/sandbox";
 import { buildSandboxAgentPrompt } from "@/features/sandbox-agent";
@@ -21,9 +20,10 @@ export interface RunSandboxChatOptions {
 	scope: ChatMessagesScope;
 	collectionId: string | null;
 	summaryId: string | null;
-	chatKey: string;
+	sessionId: string | null;
 	onTextDelta: (text: string) => void;
 	onTextEnd: () => Promise<void>;
+	onSessionId: (sessionId: string) => void;
 	logger: ChatLogger;
 }
 
@@ -38,9 +38,10 @@ export async function runSandboxChat(
 		scope,
 		collectionId,
 		summaryId,
-		chatKey,
+		sessionId,
 		onTextDelta,
 		onTextEnd,
+		onSessionId,
 		logger,
 	} = options;
 
@@ -49,20 +50,14 @@ export async function runSandboxChat(
 	// on each turn to sync documents into the sandbox filesystem.
 
 	const attempt = async () => {
-		// 1. Get sandbox
 		const sandbox = await sandboxManager.getOrCreateSandbox(userId, logger);
 
-		// Read session AFTER sandbox is resolved — creation clears stale sessions
-		const agentSessionId = await getSessionId(userId, chatKey);
-
-		// 2. Ensure daemon is running (depends on sandbox)
 		const daemonUrl = await sandboxManager.ensureSandboxDaemon(
 			userId,
 			sandbox,
 			logger,
 		);
 
-		// 3. Build system prompt — path must match daemon's getDataRoot()
 		const docsRoot = `/workspace/data/${sanitizePathSegment(userId)}`;
 		const systemPrompt = buildSandboxAgentPrompt({
 			scope,
@@ -72,7 +67,6 @@ export async function runSandboxChat(
 			conversationContext: null,
 		});
 
-		// 4. Build turn request
 		const turnRequest: TurnRequest = {
 			request_id: crypto.randomUUID(),
 			user_id: userId,
@@ -80,27 +74,17 @@ export async function runSandboxChat(
 			collection_id: collectionId ?? undefined,
 			summary_id: summaryId ?? undefined,
 			message: query,
-			agent_session_id: agentSessionId ?? undefined,
+			agent_session_id: sessionId ?? undefined,
 			system_prompt: systemPrompt,
 		};
-
-		// 5. Forward to daemon with streaming
-		let newSessionId: string | null = null;
 
 		await forwardChatTurnToSandbox({
 			daemonUrl,
 			turnRequest,
 			onTextDelta,
 			onTextEnd,
-			onSessionId: (id) => {
-				newSessionId = id;
-			},
+			onSessionId,
 		});
-
-		// 6. Persist session ID for this chat
-		if (newSessionId) {
-			await upsertSessionId(userId, chatKey, newSessionId);
-		}
 
 		return { status: "completed" } as const;
 	};
