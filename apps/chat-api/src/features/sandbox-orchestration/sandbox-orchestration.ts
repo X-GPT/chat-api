@@ -22,10 +22,10 @@ export interface RunSandboxChatOptions {
 	summaryId: string | null;
 	sessionId: string | null;
 	sandboxId: string | null;
-	onTextDelta: (text: string) => void;
+	onTextDelta: (text: string) => Promise<void>;
 	onTextEnd: () => Promise<void>;
-	onSessionId: (sessionId: string) => void;
-	onSandboxId: (sandboxId: string) => void;
+	onSessionId: (sessionId: string) => Promise<void>;
+	onSandboxId: (sandboxId: string) => Promise<void>;
 	logger: ChatLogger;
 }
 
@@ -60,7 +60,7 @@ export async function runSandboxChat(
 			logger,
 		);
 
-		onSandboxId(sandbox.sandboxId);
+		await onSandboxId(sandbox.sandboxId);
 
 		const daemonUrl = await sandboxManager.ensureSandboxDaemon(
 			userId,

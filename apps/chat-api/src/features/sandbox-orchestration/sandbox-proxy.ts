@@ -14,9 +14,9 @@ export interface TurnRequest {
 interface ForwardOptions {
 	daemonUrl: string;
 	turnRequest: TurnRequest;
-	onTextDelta: (text: string) => void;
+	onTextDelta: (text: string) => Promise<void>;
 	onTextEnd: () => Promise<void>;
-	onSessionId: (id: string) => void;
+	onSessionId: (id: string) => Promise<void>;
 }
 
 /**
@@ -73,12 +73,12 @@ export async function forwardChatTurnToSandbox(
 						switch (parsed.type) {
 							case "text_delta":
 								if (typeof parsed.text === "string") {
-									onTextDelta(parsed.text);
+									await onTextDelta(parsed.text);
 								}
 								break;
 							case "session_id":
 								if (typeof parsed.sessionId === "string") {
-									onSessionId(parsed.sessionId);
+									await onSessionId(parsed.sessionId);
 								}
 								break;
 							case "completed":

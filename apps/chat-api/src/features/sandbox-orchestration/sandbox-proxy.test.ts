@@ -38,9 +38,9 @@ describe("forwardChatTurnToSandbox", () => {
 				forwardChatTurnToSandbox({
 					daemonUrl: "http://localhost:8080",
 					turnRequest: makeTurnRequest(),
-					onTextDelta: () => {},
+					onTextDelta: async () => {},
 					onTextEnd: async () => {},
-					onSessionId: () => {},
+					onSessionId: async () => {},
 				}),
 			).rejects.toBeInstanceOf(ConversationBusyError);
 		} finally {
@@ -59,9 +59,9 @@ describe("forwardChatTurnToSandbox", () => {
 				forwardChatTurnToSandbox({
 					daemonUrl: "http://localhost:8080",
 					turnRequest: makeTurnRequest(),
-					onTextDelta: () => {},
+					onTextDelta: async () => {},
 					onTextEnd: async () => {},
-					onSessionId: () => {},
+					onSessionId: async () => {},
 				}),
 			).rejects.toThrow("Daemon returned 500");
 		} finally {
@@ -89,15 +89,57 @@ describe("forwardChatTurnToSandbox", () => {
 			await forwardChatTurnToSandbox({
 				daemonUrl: "http://localhost:8080",
 				turnRequest: makeTurnRequest(),
-				onTextDelta: (text) => deltas.push(text),
+				onTextDelta: async (text) => {
+					deltas.push(text);
+				},
 				onTextEnd: async () => {
 					textEndCalled = true;
 				},
-				onSessionId: () => {},
+				onSessionId: async () => {},
 			});
 
 			expect(deltas).toEqual(["hello ", "world"]);
 			expect(textEndCalled).toBe(true);
+		} finally {
+			globalThis.fetch = originalFetch;
+		}
+	});
+
+	it("awaits each handler so a slow text_delta does not reorder later events", async () => {
+		// A slow first handler would let a later text_delta complete first if
+		// the proxy didn't await — the recorded order would be ["fast", "slow"].
+		const body = ndjsonBody([
+			{ type: "started", turn_id: "t1" },
+			{ type: "text_delta", text: "slow" },
+			{ type: "text_delta", text: "fast" },
+			{ type: "session_id", sessionId: "sess-1" },
+			{ type: "completed" },
+		]);
+
+		const originalFetch = globalThis.fetch;
+		globalThis.fetch = mock(() =>
+			Promise.resolve(new Response(body, { status: 200 })),
+		) as unknown as typeof fetch;
+
+		const completionOrder: string[] = [];
+
+		try {
+			await forwardChatTurnToSandbox({
+				daemonUrl: "http://localhost:8080",
+				turnRequest: makeTurnRequest(),
+				onTextDelta: async (text) => {
+					if (text === "slow") {
+						await new Promise((r) => setTimeout(r, 30));
+					}
+					completionOrder.push(text);
+				},
+				onTextEnd: async () => {},
+				onSessionId: async (id) => {
+					completionOrder.push(id);
+				},
+			});
+
+			expect(completionOrder).toEqual(["slow", "fast", "sess-1"]);
 		} finally {
 			globalThis.fetch = originalFetch;
 		}
@@ -121,9 +163,9 @@ describe("forwardChatTurnToSandbox", () => {
 			await forwardChatTurnToSandbox({
 				daemonUrl: "http://localhost:8080",
 				turnRequest: makeTurnRequest(),
-				onTextDelta: () => {},
+				onTextDelta: async () => {},
 				onTextEnd: async () => {},
-				onSessionId: (id) => {
+				onSessionId: async (id) => {
 					capturedSessionId = id;
 				},
 			});
@@ -150,9 +192,9 @@ describe("forwardChatTurnToSandbox", () => {
 				forwardChatTurnToSandbox({
 					daemonUrl: "http://localhost:8080",
 					turnRequest: makeTurnRequest(),
-					onTextDelta: () => {},
+					onTextDelta: async () => {},
 					onTextEnd: async () => {},
-					onSessionId: () => {},
+					onSessionId: async () => {},
 				}),
 			).rejects.toThrow("agent crashed");
 		} finally {
@@ -176,9 +218,9 @@ describe("forwardChatTurnToSandbox", () => {
 				forwardChatTurnToSandbox({
 					daemonUrl: "http://localhost:8080",
 					turnRequest: makeTurnRequest(),
-					onTextDelta: () => {},
+					onTextDelta: async () => {},
 					onTextEnd: async () => {},
-					onSessionId: () => {},
+					onSessionId: async () => {},
 				}),
 			).rejects.toThrow("agent error");
 		} finally {
@@ -207,9 +249,11 @@ describe("forwardChatTurnToSandbox", () => {
 			await forwardChatTurnToSandbox({
 				daemonUrl: "http://localhost:8080",
 				turnRequest: makeTurnRequest(),
-				onTextDelta: (text) => deltas.push(text),
+				onTextDelta: async (text) => {
+					deltas.push(text);
+				},
 				onTextEnd: async () => {},
-				onSessionId: () => {},
+				onSessionId: async () => {},
 			});
 
 			expect(deltas).toEqual(["ok"]);
