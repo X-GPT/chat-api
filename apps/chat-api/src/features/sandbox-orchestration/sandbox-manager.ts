@@ -17,28 +17,21 @@ const DAEMON_PREBUILT_PATH = resolve(
 
 let bundlePromise: Promise<{ code: string; version: string }> | null = null;
 
-/**
- * Load the prebuilt daemon bundle from disk.
- * Cached for process lifetime; rebuild via `bun run build:daemon`.
- */
 function getDaemonBundle(): Promise<{ code: string; version: string }> {
-	if (!bundlePromise) {
-		bundlePromise = loadDaemonBundle().catch((err) => {
-			bundlePromise = null;
-			throw err;
-		});
-	}
+	if (!bundlePromise) bundlePromise = loadDaemonBundle();
 	return bundlePromise;
 }
 
 async function loadDaemonBundle(): Promise<{ code: string; version: string }> {
-	const file = Bun.file(DAEMON_PREBUILT_PATH);
-	if (!(await file.exists())) {
+	let code: string;
+	try {
+		code = await Bun.file(DAEMON_PREBUILT_PATH).text();
+	} catch (err) {
 		throw new Error(
 			`Prebuilt daemon bundle missing at ${DAEMON_PREBUILT_PATH}. Run \`bun run build:daemon\` from apps/chat-api.`,
+			{ cause: err },
 		);
 	}
-	const code = await file.text();
 	const version = new Bun.CryptoHasher("sha256")
 		.update(code)
 		.digest("hex")
