@@ -17,15 +17,17 @@ COPY apps/sandbox-daemon/package.json /temp/prod/apps/sandbox-daemon/
 COPY packages/db/package.json /temp/prod/packages/db/
 RUN cd /temp/prod && bun install --frozen-lockfile --production
 
-# Copy source and run tests
+# Copy source, prebuild daemon bundle, and run tests
 FROM base AS prerelease
 COPY --from=install /temp/dev/node_modules node_modules
 COPY apps/chat-api/ apps/chat-api/
+COPY apps/sandbox-daemon/ apps/sandbox-daemon/
 COPY packages/db/ packages/db/
 COPY package.json .
 
 WORKDIR /usr/src/app/apps/chat-api
 ENV NODE_ENV=production
+RUN bun run build:daemon
 RUN bun test
 
 # Final release image
@@ -34,6 +36,7 @@ COPY --from=install /temp/prod/node_modules node_modules
 COPY --from=prerelease /usr/src/app/apps/chat-api/src apps/chat-api/src
 COPY --from=prerelease /usr/src/app/apps/chat-api/package.json apps/chat-api/
 COPY --from=prerelease /usr/src/app/apps/chat-api/tsconfig.json apps/chat-api/
+COPY --from=prerelease /usr/src/app/apps/sandbox-daemon/dist apps/sandbox-daemon/dist
 COPY --from=prerelease /usr/src/app/packages/db packages/db
 COPY --from=prerelease /usr/src/app/package.json .
 
