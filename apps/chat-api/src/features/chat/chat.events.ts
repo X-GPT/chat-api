@@ -3,7 +3,11 @@ export interface MymemoEvent {
 	message: EventMessage;
 }
 
-export type EventMessage = ErrorEvent | ChatEntityEvent | SessionIdEvent;
+export type EventMessage =
+	| ErrorEvent
+	| TextDeltaEvent
+	| DoneEvent
+	| SessionIdEvent;
 
 export interface ErrorEvent {
 	type: "error";
@@ -15,28 +19,11 @@ export interface SessionIdEvent {
 	sessionId: string;
 }
 
-export interface ChatEntityEvent {
-	type: "chat_entity";
-	chatContent: string;
-	chatKey: string;
-	chatType: string;
-	delFlag: string;
-	followup: string;
-	id: string;
-	memberCode: string | null;
-	memberName: string | null;
-	partnerCode: string | null;
-	partnerName: string | null;
-	readFlag: string;
-	senderCode: string | null;
-	senderType: string;
-	summaryId: string | null;
-	endFlag: number;
-	collectionId: string | null;
-	teamCode: string | null;
-	refsId: string | null;
-	refsContent: string | null;
-	collapseFlag: string;
+export interface TextDeltaEvent {
+	type: "text_delta";
+	text: string;
 }
 
-export type ChatEntity = Omit<ChatEntityEvent, "type">;
+export interface DoneEvent {
+	type: "done";
+}

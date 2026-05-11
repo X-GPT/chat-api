@@ -76,7 +76,7 @@ app.post(
 					await complete(
 						request,
 						sender,
-						new ChatLogger(c.var.logger, request.memberCode, request.chatKey),
+						new ChatLogger(c.var.logger, request.memberCode),
 					);
 				} catch (err) {
 					if (err instanceof ConversationBusyError) {
