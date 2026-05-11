@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 const MAX_IDENTIFIER_LENGTH = 256;
-const MAX_CHAT_TYPE_LENGTH = 64;
 const MAX_MESSAGE_LENGTH = 50_000;
 
 export const MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024;
@@ -14,13 +13,8 @@ export const MAX_REQUEST_BODY_BYTES = 10 * 1024 * 1024;
 export const ChatBodyRequest = z
 	.object({
 		chatContent: z.string().min(1).max(MAX_MESSAGE_LENGTH),
-		chatKey: z.string().min(1).max(MAX_IDENTIFIER_LENGTH),
-		chatType: z.string().min(1).max(MAX_CHAT_TYPE_LENGTH),
 		collectionId: z.string().max(MAX_IDENTIFIER_LENGTH).nullish(),
 		summaryId: z.string().max(MAX_IDENTIFIER_LENGTH).nullish(),
-
-		chatId: z.string().uuid().optional(),
-		refsId: z.string().uuid().optional(),
 
 		// Daemon-managed conversation session. When omitted, the daemon
 		// allocates a new session; when present, the daemon resumes that
