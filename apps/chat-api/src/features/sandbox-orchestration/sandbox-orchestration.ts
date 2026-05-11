@@ -13,7 +13,7 @@ function toSandboxScope(scope: ChatMessagesScope): SandboxScopeType {
 	return "global";
 }
 
-function sanitizePathSegment(value: string): string {
+export function sanitizePathSegment(value: string): string {
 	return value.trim().replace(/[^a-zA-Z0-9._-]+/g, "-") || "unknown";
 }
 
