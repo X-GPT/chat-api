@@ -7,7 +7,8 @@ export type EventMessage =
 	| ErrorEvent
 	| TextDeltaEvent
 	| DoneEvent
-	| SessionIdEvent;
+	| SessionIdEvent
+	| SandboxIdEvent;
 
 export interface ErrorEvent {
 	type: "error";
@@ -17,6 +18,11 @@ export interface ErrorEvent {
 export interface SessionIdEvent {
 	type: "session_id";
 	sessionId: string;
+}
+
+export interface SandboxIdEvent {
+	type: "sandbox_id";
+	sandboxId: string;
 }
 
 export interface TextDeltaEvent {

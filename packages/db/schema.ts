@@ -34,11 +34,3 @@ export const userCollections = mysqlTable(
 	},
 	(table) => [primaryKey({ columns: [table.userId, table.collectionId] })],
 );
-
-export const userSandboxRuntime = mysqlTable("user_sandbox_runtime", {
-	userId: varchar("user_id", { length: 255 }).notNull().primaryKey(),
-	sandboxId: varchar("sandbox_id", { length: 255 }),
-	lastSeenAt: timestamp("last_seen_at", { mode: "string" })
-		.notNull()
-		.defaultNow(),
-});

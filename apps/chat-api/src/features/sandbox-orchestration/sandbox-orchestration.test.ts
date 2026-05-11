@@ -32,9 +32,11 @@ function makeOptions(
 		collectionId: null,
 		summaryId: null,
 		sessionId: null,
+		sandboxId: null,
 		onTextDelta: () => {},
 		onTextEnd: async () => {},
 		onSessionId: () => {},
+		onSandboxId: () => {},
 		logger: silentLogger,
 		...overrides,
 	};
@@ -108,6 +110,50 @@ describe("runSandboxChat", () => {
 		});
 
 		await runSandboxChat(makeOptions({ sessionId: null }));
+	});
+
+	it("forwards request sandboxId to sandbox manager", async () => {
+		spyForwardTurn = spyOn(
+			proxyModule,
+			"forwardChatTurnToSandbox",
+		).mockResolvedValue(undefined);
+
+		await runSandboxChat(makeOptions({ sandboxId: "sbx-from-client" }));
+
+		expect(spyGetOrCreate).toHaveBeenCalledWith(
+			"user-1",
+			"sbx-from-client",
+			expect.anything(),
+		);
+	});
+
+	it("passes null sandboxId when none provided", async () => {
+		spyForwardTurn = spyOn(
+			proxyModule,
+			"forwardChatTurnToSandbox",
+		).mockResolvedValue(undefined);
+
+		await runSandboxChat(makeOptions({ sandboxId: null }));
+
+		expect(spyGetOrCreate).toHaveBeenCalledWith(
+			"user-1",
+			null,
+			expect.anything(),
+		);
+	});
+
+	it("invokes onSandboxId with the resolved sandbox id", async () => {
+		spyForwardTurn = spyOn(
+			proxyModule,
+			"forwardChatTurnToSandbox",
+		).mockResolvedValue(undefined);
+
+		const received: string[] = [];
+		await runSandboxChat(
+			makeOptions({ onSandboxId: (id) => received.push(id) }),
+		);
+
+		expect(received).toEqual(["sbx-123"]);
 	});
 
 	it("surfaces daemon-emitted session_id via callback", async () => {

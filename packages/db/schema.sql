@@ -18,10 +18,3 @@ CREATE TABLE IF NOT EXISTS user_collections (
   name          VARCHAR(500) NOT NULL,
   PRIMARY KEY (user_id, collection_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-
--- Per-user sandbox runtime state
-CREATE TABLE IF NOT EXISTS user_sandbox_runtime (
-  user_id           VARCHAR(255) NOT NULL PRIMARY KEY,
-  sandbox_id        VARCHAR(255),
-  last_seen_at      TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

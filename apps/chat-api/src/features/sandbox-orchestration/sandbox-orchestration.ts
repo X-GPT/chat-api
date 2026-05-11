@@ -21,9 +21,11 @@ export interface RunSandboxChatOptions {
 	collectionId: string | null;
 	summaryId: string | null;
 	sessionId: string | null;
+	sandboxId: string | null;
 	onTextDelta: (text: string) => void;
 	onTextEnd: () => Promise<void>;
 	onSessionId: (sessionId: string) => void;
+	onSandboxId: (sandboxId: string) => void;
 	logger: ChatLogger;
 }
 
@@ -39,9 +41,11 @@ export async function runSandboxChat(
 		collectionId,
 		summaryId,
 		sessionId,
+		sandboxId,
 		onTextDelta,
 		onTextEnd,
 		onSessionId,
+		onSandboxId,
 		logger,
 	} = options;
 
@@ -50,7 +54,13 @@ export async function runSandboxChat(
 	// on each turn to sync documents into the sandbox filesystem.
 
 	const attempt = async () => {
-		const sandbox = await sandboxManager.getOrCreateSandbox(userId, logger);
+		const sandbox = await sandboxManager.getOrCreateSandbox(
+			userId,
+			sandboxId,
+			logger,
+		);
+
+		onSandboxId(sandbox.sandboxId);
 
 		const daemonUrl = await sandboxManager.ensureSandboxDaemon(
 			userId,

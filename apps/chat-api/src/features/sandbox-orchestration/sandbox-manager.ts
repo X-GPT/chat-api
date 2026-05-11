@@ -1,7 +1,6 @@
 import { resolve } from "node:path";
 import { Sandbox } from "e2b";
 import { apiEnv } from "@/config/env";
-import { getRuntime, upsertRuntime } from "@/db/user-runtime";
 import type { SyncLogger } from "@/features/sandbox";
 import { SandboxCreationError } from "./errors";
 
@@ -40,42 +39,32 @@ async function loadDaemonBundle(): Promise<{ code: string; version: string }> {
 }
 
 export class SandboxManager {
-	// Dedup concurrent getOrCreateSandbox calls for the same user.
-	private inFlight = new Map<string, Promise<Sandbox>>();
-
 	async getOrCreateSandbox(
 		userId: string,
+		sandboxId: string | null,
 		logger: SyncLogger,
 	): Promise<Sandbox> {
-		const existing = this.inFlight.get(userId);
-		if (existing) return existing;
-
-		const promise = this._getOrCreateSandbox(userId, logger).finally(() => {
-			this.inFlight.delete(userId);
-		});
-		this.inFlight.set(userId, promise);
-		return promise;
-	}
-
-	private async _getOrCreateSandbox(
-		userId: string,
-		logger: SyncLogger,
-	): Promise<Sandbox> {
-		const runtime = await getRuntime(userId);
-		if (runtime?.sandbox_id) {
-			logger.info({
-				msg: "Reconnecting to sandbox from Postgres",
-				userId,
-				sandboxId: runtime.sandbox_id,
-			});
-
+		if (sandboxId) {
 			try {
-				return await Sandbox.connect(runtime.sandbox_id);
+				const info = await Sandbox.getInfo(sandboxId);
+				if (info.metadata.userId === userId) {
+					logger.info({
+						msg: "Reconnecting to sandbox from request",
+						userId,
+						sandboxId,
+					});
+					return await Sandbox.connect(sandboxId);
+				}
+				logger.error({
+					msg: "Sandbox userId mismatch, creating new sandbox",
+					userId,
+					sandboxId,
+				});
 			} catch (err) {
 				logger.error({
-					msg: "Failed to reconnect from Postgres, creating new sandbox",
+					msg: "Failed to reconnect, creating new sandbox",
 					userId,
-					sandboxId: runtime.sandbox_id,
+					sandboxId,
 					error: err instanceof Error ? err.message : String(err),
 				});
 			}
@@ -88,7 +77,6 @@ export class SandboxManager {
 				metadata: { userId },
 			});
 
-			await upsertRuntime(userId, { sandbox_id: sandbox.sandboxId });
 			logger.info({
 				msg: "Sandbox created",
 				userId,
@@ -120,7 +108,6 @@ export class SandboxManager {
 			return;
 		}
 
-		await upsertRuntime(userId, { sandbox_id: null }).catch(() => {});
 		logger.info({
 			msg: "Sandbox killed",
 			userId,
