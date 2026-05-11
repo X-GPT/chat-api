@@ -45,14 +45,21 @@ export class SandboxManager {
 		logger: SyncLogger,
 	): Promise<Sandbox> {
 		if (sandboxId) {
-			logger.info({
-				msg: "Reconnecting to sandbox from request",
-				userId,
-				sandboxId,
-			});
-
 			try {
-				return await Sandbox.connect(sandboxId);
+				const info = await Sandbox.getInfo(sandboxId);
+				if (info.metadata.userId === userId) {
+					logger.info({
+						msg: "Reconnecting to sandbox from request",
+						userId,
+						sandboxId,
+					});
+					return await Sandbox.connect(sandboxId);
+				}
+				logger.error({
+					msg: "Sandbox userId mismatch, creating new sandbox",
+					userId,
+					sandboxId,
+				});
 			} catch (err) {
 				logger.error({
 					msg: "Failed to reconnect, creating new sandbox",
