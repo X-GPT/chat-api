@@ -39,29 +39,7 @@ async function loadDaemonBundle(): Promise<{ code: string; version: string }> {
 }
 
 export class SandboxManager {
-	// Dedup concurrent getOrCreateSandbox calls for the same user.
-	private inFlight = new Map<string, Promise<Sandbox>>();
-
 	async getOrCreateSandbox(
-		userId: string,
-		sandboxId: string | null,
-		logger: SyncLogger,
-	): Promise<Sandbox> {
-		const existing = this.inFlight.get(userId);
-		if (existing) return existing;
-
-		const promise = this._getOrCreateSandbox(
-			userId,
-			sandboxId,
-			logger,
-		).finally(() => {
-			this.inFlight.delete(userId);
-		});
-		this.inFlight.set(userId, promise);
-		return promise;
-	}
-
-	private async _getOrCreateSandbox(
 		userId: string,
 		sandboxId: string | null,
 		logger: SyncLogger,
