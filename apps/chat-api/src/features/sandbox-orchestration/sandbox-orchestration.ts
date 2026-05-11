@@ -1,6 +1,5 @@
 import type { ChatMessagesScope } from "@/config/env";
 import type { ChatLogger } from "@/features/chat/chat.logger";
-import { sanitizePathSegment } from "@/features/sandbox";
 import { buildSandboxAgentPrompt } from "@/features/sandbox-agent";
 import { SandboxCreationError } from "./errors";
 import { forwardChatTurnToSandbox, type TurnRequest } from "./sandbox-proxy";
@@ -12,6 +11,10 @@ function toSandboxScope(scope: ChatMessagesScope): SandboxScopeType {
 	if (scope === "collection") return "collection";
 	if (scope === "document") return "document";
 	return "global";
+}
+
+function sanitizePathSegment(value: string): string {
+	return value.trim().replace(/[^a-zA-Z0-9._-]+/g, "-") || "unknown";
 }
 
 export interface RunSandboxChatOptions {

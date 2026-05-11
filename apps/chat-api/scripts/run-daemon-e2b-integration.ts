@@ -14,10 +14,10 @@ import { userCollections, userFiles } from "@mymemo/db";
 import { and, eq } from "drizzle-orm";
 import type { Sandbox } from "e2b";
 import { closeDb, getDb } from "@/db/client";
-import type { SyncLogger } from "@/features/sandbox";
 import { buildSandboxAgentPrompt } from "@/features/sandbox-agent";
 import {
 	SandboxManager,
+	type SyncLogger,
 	WORKSPACE_ROOT,
 } from "@/features/sandbox-orchestration/sandbox-manager";
 

@@ -1,8 +1,12 @@
 import { resolve } from "node:path";
 import { Sandbox } from "e2b";
 import { apiEnv } from "@/config/env";
-import type { SyncLogger } from "@/features/sandbox";
 import { SandboxCreationError } from "./errors";
+
+export interface SyncLogger {
+	info(obj: Record<string, unknown>): void;
+	error(obj: Record<string, unknown>): void;
+}
 
 export const WORKSPACE_ROOT = "/workspace";
 const DAEMON_PORT = 8080;

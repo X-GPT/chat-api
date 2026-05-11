@@ -118,7 +118,7 @@ Identity arrives via `X-*` headers, **not** the JSON body. chat-api does not aut
 |------|---------|
 | `src/features/chat/chat.controller.ts` | Reads context from request body, hands the turn to the sandbox |
 | `src/features/sandbox-orchestration/` | `runSandboxChat`, sandbox manager, daemon proxy |
-| `src/features/sandbox-agent/` | Sandbox-side agent prompt + NDJSON parser |
+| `src/features/sandbox-agent/` | Sandbox-side agent system prompt builder |
 | `src/config/env.ts` | Environment validation |
 
 ### Chat Scopes
