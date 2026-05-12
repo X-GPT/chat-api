@@ -1,7 +1,7 @@
 import { mkdirSync } from "node:fs";
 import { Hono } from "hono";
 import { stream } from "hono/streaming";
-import { runAgent } from "../agent";
+import { spawnAgent, spawnSync } from "../child-spawn";
 import {
 	createEphemeralDocumentScope,
 	findCanonicalDoc,
@@ -9,7 +9,6 @@ import {
 	removeEphemeralDocumentScope,
 	resolveScopeCwd,
 } from "../materialization";
-import { reconcile } from "../reconcile";
 import { acquireTurn } from "../turn-lock";
 
 const app = new Hono();
@@ -68,8 +67,16 @@ app.post("/turn", async (c) => {
 			try {
 				await s.write(ndjsonLine({ type: "started", turn_id: request_id }));
 
-				// reconcile() calls ensureDataRoot internally.
-				await reconcile({ userId: user_id });
+				const syncResult = await spawnSync({ userId: user_id });
+				if (syncResult.type === "failed") {
+					await s.write(
+						ndjsonLine({
+							type: "failed",
+							message: `sync failed: ${syncResult.message}`,
+						}),
+					);
+					return;
+				}
 
 				if (scope_type === "collection" && !collection_id) {
 					await s.write(
@@ -114,37 +121,36 @@ app.post("/turn", async (c) => {
 						scope_type,
 						collection_id ?? undefined,
 					);
-					// Ensure cwd exists (e.g. empty collection with no files)
 					mkdirSync(cwd, { recursive: true });
 				}
 
 				let turnFailed = false;
-
-				await runAgent(
-					{
-						userQuery: message,
-						systemPrompt: system_prompt,
-						cwd,
-						sessionId: agent_session_id,
-					},
-					{
-						onTextDelta: async (text) => {
-							await s.write(ndjsonLine({ type: "text_delta", text }));
-						},
-						onSessionId: async (sessionId) => {
-							await s.write(ndjsonLine({ type: "session_id", sessionId }));
-						},
-						onCompleted: async () => {
-							// Session ID persistence handled by the chat-api caller
-						},
-						onFailed: async (errorMessage) => {
+				const agentResult = await spawnAgent({
+					userQuery: message,
+					systemPrompt: system_prompt,
+					cwd,
+					sessionId: agent_session_id,
+					onEvent: async (event) => {
+						if (event.type === "completed") {
+							// We emit our own `completed` below.
+							return;
+						}
+						if (event.type === "failed") {
 							turnFailed = true;
-							await s.write(
-								ndjsonLine({ type: "failed", message: errorMessage }),
-							);
-						},
+						}
+						await s.write(ndjsonLine(event));
 					},
-				);
+				});
+
+				if (agentResult.exitCode !== 0 && !turnFailed) {
+					turnFailed = true;
+					await s.write(
+						ndjsonLine({
+							type: "failed",
+							message: `agent exited with code ${agentResult.exitCode}`,
+						}),
+					);
+				}
 
 				if (!turnFailed) {
 					await s.write(ndjsonLine({ type: "completed" }));

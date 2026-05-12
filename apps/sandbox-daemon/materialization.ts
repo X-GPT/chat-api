@@ -133,9 +133,7 @@ export function writeCanonicalFile(
 	const cite = buildCitePath(doc);
 	const lines = ["---", `title: ${JSON.stringify(title)}`, `cite: ${cite}`];
 	if (doc.collections.length > 0) {
-		const names = doc.collections.map(
-			(id) => collectionNames.get(id) ?? id,
-		);
+		const names = doc.collections.map((id) => collectionNames.get(id) ?? id);
 		lines.push(`collections: ${JSON.stringify(names)}`);
 	}
 	lines.push("---", "", doc.content, "");

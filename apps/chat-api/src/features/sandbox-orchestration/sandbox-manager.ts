@@ -12,34 +12,57 @@ export const WORKSPACE_ROOT = "/workspace";
 const DAEMON_PORT = 8080;
 const DAEMON_STARTUP_TIMEOUT_MS = 15_000;
 const DAEMON_HEALTH_CHECK_INTERVAL_MS = 500;
-const DAEMON_BUNDLE_PATH = "/workspace/daemon.js";
-const DAEMON_PREBUILT_PATH = resolve(
+
+// Three separate bundles deployed into the sandbox. Versioned together by
+// the hash of all three concatenated — any change to any one triggers a
+// daemon restart. The daemon spawns sync.js / agent.js per turn; only the
+// daemon bundle is long-running.
+const SANDBOX_BUNDLES = [
+	{
+		name: "daemon",
+		sandboxPath: "/workspace/daemon.js",
+		distFile: "daemon.js",
+	},
+	{ name: "sync", sandboxPath: "/workspace/sync.js", distFile: "sync.js" },
+	{ name: "agent", sandboxPath: "/workspace/agent.js", distFile: "agent.js" },
+] as const;
+const DAEMON_BUNDLE_PATH = SANDBOX_BUNDLES[0].sandboxPath;
+const DIST_DIR = resolve(
 	import.meta.dirname,
-	"../../../../sandbox-daemon/dist/index.js",
+	"../../../../sandbox-daemon/dist",
 );
 
-let bundlePromise: Promise<{ code: string; version: string }> | null = null;
+interface SandboxBundleSet {
+	files: Array<{ sandboxPath: string; code: string }>;
+	version: string;
+}
 
-function getDaemonBundle(): Promise<{ code: string; version: string }> {
-	if (!bundlePromise) bundlePromise = loadDaemonBundle();
+let bundlePromise: Promise<SandboxBundleSet> | null = null;
+
+function getSandboxBundles(): Promise<SandboxBundleSet> {
+	if (!bundlePromise) bundlePromise = loadSandboxBundles();
 	return bundlePromise;
 }
 
-async function loadDaemonBundle(): Promise<{ code: string; version: string }> {
-	let code: string;
-	try {
-		code = await Bun.file(DAEMON_PREBUILT_PATH).text();
-	} catch (err) {
-		throw new Error(
-			`Prebuilt daemon bundle missing at ${DAEMON_PREBUILT_PATH}. Run \`bun run build:daemon\` from apps/chat-api.`,
-			{ cause: err },
-		);
+async function loadSandboxBundles(): Promise<SandboxBundleSet> {
+	const files: SandboxBundleSet["files"] = [];
+	const hasher = new Bun.CryptoHasher("sha256");
+	for (const { name, sandboxPath, distFile } of SANDBOX_BUNDLES) {
+		const path = `${DIST_DIR}/${distFile}`;
+		let code: string;
+		try {
+			code = await Bun.file(path).text();
+		} catch (err) {
+			throw new Error(
+				`Prebuilt ${name} bundle missing at ${path}. Run \`bun run build:daemon\` from apps/chat-api.`,
+				{ cause: err },
+			);
+		}
+		hasher.update(code);
+		files.push({ sandboxPath, code });
 	}
-	const version = new Bun.CryptoHasher("sha256")
-		.update(code)
-		.digest("hex")
-		.slice(0, 12);
-	return { code, version };
+	const version = hasher.digest("hex").slice(0, 12);
+	return { files, version };
 }
 
 export class SandboxManager {
@@ -130,11 +153,11 @@ export class SandboxManager {
 	): Promise<string> {
 		const daemonUrl = this.getDaemonUrl(sandbox);
 
-		const bundle = await getDaemonBundle();
+		const bundles = await getSandboxBundles();
 
 		try {
 			const health = await this.checkDaemonHealth(daemonUrl);
-			if (health && health.version === bundle.version) {
+			if (health && health.version === bundles.version) {
 				return daemonUrl;
 			}
 
@@ -142,9 +165,9 @@ export class SandboxManager {
 				logger.info({
 					msg: "Daemon version mismatch, restarting",
 					currentVersion: health.version,
-					expectedVersion: bundle.version,
+					expectedVersion: bundles.version,
 				});
-				await this.restartDaemon(sandbox, logger, bundle);
+				await this.restartDaemon(sandbox, logger, bundles);
 				return daemonUrl;
 			}
 		} catch {
@@ -157,7 +180,7 @@ export class SandboxManager {
 			sandboxId: sandbox.sandboxId,
 		});
 
-		await this.deployDaemonBundle(sandbox, logger, bundle);
+		await this.deploySandboxBundles(sandbox, logger, bundles);
 		return daemonUrl;
 	}
 
@@ -184,30 +207,33 @@ export class SandboxManager {
 		}
 	}
 
-	private async deployDaemonBundle(
+	private async deploySandboxBundles(
 		sandbox: Sandbox,
 		logger: SyncLogger,
-		bundle: { code: string; version: string },
+		bundles: SandboxBundleSet,
 	): Promise<void> {
-		await sandbox.files.write([
-			{ path: DAEMON_BUNDLE_PATH, data: bundle.code },
-		]);
+		await sandbox.files.write(
+			bundles.files.map(({ sandboxPath, code }) => ({
+				path: sandboxPath,
+				data: code,
+			})),
+		);
 
-		await this.startDaemonProcess(sandbox, logger, bundle.version);
+		await this.startDaemonProcess(sandbox, logger, bundles.version);
 	}
 
 	private async restartDaemon(
 		sandbox: Sandbox,
 		logger: SyncLogger,
-		bundle: { code: string; version: string },
+		bundles: SandboxBundleSet,
 	): Promise<void> {
 		// Kill whatever process owns port 8080 (process name may not match pkill pattern)
 		await sandbox.commands.run("kill $(lsof -ti :8080) 2>/dev/null || true", {
 			timeoutMs: 5_000,
 		});
 
-		// Re-deploy with updated bundle
-		await this.deployDaemonBundle(sandbox, logger, bundle);
+		// Re-deploy with updated bundles
+		await this.deploySandboxBundles(sandbox, logger, bundles);
 	}
 
 	private async startDaemonProcess(

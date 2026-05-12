@@ -1,3 +1,16 @@
+/**
+ * Daemon: long-running HTTP server in the E2B sandbox. Owns /turn, request
+ * locking, and streaming. Spawns sync.js and agent.js per turn — never
+ * imports DB code (drizzle/mysql2) or the Claude Agent SDK directly, so
+ * the daemon bundle's transitive graph stays minimal.
+ *
+ * Env:
+ *   DAEMON_PORT       — HTTP port (default 8080).
+ *   DAEMON_VERSION    — surfaced by /health for the chat-api bundle check.
+ *   DATABASE_URL      — held only to forward into sync.js's env.
+ *   ANTHROPIC_API_KEY — held only to forward into agent.js's env.
+ */
+
 import { Hono } from "hono";
 import currentRoutes from "./routes/current";
 import healthRoutes from "./routes/health";
@@ -19,7 +32,6 @@ app.onError((err, c) => {
 
 process.on("uncaughtException", (err) => {
 	console.error("Uncaught exception:", err);
-	// Do not exit — keep the daemon alive for health checks and future turns
 });
 process.on("unhandledRejection", (err) => {
 	console.error("Unhandled rejection:", err);

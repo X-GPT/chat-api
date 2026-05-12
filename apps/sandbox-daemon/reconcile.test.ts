@@ -253,9 +253,7 @@ describe("reconcile", () => {
 
 		expect(result).toBe(true);
 		expect(existsSync(`${dataRoot}/canonical/0/doc-new.md`)).toBe(true);
-		expect(existsSync(`${dataRoot}/collections/col-B/0/doc-new.md`)).toBe(
-			true,
-		);
+		expect(existsSync(`${dataRoot}/collections/col-B/0/doc-new.md`)).toBe(true);
 
 		const content = readFileSync(`${dataRoot}/canonical/0/doc-new.md`, "utf-8");
 		expect(content).toContain("New document content");

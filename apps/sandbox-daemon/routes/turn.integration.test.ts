@@ -11,16 +11,31 @@ import { mkdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Hono } from "hono";
+import type {
+	AgentEvent,
+	SpawnAgentInput,
+	SpawnAgentResult,
+	SyncResult,
+} from "../child-spawn";
 
-// Mock the agent module before importing the route
-const mockRunAgent = mock();
-mock.module("../agent", () => ({
-	runAgent: mockRunAgent,
-}));
-
-// Mock reconcile to avoid needing a real Postgres
-mock.module("../reconcile", () => ({
-	reconcile: mock(() => Promise.resolve(false)),
+// Mock spawnSync / spawnAgent — turn route no longer runs sync/agent
+// in-process. Sync now executes inside sync.js (spawned), agent inside
+// agent.js (spawned). The test stubs both functions to control behavior.
+const mockSpawnSync = mock(
+	async (_input: { userId: string }): Promise<SyncResult> => ({
+		type: "synced",
+		changed: false,
+		dataRoot: "/tmp/data",
+	}),
+);
+const mockSpawnAgent = mock(
+	async (_input: SpawnAgentInput): Promise<SpawnAgentResult> => ({
+		exitCode: 0,
+	}),
+);
+mock.module("../child-spawn", () => ({
+	spawnSync: mockSpawnSync,
+	spawnAgent: mockSpawnAgent,
 }));
 
 // Override getDataRoot to use a temp directory
@@ -50,7 +65,13 @@ describe("POST /turn integration", () => {
 	});
 
 	beforeEach(() => {
-		mockRunAgent.mockReset();
+		mockSpawnSync.mockReset();
+		mockSpawnSync.mockImplementation(async () => ({
+			type: "synced",
+			changed: false,
+			dataRoot: "/tmp/data",
+		}));
+		mockSpawnAgent.mockReset();
 	});
 
 	afterAll(() => {
@@ -66,7 +87,6 @@ describe("POST /turn integration", () => {
 			scope_type: "global",
 			message: "hello",
 			system_prompt: "you are helpful",
-			db_connection_string: "postgresql://localhost/test",
 			...overrides,
 		};
 	}
@@ -78,19 +98,24 @@ describe("POST /turn integration", () => {
 			.map((line) => JSON.parse(line));
 	}
 
-	it("streams text_delta events from agent", async () => {
-		mockRunAgent.mockImplementation(
-			async (
-				_opts: unknown,
-				callbacks: {
-					onTextDelta: (text: string) => void;
-					onCompleted: () => void;
-				},
-			) => {
-				callbacks.onTextDelta("Hello ");
-				callbacks.onTextDelta("World");
-				callbacks.onCompleted();
-			},
+	async function emitAgent(
+		input: SpawnAgentInput,
+		events: AgentEvent[],
+		exitCode = 0,
+	): Promise<SpawnAgentResult> {
+		for (const event of events) {
+			await input.onEvent(event);
+		}
+		return { exitCode };
+	}
+
+	it("streams text_delta events forwarded from agent.js", async () => {
+		mockSpawnAgent.mockImplementation((input) =>
+			emitAgent(input, [
+				{ type: "text_delta", text: "Hello " },
+				{ type: "text_delta", text: "World" },
+				{ type: "completed" },
+			]),
 		);
 
 		const res = await app.request("/turn", {
@@ -100,8 +125,7 @@ describe("POST /turn integration", () => {
 		});
 
 		expect(res.status).toBe(200);
-		const text = await res.text();
-		const events = parseNdjson(text);
+		const events = parseNdjson(await res.text());
 
 		const types = events.map((e) => e.type);
 		expect(types).toContain("started");
@@ -114,18 +138,12 @@ describe("POST /turn integration", () => {
 		expect(deltas).toEqual(["Hello ", "World"]);
 	});
 
-	it("streams session_id event", async () => {
-		mockRunAgent.mockImplementation(
-			async (
-				_opts: unknown,
-				callbacks: {
-					onSessionId: (id: string) => void;
-					onCompleted: () => void;
-				},
-			) => {
-				callbacks.onSessionId("sess-xyz");
-				callbacks.onCompleted();
-			},
+	it("forwards session_id from agent.js", async () => {
+		mockSpawnAgent.mockImplementation((input) =>
+			emitAgent(input, [
+				{ type: "session_id", sessionId: "sess-xyz" },
+				{ type: "completed" },
+			]),
 		);
 
 		const res = await app.request("/turn", {
@@ -134,16 +152,15 @@ describe("POST /turn integration", () => {
 			body: JSON.stringify(makeTurnBody()),
 		});
 
-		const text = await res.text();
-		const events = parseNdjson(text);
+		const events = parseNdjson(await res.text());
 
 		const sessionEvent = events.find((e) => e.type === "session_id");
 		expect(sessionEvent).toBeDefined();
 		expect(sessionEvent?.sessionId).toBe("sess-xyz");
 	});
 
-	it("emits failed event when agent throws", async () => {
-		mockRunAgent.mockRejectedValue(new Error("agent exploded"));
+	it("emits failed when spawnAgent throws", async () => {
+		mockSpawnAgent.mockRejectedValue(new Error("agent exploded"));
 
 		const res = await app.request("/turn", {
 			method: "POST",
@@ -151,22 +168,15 @@ describe("POST /turn integration", () => {
 			body: JSON.stringify(makeTurnBody()),
 		});
 
-		const text = await res.text();
-		const events = parseNdjson(text);
-
-		const failedEvent = events.find((e) => e.type === "failed");
-		expect(failedEvent).toBeDefined();
-		expect(failedEvent?.message).toContain("agent exploded");
+		const events = parseNdjson(await res.text());
+		const failed = events.find((e) => e.type === "failed");
+		expect(failed).toBeDefined();
+		expect(failed?.message).toContain("agent exploded");
 	});
 
-	it("emits failed event from onFailed callback", async () => {
-		mockRunAgent.mockImplementation(
-			async (
-				_opts: unknown,
-				callbacks: { onFailed: (msg: string) => void },
-			) => {
-				callbacks.onFailed("agent ended badly");
-			},
+	it("emits failed when agent.js emits a failed event", async () => {
+		mockSpawnAgent.mockImplementation((input) =>
+			emitAgent(input, [{ type: "failed", message: "agent ended badly" }], 1),
 		);
 
 		const res = await app.request("/turn", {
@@ -175,12 +185,30 @@ describe("POST /turn integration", () => {
 			body: JSON.stringify(makeTurnBody()),
 		});
 
-		const text = await res.text();
-		const events = parseNdjson(text);
+		const events = parseNdjson(await res.text());
+		const failed = events.find((e) => e.type === "failed");
+		expect(failed).toBeDefined();
+		expect(failed?.message).toBe("agent ended badly");
+	});
 
-		const failedEvent = events.find((e) => e.type === "failed");
-		expect(failedEvent).toBeDefined();
-		expect(failedEvent?.message).toBe("agent ended badly");
+	it("emits failed when sync.js fails", async () => {
+		mockSpawnSync.mockImplementation(async () => ({
+			type: "failed",
+			message: "DB unreachable",
+		}));
+
+		const res = await app.request("/turn", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(makeTurnBody()),
+		});
+
+		const events = parseNdjson(await res.text());
+		const failed = events.find((e) => e.type === "failed");
+		expect(failed).toBeDefined();
+		expect(failed?.message).toContain("DB unreachable");
+		// Agent must not be spawned if sync failed
+		expect(mockSpawnAgent).not.toHaveBeenCalled();
 	});
 
 	it("returns 409 when a turn is already in progress", async () => {
@@ -188,14 +216,14 @@ describe("POST /turn integration", () => {
 		const agentPromise = new Promise<void>((resolve) => {
 			resolveAgent = resolve;
 		});
-		mockRunAgent.mockImplementation(async () => {
+		mockSpawnAgent.mockImplementation(async () => {
 			await agentPromise;
+			return { exitCode: 0 };
 		});
 
 		const body1 = makeTurnBody();
 		const body2 = makeTurnBody();
 
-		// Start first turn (don't await — it blocks on the agent)
 		const req1Promise = app.request("/turn", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
@@ -205,7 +233,6 @@ describe("POST /turn integration", () => {
 		// Give the first request time to acquire the lock
 		await new Promise((r) => setTimeout(r, 100));
 
-		// Second request should get 409
 		const res2 = await app.request("/turn", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
@@ -216,7 +243,6 @@ describe("POST /turn integration", () => {
 		const errorBody = await res2.json();
 		expect(errorBody.error).toContain("Turn already in progress");
 
-		// Clean up: resolve the agent to release the lock
 		resolveAgent();
 		await req1Promise;
 	});
