@@ -15,11 +15,18 @@ import type { AgentEvent, SyncEvent } from "./ipc-protocol";
 export type { AgentEvent, SyncEvent } from "./ipc-protocol";
 export type SyncResult = SyncEvent;
 
-const SYNC_BUNDLE_PATH = process.env.SANDBOX_SYNC_PATH ?? "/workspace/sync.js";
-const AGENT_BUNDLE_PATH =
-	process.env.SANDBOX_AGENT_PATH ?? "/workspace/agent.js";
-const BUN_EXECUTABLE = process.env.SANDBOX_BUN_PATH ?? "bun";
-const BWRAP_EXECUTABLE = process.env.SANDBOX_BWRAP_PATH ?? "bwrap";
+function getSyncBundlePath(): string {
+	return process.env.SANDBOX_SYNC_PATH ?? "/workspace/sync.js";
+}
+function getAgentBundlePath(): string {
+	return process.env.SANDBOX_AGENT_PATH ?? "/workspace/agent.js";
+}
+function getBunExecutable(): string {
+	return process.env.SANDBOX_BUN_PATH ?? "bun";
+}
+function getBwrapExecutable(): string {
+	return process.env.SANDBOX_BWRAP_PATH ?? "bwrap";
+}
 
 /**
  * Build the argv for the bwrap-wrapped agent process. Extracted as a pure
@@ -38,7 +45,7 @@ const BWRAP_EXECUTABLE = process.env.SANDBOX_BWRAP_PATH ?? "bwrap";
  */
 export function buildAgentSpawnArgv(cwd: string): string[] {
 	return [
-		BWRAP_EXECUTABLE,
+		getBwrapExecutable(),
 		"--ro-bind",
 		"/",
 		"/",
@@ -57,8 +64,8 @@ export function buildAgentSpawnArgv(cwd: string): string[] {
 		"--unshare-ipc",
 		"--die-with-parent",
 		"--",
-		BUN_EXECUTABLE,
-		AGENT_BUNDLE_PATH,
+		getBunExecutable(),
+		getAgentBundlePath(),
 	];
 }
 
@@ -142,7 +149,7 @@ export async function spawnSync(input: {
 	userId: string;
 }): Promise<SyncResult> {
 	const proc = Bun.spawn(
-		[BUN_EXECUTABLE, SYNC_BUNDLE_PATH, "--user-id", input.userId],
+		[getBunExecutable(), getSyncBundlePath(), "--user-id", input.userId],
 		{
 			env: {
 				DATABASE_URL: process.env.DATABASE_URL ?? "",

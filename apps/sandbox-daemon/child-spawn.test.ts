@@ -55,7 +55,7 @@ describe("buildAgentSpawnArgv", () => {
 		expect(roRootIdx).toBeLessThan(bindIdx);
 	});
 
-	it("respects SANDBOX_BWRAP_PATH and SANDBOX_BUN_PATH env overrides", async () => {
+	it("respects SANDBOX_BWRAP_PATH and SANDBOX_BUN_PATH env overrides", () => {
 		const original = {
 			bwrap: process.env.SANDBOX_BWRAP_PATH,
 			bun: process.env.SANDBOX_BUN_PATH,
@@ -64,15 +64,14 @@ describe("buildAgentSpawnArgv", () => {
 		process.env.SANDBOX_BWRAP_PATH = "/custom/bwrap";
 		process.env.SANDBOX_BUN_PATH = "/custom/bun";
 		process.env.SANDBOX_AGENT_PATH = "/custom/agent.js";
-
-		// Reimport with overrides applied at module init time.
-		const fresh = await import(`./child-spawn?t=${Date.now()}`);
-		const argv = fresh.buildAgentSpawnArgv("/tmp/cwd");
-		expect(argv[0]).toBe("/custom/bwrap");
-		expect(argv.slice(-2)).toEqual(["/custom/bun", "/custom/agent.js"]);
-
-		process.env.SANDBOX_BWRAP_PATH = original.bwrap;
-		process.env.SANDBOX_BUN_PATH = original.bun;
-		process.env.SANDBOX_AGENT_PATH = original.agent;
+		try {
+			const argv = buildAgentSpawnArgv("/tmp/cwd");
+			expect(argv[0]).toBe("/custom/bwrap");
+			expect(argv.slice(-2)).toEqual(["/custom/bun", "/custom/agent.js"]);
+		} finally {
+			process.env.SANDBOX_BWRAP_PATH = original.bwrap;
+			process.env.SANDBOX_BUN_PATH = original.bun;
+			process.env.SANDBOX_AGENT_PATH = original.agent;
+		}
 	});
 });
