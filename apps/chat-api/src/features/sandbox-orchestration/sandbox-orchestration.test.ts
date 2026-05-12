@@ -55,7 +55,7 @@ describe("runSandboxChat", () => {
 		Bun.env.ANTHROPIC_API_KEY = "test-anthropic-key";
 		Bun.env.DEEPSEEK_API_KEY = "test-deepseek-key";
 		Bun.env.E2B_API_KEY = "test-e2b-key";
-		Bun.env.DAEMON_AUTH_SECRET = "test-daemon-auth-secret";
+		Bun.env.DAEMON_AUTH_TOKEN = "test-daemon-auth-token";
 		Bun.env.DATABASE_URL = "mysql://user:pass@localhost:3306/test";
 		({ runSandboxChat } = await import("./sandbox-orchestration"));
 		singletonModule = await import("./singleton");
@@ -71,7 +71,7 @@ describe("runSandboxChat", () => {
 			"ensureSandboxDaemon",
 		).mockResolvedValue({
 			url: "http://daemon:8080",
-			authToken: "daemon-token",
+			authToken: "test-daemon-auth-token",
 		});
 	});
 
@@ -96,7 +96,7 @@ describe("runSandboxChat", () => {
 		expect(spyForwardTurn).toHaveBeenCalledWith(
 			expect.objectContaining({
 				daemonUrl: "http://daemon:8080",
-				daemonAuthToken: "daemon-token",
+				daemonAuthToken: "test-daemon-auth-token",
 			}),
 		);
 	});
