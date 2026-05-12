@@ -15,10 +15,24 @@ import type { AgentEvent, SyncEvent } from "./ipc-protocol";
 export type { AgentEvent, SyncEvent } from "./ipc-protocol";
 export type SyncResult = SyncEvent;
 
-const SYNC_BUNDLE_PATH = process.env.SANDBOX_SYNC_PATH ?? "/workspace/sync.js";
-const AGENT_BUNDLE_PATH =
+// Resolved at call time so tests can swap env vars per scenario.
+const getSyncBundlePath = () =>
+	process.env.SANDBOX_SYNC_PATH ?? "/workspace/sync.js";
+const getAgentBundlePath = () =>
 	process.env.SANDBOX_AGENT_PATH ?? "/workspace/agent.js";
-const BUN_EXECUTABLE = process.env.SANDBOX_BUN_PATH ?? "bun";
+const getBunExecutable = () => process.env.SANDBOX_BUN_PATH ?? "bun";
+
+// Sync is bounded work (DB read + filesystem write); a wall-clock cap
+// is appropriate. Agent is a streaming workload so we use an idle
+// timeout instead — reset on every event from agent.js.
+const DEFAULT_SYNC_TIMEOUT_MS = 120_000;
+const DEFAULT_AGENT_IDLE_TIMEOUT_MS = 120_000;
+const getSyncTimeoutMs = () =>
+	Number(process.env.SANDBOX_SYNC_TIMEOUT_MS ?? DEFAULT_SYNC_TIMEOUT_MS);
+const getAgentIdleTimeoutMs = () =>
+	Number(
+		process.env.SANDBOX_AGENT_IDLE_TIMEOUT_MS ?? DEFAULT_AGENT_IDLE_TIMEOUT_MS,
+	);
 
 function narrowAgentEvent(raw: Record<string, unknown>): AgentEvent | null {
 	switch (raw.type) {
@@ -99,8 +113,9 @@ async function drainStderr(stream: ReadableStream<Uint8Array>): Promise<void> {
 export async function spawnSync(input: {
 	userId: string;
 }): Promise<SyncResult> {
+	const timeoutMs = getSyncTimeoutMs();
 	const proc = Bun.spawn(
-		[BUN_EXECUTABLE, SYNC_BUNDLE_PATH, "--user-id", input.userId],
+		[getBunExecutable(), getSyncBundlePath(), "--user-id", input.userId],
 		{
 			env: {
 				DATABASE_URL: process.env.DATABASE_URL ?? "",
@@ -112,31 +127,47 @@ export async function spawnSync(input: {
 		},
 	);
 
-	const stderrPromise = drainStderr(proc.stderr);
-	let terminal: SyncEvent | null = null;
-	for await (const event of readNdjson(proc.stdout)) {
-		if (
-			event.type === "synced" &&
-			typeof event.changed === "boolean" &&
-			typeof event.dataRoot === "string"
-		) {
-			terminal = {
-				type: "synced",
-				changed: event.changed,
-				dataRoot: event.dataRoot,
-			};
-		} else if (event.type === "failed" && typeof event.message === "string") {
-			terminal = { type: "failed", message: event.message };
-		}
-	}
-	await stderrPromise;
-	const exitCode = await proc.exited;
+	let timedOut = false;
+	const timer = setTimeout(() => {
+		timedOut = true;
+		proc.kill("SIGKILL");
+	}, timeoutMs);
 
-	if (terminal) return terminal;
-	return {
-		type: "failed",
-		message: `sync exited with code ${exitCode} without emitting a terminal event`,
-	};
+	try {
+		const stderrPromise = drainStderr(proc.stderr);
+		let terminal: SyncEvent | null = null;
+		for await (const event of readNdjson(proc.stdout)) {
+			if (
+				event.type === "synced" &&
+				typeof event.changed === "boolean" &&
+				typeof event.dataRoot === "string"
+			) {
+				terminal = {
+					type: "synced",
+					changed: event.changed,
+					dataRoot: event.dataRoot,
+				};
+			} else if (event.type === "failed" && typeof event.message === "string") {
+				terminal = { type: "failed", message: event.message };
+			}
+		}
+		await stderrPromise;
+		const exitCode = await proc.exited;
+
+		if (timedOut) {
+			return {
+				type: "failed",
+				message: `sync timed out after ${timeoutMs}ms`,
+			};
+		}
+		if (terminal) return terminal;
+		return {
+			type: "failed",
+			message: `sync exited with code ${exitCode} without emitting a terminal event`,
+		};
+	} finally {
+		clearTimeout(timer);
+	}
 }
 
 export interface SpawnAgentInput {
@@ -155,7 +186,8 @@ export async function spawnAgent(
 	input: SpawnAgentInput,
 ): Promise<SpawnAgentResult> {
 	const { onEvent, ...config } = input;
-	const proc = Bun.spawn([BUN_EXECUTABLE, AGENT_BUNDLE_PATH], {
+	const idleMs = getAgentIdleTimeoutMs();
+	const proc = Bun.spawn([getBunExecutable(), getAgentBundlePath()], {
 		env: {
 			ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
 			PATH: process.env.PATH ?? "",
@@ -169,12 +201,35 @@ export async function spawnAgent(
 	proc.stdin.write(JSON.stringify(config));
 	await proc.stdin.end();
 
-	const stderrPromise = drainStderr(proc.stderr);
-	for await (const event of readNdjson(proc.stdout)) {
-		const narrowed = narrowAgentEvent(event);
-		if (narrowed) await onEvent(narrowed);
+	let timedOut = false;
+	let idleTimer: ReturnType<typeof setTimeout>;
+	const armIdleTimer = () => {
+		clearTimeout(idleTimer);
+		idleTimer = setTimeout(() => {
+			timedOut = true;
+			proc.kill("SIGKILL");
+		}, idleMs);
+	};
+	armIdleTimer();
+
+	try {
+		const stderrPromise = drainStderr(proc.stderr);
+		for await (const event of readNdjson(proc.stdout)) {
+			armIdleTimer();
+			const narrowed = narrowAgentEvent(event);
+			if (narrowed) await onEvent(narrowed);
+		}
+		await stderrPromise;
+		const exitCode = await proc.exited;
+
+		if (timedOut) {
+			await onEvent({
+				type: "failed",
+				message: `agent idle timeout: no events for ${idleMs}ms`,
+			});
+		}
+		return { exitCode };
+	} finally {
+		clearTimeout(idleTimer);
 	}
-	await stderrPromise;
-	const exitCode = await proc.exited;
-	return { exitCode };
 }
