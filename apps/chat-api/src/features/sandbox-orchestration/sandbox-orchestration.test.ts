@@ -54,6 +54,8 @@ describe("runSandboxChat", () => {
 		Bun.env.OPENAI_API_KEY = "test-openai-key";
 		Bun.env.ANTHROPIC_API_KEY = "test-anthropic-key";
 		Bun.env.DEEPSEEK_API_KEY = "test-deepseek-key";
+		Bun.env.E2B_API_KEY = "test-e2b-key";
+		Bun.env.DATABASE_URL = "mysql://user:pass@localhost:3306/test";
 		({ runSandboxChat } = await import("./sandbox-orchestration"));
 		singletonModule = await import("./singleton");
 		proxyModule = await import("./sandbox-proxy");
@@ -66,12 +68,15 @@ describe("runSandboxChat", () => {
 		spyEnsureDaemon = spyOn(
 			singletonModule.sandboxManager,
 			"ensureSandboxDaemon",
-		).mockResolvedValue("http://daemon:8080");
+		).mockResolvedValue({
+			url: "http://daemon:8080",
+			authToken: "daemon-token",
+		});
 	});
 
 	afterEach(() => {
-		spyGetOrCreate.mockRestore();
-		spyEnsureDaemon.mockRestore();
+		spyGetOrCreate?.mockRestore();
+		spyEnsureDaemon?.mockRestore();
 		spyForwardTurn?.mockRestore();
 		mock.restore();
 	});
@@ -87,7 +92,12 @@ describe("runSandboxChat", () => {
 		expect(result).toEqual({ status: "completed" });
 		expect(spyGetOrCreate).toHaveBeenCalled();
 		expect(spyEnsureDaemon).toHaveBeenCalled();
-		expect(spyForwardTurn).toHaveBeenCalled();
+		expect(spyForwardTurn).toHaveBeenCalledWith(
+			expect.objectContaining({
+				daemonUrl: "http://daemon:8080",
+				daemonAuthToken: "daemon-token",
+			}),
+		);
 	});
 
 	it("forwards request sessionId as agent_session_id", async () => {

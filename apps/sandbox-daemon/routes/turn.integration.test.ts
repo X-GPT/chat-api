@@ -65,6 +65,7 @@ describe("POST /turn integration", () => {
 	});
 
 	beforeEach(() => {
+		process.env.DAEMON_AUTH_TOKEN = "daemon-token";
 		mockSpawnSync.mockReset();
 		mockSpawnSync.mockImplementation(async () => ({
 			type: "synced",
@@ -91,6 +92,13 @@ describe("POST /turn integration", () => {
 		};
 	}
 
+	function turnHeaders() {
+		return {
+			"Content-Type": "application/json",
+			"X-Daemon-Auth-Token": "daemon-token",
+		};
+	}
+
 	function parseNdjson(text: string): Array<Record<string, unknown>> {
 		return text
 			.split("\n")
@@ -109,6 +117,19 @@ describe("POST /turn integration", () => {
 		return { exitCode };
 	}
 
+	it("rejects requests without daemon auth token", async () => {
+		const res = await app.request("/turn", {
+			method: "POST",
+			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(makeTurnBody()),
+		});
+
+		expect(res.status).toBe(401);
+		expect(await res.json()).toEqual({ error: "Unauthorized" });
+		expect(mockSpawnSync).not.toHaveBeenCalled();
+		expect(mockSpawnAgent).not.toHaveBeenCalled();
+	});
+
 	it("streams text_delta events forwarded from agent.js", async () => {
 		mockSpawnAgent.mockImplementation((input) =>
 			emitAgent(input, [
@@ -120,7 +141,7 @@ describe("POST /turn integration", () => {
 
 		const res = await app.request("/turn", {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
+			headers: turnHeaders(),
 			body: JSON.stringify(makeTurnBody()),
 		});
 
@@ -148,7 +169,7 @@ describe("POST /turn integration", () => {
 
 		const res = await app.request("/turn", {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
+			headers: turnHeaders(),
 			body: JSON.stringify(makeTurnBody()),
 		});
 
@@ -164,7 +185,7 @@ describe("POST /turn integration", () => {
 
 		const res = await app.request("/turn", {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
+			headers: turnHeaders(),
 			body: JSON.stringify(makeTurnBody()),
 		});
 
@@ -181,7 +202,7 @@ describe("POST /turn integration", () => {
 
 		const res = await app.request("/turn", {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
+			headers: turnHeaders(),
 			body: JSON.stringify(makeTurnBody()),
 		});
 
@@ -199,7 +220,7 @@ describe("POST /turn integration", () => {
 
 		const res = await app.request("/turn", {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
+			headers: turnHeaders(),
 			body: JSON.stringify(makeTurnBody()),
 		});
 
@@ -226,7 +247,7 @@ describe("POST /turn integration", () => {
 
 		const req1Promise = app.request("/turn", {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
+			headers: turnHeaders(),
 			body: JSON.stringify(body1),
 		});
 
@@ -235,7 +256,7 @@ describe("POST /turn integration", () => {
 
 		const res2 = await app.request("/turn", {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
+			headers: turnHeaders(),
 			body: JSON.stringify(body2),
 		});
 

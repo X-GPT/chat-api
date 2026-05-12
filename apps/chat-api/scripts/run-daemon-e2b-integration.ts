@@ -29,6 +29,7 @@ const logger: SyncLogger = {
 const userId = `e2b-test-${Date.now()}`;
 let sandbox: Sandbox;
 let daemonUrl: string;
+let daemonAuthToken: string;
 const sandboxManager = new SandboxManager();
 const db = getDb();
 
@@ -108,7 +109,13 @@ async function setup() {
 
 async function testDaemonDeployment() {
 	console.log("\n=== Test 1: Daemon Deployment ===");
-	daemonUrl = await sandboxManager.ensureSandboxDaemon(userId, sandbox, logger);
+	const daemon = await sandboxManager.ensureSandboxDaemon(
+		userId,
+		sandbox,
+		logger,
+	);
+	daemonUrl = daemon.url;
+	daemonAuthToken = daemon.authToken;
 	console.log(`Daemon URL: ${daemonUrl}`);
 
 	const healthRes = await fetch(`${daemonUrl}/health`);
@@ -148,8 +155,16 @@ async function testIdempotentDeploy() {
 	);
 	const elapsed = performance.now() - start;
 
-	assert.equal(url2, daemonUrl);
+	assert.equal(url2.url, daemonUrl);
+	assert.equal(url2.authToken, daemonAuthToken);
 	console.log(`✓ Idempotent deploy took ${elapsed.toFixed(0)}ms`);
+}
+
+function turnHeaders() {
+	return {
+		"Content-Type": "application/json",
+		"X-Daemon-Auth-Token": daemonAuthToken,
+	};
 }
 
 async function dumpSandboxDiagnostics() {
@@ -203,7 +218,7 @@ async function testReconciliationAndTurn() {
 	try {
 		res = await fetch(`${daemonUrl}/turn`, {
 			method: "POST",
-			headers: { "Content-Type": "application/json" },
+			headers: turnHeaders(),
 			body: JSON.stringify(turnBody),
 			signal: AbortSignal.timeout(120_000),
 		});
@@ -322,7 +337,7 @@ async function testSyncSkip() {
 
 	const res = await fetch(`${daemonUrl}/turn`, {
 		method: "POST",
-		headers: { "Content-Type": "application/json" },
+		headers: turnHeaders(),
 		body: JSON.stringify(turnBody),
 		signal: AbortSignal.timeout(120_000),
 	});
@@ -345,7 +360,7 @@ async function testConcurrentTurnRejection() {
 
 	const longTurnPromise = fetch(`${daemonUrl}/turn`, {
 		method: "POST",
-		headers: { "Content-Type": "application/json" },
+		headers: turnHeaders(),
 		body: JSON.stringify(longTurnBody),
 		signal: AbortSignal.timeout(120_000),
 	});
@@ -354,7 +369,7 @@ async function testConcurrentTurnRejection() {
 
 	const res2 = await fetch(`${daemonUrl}/turn`, {
 		method: "POST",
-		headers: { "Content-Type": "application/json" },
+		headers: turnHeaders(),
 		body: JSON.stringify({
 			...longTurnBody,
 			request_id: `turn-blocked-${Date.now()}`,
@@ -387,7 +402,7 @@ async function sendTurn(
 	await waitForIdle();
 	const res = await fetch(`${daemonUrl}/turn`, {
 		method: "POST",
-		headers: { "Content-Type": "application/json" },
+		headers: turnHeaders(),
 		body: JSON.stringify(body),
 		signal: AbortSignal.timeout(120_000),
 	});
@@ -579,10 +594,7 @@ async function testTitleOnlyChange() {
 		.update(userFiles)
 		.set({ title: "Paris City Guide" })
 		.where(
-			and(
-				eq(userFiles.userId, userId),
-				eq(userFiles.documentId, "doc-1"),
-			),
+			and(eq(userFiles.userId, userId), eq(userFiles.documentId, "doc-1")),
 		);
 	console.log('Updated doc-1 title to "Paris City Guide"');
 
