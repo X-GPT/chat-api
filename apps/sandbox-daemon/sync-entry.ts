@@ -15,11 +15,12 @@
  * sandbox bundle graph.
  */
 
+import type { SyncEvent } from "./ipc-protocol";
 import { getDataRoot } from "./materialization";
 import { reconcile } from "./reconcile";
 
-function emit(obj: Record<string, unknown>): void {
-	process.stdout.write(`${JSON.stringify(obj)}\n`);
+function emit(event: SyncEvent): void {
+	process.stdout.write(`${JSON.stringify(event)}\n`);
 }
 
 function parseArgs(argv: string[]): { userId: string } {

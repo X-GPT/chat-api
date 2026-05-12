@@ -10,20 +10,35 @@
  * chat-api writes the three bundles to /workspace/{daemon,sync,agent}.js.
  */
 
+import type { AgentEvent, SyncEvent } from "./ipc-protocol";
+
+export type { AgentEvent, SyncEvent } from "./ipc-protocol";
+export type SyncResult = SyncEvent;
+
 const SYNC_BUNDLE_PATH = process.env.SANDBOX_SYNC_PATH ?? "/workspace/sync.js";
 const AGENT_BUNDLE_PATH =
 	process.env.SANDBOX_AGENT_PATH ?? "/workspace/agent.js";
 const BUN_EXECUTABLE = process.env.SANDBOX_BUN_PATH ?? "bun";
 
-export type SyncResult =
-	| { type: "synced"; changed: boolean; dataRoot: string }
-	| { type: "failed"; message: string };
-
-export type AgentEvent =
-	| { type: "text_delta"; text: string }
-	| { type: "session_id"; sessionId: string }
-	| { type: "completed" }
-	| { type: "failed"; message: string };
+function narrowAgentEvent(raw: Record<string, unknown>): AgentEvent | null {
+	switch (raw.type) {
+		case "text_delta":
+			if (typeof raw.text === "string") return { type: "text_delta", text: raw.text };
+			return null;
+		case "session_id":
+			if (typeof raw.sessionId === "string")
+				return { type: "session_id", sessionId: raw.sessionId };
+			return null;
+		case "completed":
+			return { type: "completed" };
+		case "failed":
+			if (typeof raw.message === "string")
+				return { type: "failed", message: raw.message };
+			return null;
+		default:
+			return null;
+	}
+}
 
 async function* readNdjson(
 	stream: ReadableStream<Uint8Array>,
@@ -98,20 +113,20 @@ export async function spawnSync(input: {
 	);
 
 	const stderrPromise = drainStderr(proc.stderr);
-	let terminal: SyncResult | null = null;
+	let terminal: SyncEvent | null = null;
 	for await (const event of readNdjson(proc.stdout)) {
-		if (event.type === "synced") {
+		if (
+			event.type === "synced" &&
+			typeof event.changed === "boolean" &&
+			typeof event.dataRoot === "string"
+		) {
 			terminal = {
 				type: "synced",
-				changed: event.changed === true,
-				dataRoot: typeof event.dataRoot === "string" ? event.dataRoot : "",
+				changed: event.changed,
+				dataRoot: event.dataRoot,
 			};
-		} else if (event.type === "failed") {
-			terminal = {
-				type: "failed",
-				message:
-					typeof event.message === "string" ? event.message : "sync failed",
-			};
+		} else if (event.type === "failed" && typeof event.message === "string") {
+			terminal = { type: "failed", message: event.message };
 		}
 	}
 	await stderrPromise;
@@ -156,14 +171,8 @@ export async function spawnAgent(
 
 	const stderrPromise = drainStderr(proc.stderr);
 	for await (const event of readNdjson(proc.stdout)) {
-		if (
-			event.type === "text_delta" ||
-			event.type === "session_id" ||
-			event.type === "completed" ||
-			event.type === "failed"
-		) {
-			await onEvent(event as AgentEvent);
-		}
+		const narrowed = narrowAgentEvent(event);
+		if (narrowed) await onEvent(narrowed);
 	}
 	await stderrPromise;
 	const exitCode = await proc.exited;

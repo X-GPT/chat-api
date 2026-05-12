@@ -17,16 +17,23 @@ const DAEMON_HEALTH_CHECK_INTERVAL_MS = 500;
 // the hash of all three concatenated — any change to any one triggers a
 // daemon restart. The daemon spawns sync.js / agent.js per turn; only the
 // daemon bundle is long-running.
-const SANDBOX_BUNDLES = [
-	{
-		name: "daemon",
-		sandboxPath: "/workspace/daemon.js",
-		distFile: "daemon.js",
-	},
-	{ name: "sync", sandboxPath: "/workspace/sync.js", distFile: "sync.js" },
-	{ name: "agent", sandboxPath: "/workspace/agent.js", distFile: "agent.js" },
-] as const;
-const DAEMON_BUNDLE_PATH = SANDBOX_BUNDLES[0].sandboxPath;
+const DAEMON_BUNDLE = {
+	name: "daemon",
+	sandboxPath: "/workspace/daemon.js",
+	distFile: "daemon.js",
+} as const;
+const SYNC_BUNDLE = {
+	name: "sync",
+	sandboxPath: "/workspace/sync.js",
+	distFile: "sync.js",
+} as const;
+const AGENT_BUNDLE = {
+	name: "agent",
+	sandboxPath: "/workspace/agent.js",
+	distFile: "agent.js",
+} as const;
+const SANDBOX_BUNDLES = [DAEMON_BUNDLE, SYNC_BUNDLE, AGENT_BUNDLE] as const;
+const DAEMON_BUNDLE_PATH = DAEMON_BUNDLE.sandboxPath;
 const DIST_DIR = resolve(
 	import.meta.dirname,
 	"../../../../sandbox-daemon/dist",

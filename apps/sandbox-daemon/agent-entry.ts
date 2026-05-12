@@ -19,6 +19,7 @@
  */
 
 import { runAgent } from "./agent";
+import type { AgentEvent } from "./ipc-protocol";
 
 interface AgentConfig {
 	userQuery: string;
@@ -27,8 +28,8 @@ interface AgentConfig {
 	sessionId?: string;
 }
 
-function emit(obj: Record<string, unknown>): void {
-	process.stdout.write(`${JSON.stringify(obj)}\n`);
+function emit(event: AgentEvent): void {
+	process.stdout.write(`${JSON.stringify(event)}\n`);
 }
 
 async function readStdin(): Promise<string> {
