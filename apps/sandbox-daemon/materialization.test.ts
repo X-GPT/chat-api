@@ -132,12 +132,24 @@ describe("materialization", () => {
 			const dataRoot = join(testRoot, "count-test");
 			writeCanonicalFile(
 				dataRoot,
-				{ document_id: "a", type: 0, collections: [], content: "x", checksum: "c1" },
+				{
+					document_id: "a",
+					type: 0,
+					collections: [],
+					content: "x",
+					checksum: "c1",
+				},
 				emptyCollectionNames,
 			);
 			writeCanonicalFile(
 				dataRoot,
-				{ document_id: "b", type: 3, collections: [], content: "y", checksum: "c2" },
+				{
+					document_id: "b",
+					type: 3,
+					collections: [],
+					content: "y",
+					checksum: "c2",
+				},
 				emptyCollectionNames,
 			);
 			expect(countCanonicalFiles(dataRoot)).toBe(2);
@@ -567,10 +579,7 @@ describe("materialization", () => {
 
 			await writeIndexFile(dataRoot, entries, collectionNames);
 
-			const content = readFileSync(
-				`${dataRoot}/canonical/_index.md`,
-				"utf-8",
-			);
+			const content = readFileSync(`${dataRoot}/canonical/_index.md`, "utf-8");
 			expect(content).toContain("# Collections");
 			expect(content).toContain("## Research (col-A)");
 			expect(content).toContain("## Reading (col-B)");
@@ -597,10 +606,7 @@ describe("materialization", () => {
 				new Map(),
 			);
 
-			const content = readFileSync(
-				`${dataRoot}/canonical/_index.md`,
-				"utf-8",
-			);
+			const content = readFileSync(`${dataRoot}/canonical/_index.md`, "utf-8");
 			expect(content).toContain("## Uncategorized");
 			expect(content).toContain("- doc-1 (0/doc-1.md)");
 		});
@@ -622,10 +628,7 @@ describe("materialization", () => {
 				new Map(),
 			);
 
-			const content = readFileSync(
-				`${dataRoot}/canonical/_index.md`,
-				"utf-8",
-			);
+			const content = readFileSync(`${dataRoot}/canonical/_index.md`, "utf-8");
 			expect(content).toContain("## col-unknown (col-unknown)");
 		});
 
@@ -656,10 +659,7 @@ describe("materialization", () => {
 
 			await writeIndexFile(dataRoot, entries, collectionNames);
 
-			const content = readFileSync(
-				`${dataRoot}/canonical/_index.md`,
-				"utf-8",
-			);
+			const content = readFileSync(`${dataRoot}/canonical/_index.md`, "utf-8");
 			const alphaPos = content.indexOf("## Alpha");
 			const zebraPos = content.indexOf("## Zebra");
 			expect(alphaPos).toBeGreaterThan(-1);
@@ -685,10 +685,7 @@ describe("materialization", () => {
 				new Map([["col-A", "Collection\nName"]]),
 			);
 
-			const content = readFileSync(
-				`${dataRoot}/canonical/_index.md`,
-				"utf-8",
-			);
+			const content = readFileSync(`${dataRoot}/canonical/_index.md`, "utf-8");
 			// Newlines should be replaced with spaces, not injecting extra lines
 			expect(content).toContain("- Title With Newlines");
 			expect(content).toContain("## Collection Name (col-A)");
@@ -702,10 +699,7 @@ describe("materialization", () => {
 
 			await writeIndexFile(dataRoot, [], new Map());
 
-			const content = readFileSync(
-				`${dataRoot}/canonical/_index.md`,
-				"utf-8",
-			);
+			const content = readFileSync(`${dataRoot}/canonical/_index.md`, "utf-8");
 			expect(content).toContain("# Collections");
 			expect(content).not.toContain("## Uncategorized");
 		});
