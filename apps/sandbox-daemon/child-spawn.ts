@@ -19,6 +19,48 @@ const SYNC_BUNDLE_PATH = process.env.SANDBOX_SYNC_PATH ?? "/workspace/sync.js";
 const AGENT_BUNDLE_PATH =
 	process.env.SANDBOX_AGENT_PATH ?? "/workspace/agent.js";
 const BUN_EXECUTABLE = process.env.SANDBOX_BUN_PATH ?? "bun";
+const BWRAP_EXECUTABLE = process.env.SANDBOX_BWRAP_PATH ?? "bwrap";
+
+/**
+ * Build the argv for the bwrap-wrapped agent process. Extracted as a pure
+ * helper so the flag set is easy to inspect and unit-test.
+ *
+ * The agent gets:
+ *   - read-only view of the full root filesystem (so node_modules, the bun
+ *     binary, the claude executable, /etc/ssl, etc. are all reachable);
+ *   - read-write access to its scope cwd only;
+ *   - a fresh tmpfs at /tmp;
+ *   - private /proc and /dev (no daemon process visibility);
+ *   - private user, pid, uts, ipc namespaces;
+ *   - inherited network namespace — the SDK calls api.anthropic.com over
+ *     HTTPS, so we cannot --unshare-net.
+ *   - --die-with-parent so a daemon crash takes bwrap + the agent with it.
+ */
+export function buildAgentSpawnArgv(cwd: string): string[] {
+	return [
+		BWRAP_EXECUTABLE,
+		"--ro-bind",
+		"/",
+		"/",
+		"--bind",
+		cwd,
+		cwd,
+		"--tmpfs",
+		"/tmp",
+		"--proc",
+		"/proc",
+		"--dev",
+		"/dev",
+		"--unshare-user",
+		"--unshare-pid",
+		"--unshare-uts",
+		"--unshare-ipc",
+		"--die-with-parent",
+		"--",
+		BUN_EXECUTABLE,
+		AGENT_BUNDLE_PATH,
+	];
+}
 
 function narrowAgentEvent(raw: Record<string, unknown>): AgentEvent | null {
 	switch (raw.type) {
@@ -155,7 +197,7 @@ export async function spawnAgent(
 	input: SpawnAgentInput,
 ): Promise<SpawnAgentResult> {
 	const { onEvent, ...config } = input;
-	const proc = Bun.spawn([BUN_EXECUTABLE, AGENT_BUNDLE_PATH], {
+	const proc = Bun.spawn(buildAgentSpawnArgv(config.cwd), {
 		env: {
 			ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
 			PATH: process.env.PATH ?? "",
