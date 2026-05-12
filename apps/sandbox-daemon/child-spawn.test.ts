@@ -36,23 +36,31 @@ describe("buildAgentSpawnArgv", () => {
 		expect(flags).toContain("--die-with-parent");
 	});
 
-	it("binds the cwd path as read-write, not just read-only", () => {
+	it("masks /workspace/data, then re-binds only the selected scope rw", () => {
 		const cwd = "/workspace/data/u2/scopes/request-doc-42";
 		const argv = buildAgentSpawnArgv(cwd);
 
-		// --bind <cwd> <cwd> must appear (rw binding for the agent's scope).
-		const bindIdx = argv.findIndex(
-			(a, i) => a === "--bind" && argv[i + 1] === cwd && argv[i + 2] === cwd,
-		);
-		expect(bindIdx).toBeGreaterThan(-1);
-
-		// And the read-only root mount must appear before it (later mounts
-		// shadow earlier ones; cwd's rw bind must come after `/` ro-bind).
 		const roRootIdx = argv.findIndex(
 			(a, i) => a === "--ro-bind" && argv[i + 1] === "/" && argv[i + 2] === "/",
 		);
+		const tmpfsDataIdx = argv.findIndex(
+			(a, i) => a === "--tmpfs" && argv[i + 1] === "/workspace/data",
+		);
+		const bindCwdIdx = argv.findIndex(
+			(a, i) => a === "--bind" && argv[i + 1] === cwd && argv[i + 2] === cwd,
+		);
+
 		expect(roRootIdx).toBeGreaterThan(-1);
-		expect(roRootIdx).toBeLessThan(bindIdx);
+		expect(tmpfsDataIdx).toBeGreaterThan(-1);
+		expect(bindCwdIdx).toBeGreaterThan(-1);
+
+		// Ordering matters: later mounts shadow earlier ones for the same
+		// subtree. Required order: ro-bind / first, tmpfs over /workspace/data
+		// second (masks every user's data tree), bind cwd third (re-exposes
+		// only the selected scope). Cross-scope reads via absolute paths
+		// outside cwd are blocked by the tmpfs.
+		expect(roRootIdx).toBeLessThan(tmpfsDataIdx);
+		expect(tmpfsDataIdx).toBeLessThan(bindCwdIdx);
 	});
 
 	it("respects SANDBOX_BWRAP_PATH and SANDBOX_BUN_PATH env overrides", () => {

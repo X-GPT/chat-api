@@ -28,19 +28,36 @@ function getBwrapExecutable(): string {
 	return process.env.SANDBOX_BWRAP_PATH ?? "bwrap";
 }
 
+const DATA_ROOT = "/workspace/data";
+
 /**
  * Build the argv for the bwrap-wrapped agent process. Extracted as a pure
  * helper so the flag set is easy to inspect and unit-test.
  *
- * The agent gets:
- *   - read-only view of the full root filesystem (so node_modules, the bun
- *     binary, the claude executable, /etc/ssl, etc. are all reachable);
- *   - read-write access to its scope cwd only;
- *   - a fresh tmpfs at /tmp;
- *   - private /proc and /dev (no daemon process visibility);
- *   - private user, pid, uts, ipc namespaces;
- *   - inherited network namespace — the SDK calls api.anthropic.com over
+ * Filesystem layout:
+ *   1. --ro-bind / /                  — system libs, bun, claude, /etc/ssl,
+ *                                        node_modules. Read-only.
+ *   2. --tmpfs /workspace/data        — mask the entire user data root so
+ *                                        the agent cannot read other
+ *                                        collections / documents via
+ *                                        absolute paths even with Read.
+ *   3. --bind <cwd> <cwd>             — re-expose only the selected scope
+ *                                        as read-write. For collection/
+ *                                        document scopes this is a subdir;
+ *                                        for global scope it's the
+ *                                        canonical tree (entire flat doc
+ *                                        list, which is the point).
+ *                                        Hardlinks inside the bound subtree
+ *                                        still resolve because reads go
+ *                                        through inode, not path.
+ *   4. --tmpfs /tmp                   — fresh scratch space.
+ *
+ * Namespaces:
+ *   - --unshare-user, --unshare-pid, --unshare-uts, --unshare-ipc.
+ *   - Inherited network — the Claude SDK calls api.anthropic.com over
  *     HTTPS, so we cannot --unshare-net.
+ *
+ * Lifetime:
  *   - --die-with-parent so a daemon crash takes bwrap + the agent with it.
  */
 export function buildAgentSpawnArgv(cwd: string): string[] {
@@ -49,6 +66,8 @@ export function buildAgentSpawnArgv(cwd: string): string[] {
 		"--ro-bind",
 		"/",
 		"/",
+		"--tmpfs",
+		DATA_ROOT,
 		"--bind",
 		cwd,
 		cwd,
