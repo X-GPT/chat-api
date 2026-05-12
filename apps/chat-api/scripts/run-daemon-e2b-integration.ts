@@ -163,7 +163,7 @@ async function testIdempotentDeploy() {
 function turnHeaders() {
 	return {
 		"Content-Type": "application/json",
-		"X-Daemon-Auth-Token": daemonAuthToken,
+		"x-daemon-auth-token": daemonAuthToken,
 	};
 }
 

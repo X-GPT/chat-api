@@ -1,3 +1,4 @@
+import { timingSafeEqual } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { Hono } from "hono";
 import { stream } from "hono/streaming";
@@ -13,6 +14,11 @@ import { acquireTurn } from "../turn-lock";
 
 const app = new Hono();
 const DAEMON_AUTH_HEADER = "x-daemon-auth-token";
+
+function authTokenMatches(presented: string | undefined, expected: string): boolean {
+	if (!presented || presented.length !== expected.length) return false;
+	return timingSafeEqual(Buffer.from(presented), Buffer.from(expected));
+}
 
 interface TurnRequest {
 	request_id: string;
@@ -31,7 +37,7 @@ function ndjsonLine(obj: Record<string, unknown>): string {
 
 app.post("/turn", async (c) => {
 	const expectedToken = process.env.DAEMON_AUTH_TOKEN;
-	if (!expectedToken || c.req.header(DAEMON_AUTH_HEADER) !== expectedToken) {
+	if (!expectedToken || !authTokenMatches(c.req.header(DAEMON_AUTH_HEADER), expectedToken)) {
 		return c.json({ error: "Unauthorized" }, 401);
 	}
 

@@ -31,7 +31,7 @@ describe("forwardChatTurnToSandbox", () => {
 		const originalFetch = globalThis.fetch;
 		globalThis.fetch = mock((_url, init) => {
 			const headers = new Headers((init as RequestInit).headers);
-			expect(headers.get("X-Daemon-Auth-Token")).toBe("daemon-token");
+			expect(headers.get("x-daemon-auth-token")).toBe("daemon-token");
 			return Promise.resolve(
 				new Response(ndjsonBody([{ type: "completed" }]), { status: 200 }),
 			);

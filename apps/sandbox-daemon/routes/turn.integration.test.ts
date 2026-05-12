@@ -95,7 +95,7 @@ describe("POST /turn integration", () => {
 	function turnHeaders() {
 		return {
 			"Content-Type": "application/json",
-			"X-Daemon-Auth-Token": "daemon-token",
+			"x-daemon-auth-token": "daemon-token",
 		};
 	}
 
@@ -121,6 +121,22 @@ describe("POST /turn integration", () => {
 		const res = await app.request("/turn", {
 			method: "POST",
 			headers: { "Content-Type": "application/json" },
+			body: JSON.stringify(makeTurnBody()),
+		});
+
+		expect(res.status).toBe(401);
+		expect(await res.json()).toEqual({ error: "Unauthorized" });
+		expect(mockSpawnSync).not.toHaveBeenCalled();
+		expect(mockSpawnAgent).not.toHaveBeenCalled();
+	});
+
+	it("rejects requests with a wrong daemon auth token", async () => {
+		const res = await app.request("/turn", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"x-daemon-auth-token": "wrong-token",
+			},
 			body: JSON.stringify(makeTurnBody()),
 		});
 

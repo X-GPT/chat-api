@@ -40,7 +40,7 @@ export async function forwardChatTurnToSandbox(
 		method: "POST",
 		headers: {
 			"Content-Type": "application/json",
-			"X-Daemon-Auth-Token": daemonAuthToken,
+			"x-daemon-auth-token": daemonAuthToken,
 		},
 		body: JSON.stringify(turnRequest),
 		signal: AbortSignal.timeout(120_000),

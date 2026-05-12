@@ -150,6 +150,12 @@ export class SandboxManager {
 		sandbox: Sandbox,
 		logger: SyncLogger,
 	): Promise<void> {
+		// Drop the auth-token entry regardless of kill outcome: keeping it
+		// around for a sandbox we tried to kill would just leak memory; if
+		// the same sandboxId somehow gets reconnected later, a missing
+		// token will trigger a daemon restart with a fresh one.
+		this.daemonAuthTokens.delete(sandbox.sandboxId);
+
 		try {
 			await sandbox.kill();
 		} catch (err) {
