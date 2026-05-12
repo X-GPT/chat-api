@@ -73,6 +73,22 @@ describe("buildAgentSpawnArgv", () => {
 		expect(tmpfsWorkspaceIdx).toBeLessThan(bindCwdIdx);
 	});
 
+	it("re-binds ~/.claude/projects rw so the Claude SDK can persist sessions", () => {
+		// Claude Agent SDK writes session transcripts under ~/.claude/projects;
+		// with --ro-bind / / that path would be read-only and both the
+		// first-turn write and resume on subsequent turns would silently
+		// fail. Pin that we re-bind it rw.
+		const argv = buildAgentSpawnArgv("/workspace/data/u1/canonical");
+		const projectsDir = `${Bun.env.HOME ?? "/home/user"}/.claude/projects`;
+		const idx = argv.findIndex(
+			(a, i) =>
+				a === "--bind" &&
+				argv[i + 1] === projectsDir &&
+				argv[i + 2] === projectsDir,
+		);
+		expect(idx).toBeGreaterThan(-1);
+	});
+
 	it("does not expose /workspace/daemon.log, daemon.js, or sync.js", () => {
 		const argv = buildAgentSpawnArgv("/workspace/data/u1/canonical");
 		// None of these paths should appear anywhere in the argv — they are

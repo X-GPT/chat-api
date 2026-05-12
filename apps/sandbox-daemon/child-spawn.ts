@@ -10,6 +10,7 @@
  * chat-api writes the three bundles to /workspace/{daemon,sync,agent}.js.
  */
 
+import { mkdirSync } from "node:fs";
 import type { AgentEvent, SyncEvent } from "./ipc-protocol";
 
 export type { AgentEvent, SyncEvent } from "./ipc-protocol";
@@ -33,6 +34,17 @@ function getBwrapExecutable(): string {
 // (apps/chat-api/src/features/sandbox-orchestration/sandbox-manager.ts).
 // Changing it requires updating all three.
 const WORKSPACE_ROOT = "/workspace";
+
+// The Claude Agent SDK persists session transcripts to
+// ~/.claude/projects/ by default. With --ro-bind / / that directory is
+// read-only inside bwrap, which breaks both the first-turn write and any
+// `resume: sessionId` on later turns. Re-bind just this subtree as rw.
+// Confined to the specific directory the SDK writes to so the rest of
+// ~/.claude (settings, auth state) stays read-only.
+function getClaudeProjectsDir(): string {
+	const home = Bun.env.HOME ?? "/home/user";
+	return `${home}/.claude/projects`;
+}
 
 /**
  * Build the argv for the bwrap-wrapped agent process. Extracted as a pure
@@ -59,7 +71,14 @@ const WORKSPACE_ROOT = "/workspace";
  *                                             not path, so collection scopes
  *                                             can still read their
  *                                             underlying canonical content.
- *   5. --tmpfs /tmp                        — fresh scratch space.
+ *   5. --bind ~/.claude/projects ...       — re-expose the Claude Agent SDK's
+ *                                             session transcript directory
+ *                                             rw so resume across turns
+ *                                             works. Caller is responsible
+ *                                             for ensuring the dir exists
+ *                                             before spawn (see
+ *                                             ensureClaudeProjectsDir).
+ *   6. --tmpfs /tmp                        — fresh scratch space.
  *
  * Namespaces:
  *   - --unshare-user, --unshare-pid, --unshare-uts, --unshare-ipc.
@@ -71,6 +90,7 @@ const WORKSPACE_ROOT = "/workspace";
  */
 export function buildAgentSpawnArgv(cwd: string): string[] {
 	const agentBundle = getAgentBundlePath();
+	const claudeProjectsDir = getClaudeProjectsDir();
 	return [
 		getBwrapExecutable(),
 		"--ro-bind",
@@ -84,6 +104,9 @@ export function buildAgentSpawnArgv(cwd: string): string[] {
 		"--bind",
 		cwd,
 		cwd,
+		"--bind",
+		claudeProjectsDir,
+		claudeProjectsDir,
 		"--tmpfs",
 		"/tmp",
 		"--proc",
@@ -99,6 +122,16 @@ export function buildAgentSpawnArgv(cwd: string): string[] {
 		getBunExecutable(),
 		agentBundle,
 	];
+}
+
+/**
+ * Pre-create ~/.claude/projects so the bwrap --bind has something to mount.
+ * Idempotent. Must be called before spawnAgent on every turn — bwrap fails
+ * if the source path doesn't exist, and the SDK can't create it itself
+ * (the rest of ~/.claude is read-only inside the sandbox).
+ */
+function ensureClaudeProjectsDir(): void {
+	mkdirSync(getClaudeProjectsDir(), { recursive: true });
 }
 
 function narrowAgentEvent(raw: Record<string, unknown>): AgentEvent | null {
@@ -236,6 +269,7 @@ export async function spawnAgent(
 	input: SpawnAgentInput,
 ): Promise<SpawnAgentResult> {
 	const { onEvent, ...config } = input;
+	ensureClaudeProjectsDir();
 	const proc = Bun.spawn(buildAgentSpawnArgv(config.cwd), {
 		env: {
 			ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
