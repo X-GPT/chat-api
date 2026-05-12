@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 import { resolve } from "node:path";
 import { Sandbox } from "e2b";
 import { apiEnv } from "@/config/env";
@@ -44,6 +45,11 @@ interface SandboxBundleSet {
 	version: string;
 }
 
+export interface SandboxDaemonEndpoint {
+	url: string;
+	authToken: string;
+}
+
 let bundlePromise: Promise<SandboxBundleSet> | null = null;
 
 function getSandboxBundles(): Promise<SandboxBundleSet> {
@@ -73,6 +79,12 @@ async function loadSandboxBundles(): Promise<SandboxBundleSet> {
 }
 
 export class SandboxManager {
+	private getDaemonAuthToken(sandbox: Sandbox): string {
+		return createHmac("sha256", apiEnv.DAEMON_AUTH_SECRET)
+			.update(sandbox.sandboxId)
+			.digest("hex");
+	}
+
 	async getOrCreateSandbox(
 		userId: string,
 		sandboxId: string | null,
@@ -157,15 +169,16 @@ export class SandboxManager {
 		userId: string,
 		sandbox: Sandbox,
 		logger: SyncLogger,
-	): Promise<string> {
+	): Promise<SandboxDaemonEndpoint> {
 		const daemonUrl = this.getDaemonUrl(sandbox);
+		const authToken = this.getDaemonAuthToken(sandbox);
 
 		const bundles = await getSandboxBundles();
 
 		try {
 			const health = await this.checkDaemonHealth(daemonUrl);
 			if (health && health.version === bundles.version) {
-				return daemonUrl;
+				return { url: daemonUrl, authToken };
 			}
 
 			if (health) {
@@ -174,8 +187,8 @@ export class SandboxManager {
 					currentVersion: health.version,
 					expectedVersion: bundles.version,
 				});
-				await this.restartDaemon(sandbox, logger, bundles);
-				return daemonUrl;
+				await this.restartDaemon(sandbox, logger, bundles, authToken);
+				return { url: daemonUrl, authToken };
 			}
 		} catch {
 			// Daemon not running, deploy it
@@ -187,8 +200,8 @@ export class SandboxManager {
 			sandboxId: sandbox.sandboxId,
 		});
 
-		await this.deploySandboxBundles(sandbox, logger, bundles);
-		return daemonUrl;
+		await this.deploySandboxBundles(sandbox, logger, bundles, authToken);
+		return { url: daemonUrl, authToken };
 	}
 
 	getDaemonUrl(sandbox: Sandbox): string {
@@ -218,6 +231,7 @@ export class SandboxManager {
 		sandbox: Sandbox,
 		logger: SyncLogger,
 		bundles: SandboxBundleSet,
+		authToken: string,
 	): Promise<void> {
 		await sandbox.files.write(
 			bundles.files.map(({ sandboxPath, code }) => ({
@@ -226,13 +240,14 @@ export class SandboxManager {
 			})),
 		);
 
-		await this.startDaemonProcess(sandbox, logger, bundles.version);
+		await this.startDaemonProcess(sandbox, logger, bundles.version, authToken);
 	}
 
 	private async restartDaemon(
 		sandbox: Sandbox,
 		logger: SyncLogger,
 		bundles: SandboxBundleSet,
+		authToken: string,
 	): Promise<void> {
 		// Kill whatever process owns port 8080 (process name may not match pkill pattern)
 		await sandbox.commands.run("kill $(lsof -ti :8080) 2>/dev/null || true", {
@@ -240,13 +255,14 @@ export class SandboxManager {
 		});
 
 		// Re-deploy with updated bundles
-		await this.deploySandboxBundles(sandbox, logger, bundles);
+		await this.deploySandboxBundles(sandbox, logger, bundles, authToken);
 	}
 
 	private async startDaemonProcess(
 		sandbox: Sandbox,
 		logger: SyncLogger,
 		expectedVersion: string,
+		authToken: string,
 	): Promise<void> {
 		await sandbox.commands.run(
 			`bun ${DAEMON_BUNDLE_PATH} >> /workspace/daemon.log 2>&1`,
@@ -256,6 +272,7 @@ export class SandboxManager {
 					ANTHROPIC_API_KEY: apiEnv.ANTHROPIC_API_KEY,
 					DATABASE_URL: apiEnv.DATABASE_URL as string,
 					DAEMON_VERSION: expectedVersion,
+					DAEMON_AUTH_TOKEN: authToken,
 				},
 			},
 		);

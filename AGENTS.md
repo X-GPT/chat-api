@@ -141,6 +141,7 @@ Required:
 - `DEEPSEEK_API_KEY`
 - `E2B_API_KEY`
 - `DATABASE_URL`
+- `DAEMON_AUTH_SECRET`
 
 Optional:
 - `LOG_LEVEL` (default: `info`)

@@ -13,6 +13,7 @@ export interface TurnRequest {
 
 interface ForwardOptions {
 	daemonUrl: string;
+	daemonAuthToken: string;
 	turnRequest: TurnRequest;
 	onTextDelta: (text: string) => Promise<void>;
 	onTextEnd: () => Promise<void>;
@@ -26,12 +27,21 @@ interface ForwardOptions {
 export async function forwardChatTurnToSandbox(
 	options: ForwardOptions,
 ): Promise<void> {
-	const { daemonUrl, turnRequest, onTextDelta, onTextEnd, onSessionId } =
-		options;
+	const {
+		daemonUrl,
+		daemonAuthToken,
+		turnRequest,
+		onTextDelta,
+		onTextEnd,
+		onSessionId,
+	} = options;
 
 	const response = await fetch(`${daemonUrl}/turn`, {
 		method: "POST",
-		headers: { "Content-Type": "application/json" },
+		headers: {
+			"Content-Type": "application/json",
+			"x-daemon-auth-token": daemonAuthToken,
+		},
 		body: JSON.stringify(turnRequest),
 		signal: AbortSignal.timeout(120_000),
 	});

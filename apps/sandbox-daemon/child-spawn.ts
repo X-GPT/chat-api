@@ -10,15 +10,129 @@
  * chat-api writes the three bundles to /workspace/{daemon,sync,agent}.js.
  */
 
+import { mkdirSync } from "node:fs";
 import type { AgentEvent, SyncEvent } from "./ipc-protocol";
 
 export type { AgentEvent, SyncEvent } from "./ipc-protocol";
 export type SyncResult = SyncEvent;
 
-const SYNC_BUNDLE_PATH = process.env.SANDBOX_SYNC_PATH ?? "/workspace/sync.js";
-const AGENT_BUNDLE_PATH =
-	process.env.SANDBOX_AGENT_PATH ?? "/workspace/agent.js";
-const BUN_EXECUTABLE = process.env.SANDBOX_BUN_PATH ?? "bun";
+function getSyncBundlePath(): string {
+	return process.env.SANDBOX_SYNC_PATH ?? "/workspace/sync.js";
+}
+function getAgentBundlePath(): string {
+	return process.env.SANDBOX_AGENT_PATH ?? "/workspace/agent.js";
+}
+function getBunExecutable(): string {
+	return process.env.SANDBOX_BUN_PATH ?? "bun";
+}
+function getBwrapExecutable(): string {
+	return process.env.SANDBOX_BWRAP_PATH ?? "bwrap";
+}
+
+// Must match the sandbox template's setWorkdir (apps/chat-api/sandbox-template/
+// template.ts) and the path the chat-api writes bundles into
+// (apps/chat-api/src/features/sandbox-orchestration/sandbox-manager.ts).
+// Changing it requires updating all three.
+const WORKSPACE_ROOT = "/workspace";
+
+// The Claude Agent SDK persists session transcripts to
+// ~/.claude/projects/ by default. With --ro-bind / / that directory is
+// read-only inside bwrap, which breaks both the first-turn write and any
+// `resume: sessionId` on later turns. Re-bind just this subtree as rw.
+// Confined to the specific directory the SDK writes to so the rest of
+// ~/.claude (settings, auth state) stays read-only.
+function getClaudeProjectsDir(): string {
+	const home = Bun.env.HOME ?? "/home/user";
+	return `${home}/.claude/projects`;
+}
+
+/**
+ * Build the argv for the bwrap-wrapped agent process. Extracted as a pure
+ * helper so the flag set is easy to inspect and unit-test.
+ *
+ * Filesystem layout:
+ *   1. --ro-bind / /                       — system libs, bun, claude,
+ *                                             /etc/ssl, /home/user/.claude.
+ *                                             Read-only.
+ *   2. --tmpfs /workspace                  — mask the daemon's working
+ *                                             directory entirely. Hides
+ *                                             daemon.log (which accumulates
+ *                                             stderr across turns),
+ *                                             daemon.js, sync.js, and every
+ *                                             user's data tree.
+ *   3. --ro-bind /workspace/agent.js ...   — re-expose only the agent bundle
+ *                                             so bun can load it.
+ *   4. --bind <cwd> <cwd>                  — re-expose only the selected
+ *                                             scope as read-write. For
+ *                                             collection/document scopes
+ *                                             this is a subdir; for global
+ *                                             scope it's the canonical tree.
+ *                                             Hardlinks resolve via inode,
+ *                                             not path, so collection scopes
+ *                                             can still read their
+ *                                             underlying canonical content.
+ *   5. --bind ~/.claude/projects ...       — re-expose the Claude Agent SDK's
+ *                                             session transcript directory
+ *                                             rw so resume across turns
+ *                                             works. Caller is responsible
+ *                                             for ensuring the dir exists
+ *                                             before spawn (see
+ *                                             ensureClaudeProjectsDir).
+ *   6. --tmpfs /tmp                        — fresh scratch space.
+ *
+ * Namespaces:
+ *   - --unshare-user, --unshare-pid, --unshare-uts, --unshare-ipc.
+ *   - Inherited network — the Claude SDK calls api.anthropic.com over
+ *     HTTPS, so we cannot --unshare-net.
+ *
+ * Lifetime:
+ *   - --die-with-parent so a daemon crash takes bwrap + the agent with it.
+ */
+export function buildAgentSpawnArgv(cwd: string): string[] {
+	const agentBundle = getAgentBundlePath();
+	const claudeProjectsDir = getClaudeProjectsDir();
+	return [
+		getBwrapExecutable(),
+		"--ro-bind",
+		"/",
+		"/",
+		"--tmpfs",
+		WORKSPACE_ROOT,
+		"--ro-bind",
+		agentBundle,
+		agentBundle,
+		"--bind",
+		cwd,
+		cwd,
+		"--bind",
+		claudeProjectsDir,
+		claudeProjectsDir,
+		"--tmpfs",
+		"/tmp",
+		"--proc",
+		"/proc",
+		"--dev",
+		"/dev",
+		"--unshare-user",
+		"--unshare-pid",
+		"--unshare-uts",
+		"--unshare-ipc",
+		"--die-with-parent",
+		"--",
+		getBunExecutable(),
+		agentBundle,
+	];
+}
+
+/**
+ * Pre-create ~/.claude/projects so the bwrap --bind has something to mount.
+ * Idempotent. Must be called before spawnAgent on every turn — bwrap fails
+ * if the source path doesn't exist, and the SDK can't create it itself
+ * (the rest of ~/.claude is read-only inside the sandbox).
+ */
+function ensureClaudeProjectsDir(): void {
+	mkdirSync(getClaudeProjectsDir(), { recursive: true });
+}
 
 function narrowAgentEvent(raw: Record<string, unknown>): AgentEvent | null {
 	switch (raw.type) {
@@ -100,7 +214,7 @@ export async function spawnSync(input: {
 	userId: string;
 }): Promise<SyncResult> {
 	const proc = Bun.spawn(
-		[BUN_EXECUTABLE, SYNC_BUNDLE_PATH, "--user-id", input.userId],
+		[getBunExecutable(), getSyncBundlePath(), "--user-id", input.userId],
 		{
 			env: {
 				DATABASE_URL: process.env.DATABASE_URL ?? "",
@@ -155,7 +269,8 @@ export async function spawnAgent(
 	input: SpawnAgentInput,
 ): Promise<SpawnAgentResult> {
 	const { onEvent, ...config } = input;
-	const proc = Bun.spawn([BUN_EXECUTABLE, AGENT_BUNDLE_PATH], {
+	ensureClaudeProjectsDir();
+	const proc = Bun.spawn(buildAgentSpawnArgv(config.cwd), {
 		env: {
 			ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
 			PATH: process.env.PATH ?? "",

@@ -65,7 +65,7 @@ export async function runSandboxChat(
 
 		await onSandboxId(sandbox.sandboxId);
 
-		const daemonUrl = await sandboxManager.ensureSandboxDaemon(
+		const daemon = await sandboxManager.ensureSandboxDaemon(
 			userId,
 			sandbox,
 			logger,
@@ -92,7 +92,8 @@ export async function runSandboxChat(
 		};
 
 		await forwardChatTurnToSandbox({
-			daemonUrl,
+			daemonUrl: daemon.url,
+			daemonAuthToken: daemon.authToken,
 			turnRequest,
 			onTextDelta,
 			onTextEnd,
