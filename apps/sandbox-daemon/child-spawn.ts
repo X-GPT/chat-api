@@ -28,6 +28,10 @@ function getBwrapExecutable(): string {
 	return process.env.SANDBOX_BWRAP_PATH ?? "bwrap";
 }
 
+// Must match the sandbox template's setWorkdir (apps/chat-api/sandbox-template/
+// template.ts) and the path the chat-api writes bundles into
+// (apps/chat-api/src/features/sandbox-orchestration/sandbox-manager.ts).
+// Changing it requires updating all three.
 const WORKSPACE_ROOT = "/workspace";
 
 /**
