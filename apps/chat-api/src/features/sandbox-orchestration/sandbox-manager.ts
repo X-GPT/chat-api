@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { createHmac } from "node:crypto";
 import { resolve } from "node:path";
 import { Sandbox } from "e2b";
 import { apiEnv } from "@/config/env";
@@ -79,18 +79,10 @@ async function loadSandboxBundles(): Promise<SandboxBundleSet> {
 }
 
 export class SandboxManager {
-	private readonly daemonAuthTokens = new Map<string, string>();
-
-	private getOrCreateDaemonAuthToken(sandbox: Sandbox): {
-		token: string;
-		existed: boolean;
-	} {
-		const existing = this.daemonAuthTokens.get(sandbox.sandboxId);
-		if (existing) return { token: existing, existed: true };
-
-		const token = randomBytes(32).toString("hex");
-		this.daemonAuthTokens.set(sandbox.sandboxId, token);
-		return { token, existed: false };
+	private getDaemonAuthToken(sandbox: Sandbox): string {
+		return createHmac("sha256", apiEnv.DAEMON_AUTH_SECRET)
+			.update(sandbox.sandboxId)
+			.digest("hex");
 	}
 
 	async getOrCreateSandbox(
@@ -150,12 +142,6 @@ export class SandboxManager {
 		sandbox: Sandbox,
 		logger: SyncLogger,
 	): Promise<void> {
-		// Drop the auth-token entry regardless of kill outcome: keeping it
-		// around for a sandbox we tried to kill would just leak memory; if
-		// the same sandboxId somehow gets reconnected later, a missing
-		// token will trigger a daemon restart with a fresh one.
-		this.daemonAuthTokens.delete(sandbox.sandboxId);
-
 		try {
 			await sandbox.kill();
 		} catch (err) {
@@ -185,37 +171,27 @@ export class SandboxManager {
 		logger: SyncLogger,
 	): Promise<SandboxDaemonEndpoint> {
 		const daemonUrl = this.getDaemonUrl(sandbox);
-		const auth = this.getOrCreateDaemonAuthToken(sandbox);
+		const authToken = this.getDaemonAuthToken(sandbox);
 
 		const bundles = await getSandboxBundles();
 
-		if (auth.existed) {
-			try {
-				const health = await this.checkDaemonHealth(daemonUrl);
-				if (health && health.version === bundles.version) {
-					return { url: daemonUrl, authToken: auth.token };
-				}
-
-				if (health) {
-					logger.info({
-						msg: "Daemon version mismatch, restarting",
-						currentVersion: health.version,
-						expectedVersion: bundles.version,
-					});
-					await this.restartDaemon(sandbox, logger, bundles, auth.token);
-					return { url: daemonUrl, authToken: auth.token };
-				}
-			} catch {
-				// Daemon not running, deploy it
+		try {
+			const health = await this.checkDaemonHealth(daemonUrl);
+			if (health && health.version === bundles.version) {
+				return { url: daemonUrl, authToken };
 			}
-		} else {
-			logger.info({
-				msg: "No local daemon auth token for sandbox, restarting daemon",
-				userId,
-				sandboxId: sandbox.sandboxId,
-			});
-			await this.restartDaemon(sandbox, logger, bundles, auth.token);
-			return { url: daemonUrl, authToken: auth.token };
+
+			if (health) {
+				logger.info({
+					msg: "Daemon version mismatch, restarting",
+					currentVersion: health.version,
+					expectedVersion: bundles.version,
+				});
+				await this.restartDaemon(sandbox, logger, bundles, authToken);
+				return { url: daemonUrl, authToken };
+			}
+		} catch {
+			// Daemon not running, deploy it
 		}
 
 		logger.info({
@@ -224,8 +200,8 @@ export class SandboxManager {
 			sandboxId: sandbox.sandboxId,
 		});
 
-		await this.deploySandboxBundles(sandbox, logger, bundles, auth.token);
-		return { url: daemonUrl, authToken: auth.token };
+		await this.deploySandboxBundles(sandbox, logger, bundles, authToken);
+		return { url: daemonUrl, authToken };
 	}
 
 	getDaemonUrl(sandbox: Sandbox): string {

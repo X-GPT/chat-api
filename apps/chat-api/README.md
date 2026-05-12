@@ -132,6 +132,7 @@ When running the development server, interactive API documentation is available 
 |----------|-------------|----------|
 | `OPENAI_API_KEY` | OpenAI API key for chat functionality | Yes |
 | `E2B_API_KEY` | API key for the sandbox prototype script | Yes (for prototype) |
+| `DAEMON_AUTH_SECRET` | Server secret used to derive per-sandbox daemon auth tokens | Yes |
 | `E2B_TEMPLATE` | E2B sandbox template for the prototype script | Yes (for prototype) |
 | `PORT` | Server port (default: 3000) | No |
 | `PROTECTED_API_PREFIX` | Path prefix used when forwarding chat entities (e.g. `/beta-api` or `/api`) | No |

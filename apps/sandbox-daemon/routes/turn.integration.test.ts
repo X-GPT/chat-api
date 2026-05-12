@@ -146,6 +146,22 @@ describe("POST /turn integration", () => {
 		expect(mockSpawnAgent).not.toHaveBeenCalled();
 	});
 
+	it("rejects non-ASCII auth tokens without throwing", async () => {
+		const res = await app.request("/turn", {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"x-daemon-auth-token": "éééééééééééé",
+			},
+			body: JSON.stringify(makeTurnBody()),
+		});
+
+		expect(res.status).toBe(401);
+		expect(await res.json()).toEqual({ error: "Unauthorized" });
+		expect(mockSpawnSync).not.toHaveBeenCalled();
+		expect(mockSpawnAgent).not.toHaveBeenCalled();
+	});
+
 	it("streams text_delta events forwarded from agent.js", async () => {
 		mockSpawnAgent.mockImplementation((input) =>
 			emitAgent(input, [
