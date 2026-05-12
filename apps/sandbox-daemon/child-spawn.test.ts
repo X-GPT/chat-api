@@ -36,31 +36,50 @@ describe("buildAgentSpawnArgv", () => {
 		expect(flags).toContain("--die-with-parent");
 	});
 
-	it("masks /workspace/data, then re-binds only the selected scope rw", () => {
+	it("masks /workspace, then re-binds only the agent bundle and selected scope", () => {
 		const cwd = "/workspace/data/u2/scopes/request-doc-42";
 		const argv = buildAgentSpawnArgv(cwd);
 
 		const roRootIdx = argv.findIndex(
 			(a, i) => a === "--ro-bind" && argv[i + 1] === "/" && argv[i + 2] === "/",
 		);
-		const tmpfsDataIdx = argv.findIndex(
-			(a, i) => a === "--tmpfs" && argv[i + 1] === "/workspace/data",
+		const tmpfsWorkspaceIdx = argv.findIndex(
+			(a, i) => a === "--tmpfs" && argv[i + 1] === "/workspace",
+		);
+		const roAgentIdx = argv.findIndex(
+			(a, i) =>
+				a === "--ro-bind" &&
+				argv[i + 1] === "/workspace/agent.js" &&
+				argv[i + 2] === "/workspace/agent.js",
 		);
 		const bindCwdIdx = argv.findIndex(
 			(a, i) => a === "--bind" && argv[i + 1] === cwd && argv[i + 2] === cwd,
 		);
 
 		expect(roRootIdx).toBeGreaterThan(-1);
-		expect(tmpfsDataIdx).toBeGreaterThan(-1);
+		expect(tmpfsWorkspaceIdx).toBeGreaterThan(-1);
+		expect(roAgentIdx).toBeGreaterThan(-1);
 		expect(bindCwdIdx).toBeGreaterThan(-1);
 
 		// Ordering matters: later mounts shadow earlier ones for the same
-		// subtree. Required order: ro-bind / first, tmpfs over /workspace/data
-		// second (masks every user's data tree), bind cwd third (re-exposes
-		// only the selected scope). Cross-scope reads via absolute paths
-		// outside cwd are blocked by the tmpfs.
-		expect(roRootIdx).toBeLessThan(tmpfsDataIdx);
-		expect(tmpfsDataIdx).toBeLessThan(bindCwdIdx);
+		// subtree. Required order:
+		//   1. --ro-bind / /             (everything visible)
+		//   2. --tmpfs /workspace        (masks daemon.log, daemon.js, sync.js
+		//                                 AND every user's data tree)
+		//   3. --ro-bind agent.js        (re-expose only the bundle bun runs)
+		//   4. --bind <cwd>              (re-expose only the selected scope)
+		expect(roRootIdx).toBeLessThan(tmpfsWorkspaceIdx);
+		expect(tmpfsWorkspaceIdx).toBeLessThan(roAgentIdx);
+		expect(tmpfsWorkspaceIdx).toBeLessThan(bindCwdIdx);
+	});
+
+	it("does not expose /workspace/daemon.log, daemon.js, or sync.js", () => {
+		const argv = buildAgentSpawnArgv("/workspace/data/u1/canonical");
+		// None of these paths should appear anywhere in the argv — they are
+		// covered by the --tmpfs /workspace and never re-bound.
+		expect(argv).not.toContain("/workspace/daemon.js");
+		expect(argv).not.toContain("/workspace/sync.js");
+		expect(argv).not.toContain("/workspace/daemon.log");
 	});
 
 	it("respects SANDBOX_BWRAP_PATH and SANDBOX_BUN_PATH env overrides", () => {

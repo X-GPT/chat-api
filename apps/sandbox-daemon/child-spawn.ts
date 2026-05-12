@@ -28,29 +28,34 @@ function getBwrapExecutable(): string {
 	return process.env.SANDBOX_BWRAP_PATH ?? "bwrap";
 }
 
-const DATA_ROOT = "/workspace/data";
+const WORKSPACE_ROOT = "/workspace";
 
 /**
  * Build the argv for the bwrap-wrapped agent process. Extracted as a pure
  * helper so the flag set is easy to inspect and unit-test.
  *
  * Filesystem layout:
- *   1. --ro-bind / /                  — system libs, bun, claude, /etc/ssl,
- *                                        node_modules. Read-only.
- *   2. --tmpfs /workspace/data        — mask the entire user data root so
- *                                        the agent cannot read other
- *                                        collections / documents via
- *                                        absolute paths even with Read.
- *   3. --bind <cwd> <cwd>             — re-expose only the selected scope
- *                                        as read-write. For collection/
- *                                        document scopes this is a subdir;
- *                                        for global scope it's the
- *                                        canonical tree (entire flat doc
- *                                        list, which is the point).
- *                                        Hardlinks inside the bound subtree
- *                                        still resolve because reads go
- *                                        through inode, not path.
- *   4. --tmpfs /tmp                   — fresh scratch space.
+ *   1. --ro-bind / /                       — system libs, bun, claude,
+ *                                             /etc/ssl, /home/user/.claude.
+ *                                             Read-only.
+ *   2. --tmpfs /workspace                  — mask the daemon's working
+ *                                             directory entirely. Hides
+ *                                             daemon.log (which accumulates
+ *                                             stderr across turns),
+ *                                             daemon.js, sync.js, and every
+ *                                             user's data tree.
+ *   3. --ro-bind /workspace/agent.js ...   — re-expose only the agent bundle
+ *                                             so bun can load it.
+ *   4. --bind <cwd> <cwd>                  — re-expose only the selected
+ *                                             scope as read-write. For
+ *                                             collection/document scopes
+ *                                             this is a subdir; for global
+ *                                             scope it's the canonical tree.
+ *                                             Hardlinks resolve via inode,
+ *                                             not path, so collection scopes
+ *                                             can still read their
+ *                                             underlying canonical content.
+ *   5. --tmpfs /tmp                        — fresh scratch space.
  *
  * Namespaces:
  *   - --unshare-user, --unshare-pid, --unshare-uts, --unshare-ipc.
@@ -61,13 +66,17 @@ const DATA_ROOT = "/workspace/data";
  *   - --die-with-parent so a daemon crash takes bwrap + the agent with it.
  */
 export function buildAgentSpawnArgv(cwd: string): string[] {
+	const agentBundle = getAgentBundlePath();
 	return [
 		getBwrapExecutable(),
 		"--ro-bind",
 		"/",
 		"/",
 		"--tmpfs",
-		DATA_ROOT,
+		WORKSPACE_ROOT,
+		"--ro-bind",
+		agentBundle,
+		agentBundle,
 		"--bind",
 		cwd,
 		cwd,
@@ -84,7 +93,7 @@ export function buildAgentSpawnArgv(cwd: string): string[] {
 		"--die-with-parent",
 		"--",
 		getBunExecutable(),
-		getAgentBundlePath(),
+		agentBundle,
 	];
 }
 
