@@ -23,6 +23,27 @@ function emit(event: SyncEvent): void {
 	process.stdout.write(`${JSON.stringify(event)}\n`);
 }
 
+// Walk the .cause chain so wrapper errors (e.g. drizzle's DrizzleQueryError,
+// which sets .message to "Failed query: ..." regardless of the underlying
+// failure mode) don't hide the actual reason in the daemon log.
+function describeError(err: unknown): string {
+	const parts: string[] = [];
+	let cur: unknown = err;
+	const seen = new Set<unknown>();
+	while (cur && !seen.has(cur)) {
+		seen.add(cur);
+		if (cur instanceof Error) {
+			const code = (cur as Error & { code?: string }).code;
+			parts.push(code ? `${cur.message} [${code}]` : cur.message);
+			cur = (cur as Error & { cause?: unknown }).cause;
+		} else {
+			parts.push(String(cur));
+			break;
+		}
+	}
+	return parts.join(" <- ");
+}
+
 function parseArgs(argv: string[]): { userId: string } {
 	const idx = argv.indexOf("--user-id");
 	if (idx === -1 || !argv[idx + 1]) {
@@ -41,10 +62,7 @@ async function main() {
 	try {
 		({ userId } = parseArgs(process.argv.slice(2)));
 	} catch (err) {
-		emit({
-			type: "failed",
-			message: err instanceof Error ? err.message : String(err),
-		});
+		emit({ type: "failed", message: describeError(err) });
 		process.exit(1);
 	}
 
@@ -53,10 +71,7 @@ async function main() {
 		emit({ type: "synced", changed, dataRoot: getDataRoot(userId) });
 		process.exit(0);
 	} catch (err) {
-		emit({
-			type: "failed",
-			message: err instanceof Error ? err.message : String(err),
-		});
+		emit({ type: "failed", message: describeError(err) });
 		process.exit(1);
 	}
 }
