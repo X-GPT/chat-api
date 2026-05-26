@@ -12,7 +12,9 @@
  *            { type: "failed", message: "..." }
  * Exit:    0 on completed, 1 on failed.
  *
- * Required env: ANTHROPIC_API_KEY (consumed by Claude Agent SDK).
+ * Required env: ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN — the Claude binary
+ * calls the LLM gateway (which holds the real provider key) with the bearer
+ * token. No provider key is present in this process.
  *
  * No other code path inside the daemon process imports the Claude Agent
  * SDK — this entrypoint owns it in the sandbox bundle graph.

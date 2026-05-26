@@ -8,6 +8,25 @@ services:
       - 3000:3000
     env_file:
       - ./apps/chat-api/.env
+    depends_on:
+      - llm-gateway
+    restart: always
+    networks:
+      - mymemo-network
+
+  # Control plane: the only service holding the real provider key. Sandboxed
+  # agents reach it via ANTHROPIC_BASE_URL with a short-lived bearer token.
+  # Note: LLM_GATEWAY_PUBLIC_URL (set for chat-api) must resolve to an address
+  # reachable from inside the E2B sandbox, not just this compose network.
+  llm-gateway:
+    container_name: llm-gateway
+    build:
+      context: .
+      dockerfile: apps/llm-gateway/Dockerfile
+    ports:
+      - 8081:8081
+    env_file:
+      - ./apps/llm-gateway/.env
     restart: always
     networks:
       - mymemo-network

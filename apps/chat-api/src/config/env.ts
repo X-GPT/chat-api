@@ -1,28 +1,30 @@
 import invariant from "tiny-invariant";
 
-const DEFAULT_DEEPSEEK_MODEL = "deepseek-v4-flash";
-
 /**
  * Environment variables for the API server
  * All variables are validated at module load time
  */
 export const apiEnv = (() => {
-	invariant(Bun.env.OPENAI_API_KEY, "OPENAI_API_KEY is required");
-	invariant(Bun.env.ANTHROPIC_API_KEY, "ANTHROPIC_API_KEY is required");
-	invariant(Bun.env.DEEPSEEK_API_KEY, "DEEPSEEK_API_KEY is required");
 	invariant(Bun.env.E2B_API_KEY, "E2B_API_KEY is required");
 	invariant(Bun.env.DATABASE_URL, "DATABASE_URL is required");
 	invariant(Bun.env.DAEMON_AUTH_TOKEN, "DAEMON_AUTH_TOKEN is required");
+	invariant(Bun.env.LLM_TOKEN_SECRET, "LLM_TOKEN_SECRET is required");
+	invariant(
+		Bun.env.LLM_GATEWAY_PUBLIC_URL,
+		"LLM_GATEWAY_PUBLIC_URL is required",
+	);
 
 	return {
 		DATABASE_URL: Bun.env.DATABASE_URL,
-		OPENAI_API_KEY: Bun.env.OPENAI_API_KEY,
-		ANTHROPIC_API_KEY: Bun.env.ANTHROPIC_API_KEY,
-		DEEPSEEK_API_KEY: Bun.env.DEEPSEEK_API_KEY,
 		DAEMON_AUTH_TOKEN: Bun.env.DAEMON_AUTH_TOKEN,
-		DEEPSEEK_BASE_URL: Bun.env.DEEPSEEK_BASE_URL || null,
-		DEEPSEEK_DEFAULT_MODEL:
-			Bun.env.DEEPSEEK_DEFAULT_MODEL || DEFAULT_DEEPSEEK_MODEL,
+		// HMAC secret for the session tokens minted into each sandbox turn. Shared
+		// only with llm-gateway, which verifies them.
+		LLM_TOKEN_SECRET: Bun.env.LLM_TOKEN_SECRET,
+		// Base URL the sandboxed agent points the Claude binary at
+		// (ANTHROPIC_BASE_URL). Must be reachable from inside the E2B sandbox.
+		// Trailing slash stripped so the binary's `${base}/v1/messages` never
+		// produces a double slash the gateway would have to normalize.
+		LLM_GATEWAY_PUBLIC_URL: Bun.env.LLM_GATEWAY_PUBLIC_URL.replace(/\/+$/, ""),
 		LOG_LEVEL: Bun.env.LOG_LEVEL || "info",
 		E2B_TEMPLATE: Bun.env.E2B_TEMPLATE || "sandbox-template-dev",
 	} as const;

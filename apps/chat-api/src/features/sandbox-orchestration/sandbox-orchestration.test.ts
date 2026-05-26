@@ -7,6 +7,7 @@ import {
 	mock,
 	spyOn,
 } from "bun:test";
+import { verifyLlmToken } from "@mymemo/llm-token";
 import { createMockSandbox } from "./test-helpers";
 
 type RunSandboxChatOptions =
@@ -51,12 +52,11 @@ describe("runSandboxChat", () => {
 	let spyForwardTurn: ReturnType<typeof spyOn>;
 
 	beforeEach(async () => {
-		Bun.env.OPENAI_API_KEY = "test-openai-key";
-		Bun.env.ANTHROPIC_API_KEY = "test-anthropic-key";
-		Bun.env.DEEPSEEK_API_KEY = "test-deepseek-key";
 		Bun.env.E2B_API_KEY = "test-e2b-key";
 		Bun.env.DAEMON_AUTH_TOKEN = "test-daemon-auth-token";
 		Bun.env.DATABASE_URL = "mysql://user:pass@localhost:3306/test";
+		Bun.env.LLM_TOKEN_SECRET = "test-llm-token-secret";
+		Bun.env.LLM_GATEWAY_PUBLIC_URL = "https://gateway.test";
 		({ runSandboxChat } = await import("./sandbox-orchestration"));
 		singletonModule = await import("./singleton");
 		proxyModule = await import("./sandbox-proxy");
@@ -99,6 +99,24 @@ describe("runSandboxChat", () => {
 				daemonAuthToken: "test-daemon-auth-token",
 			}),
 		);
+	});
+
+	it("mints a verifiable llm token bound to the user and sandbox, plus the gateway url", async () => {
+		spyForwardTurn = spyOn(
+			proxyModule,
+			"forwardChatTurnToSandbox",
+		).mockImplementation(async (opts) => {
+			expect(opts.turnRequest.llm_base_url).toBe("https://gateway.test");
+			const verified = verifyLlmToken(
+				opts.turnRequest.llm_token,
+				"test-llm-token-secret",
+			);
+			expect(verified?.userId).toBe("user-1");
+			expect(verified?.sandboxId).toBe("sbx-123");
+			expect(verified?.requestId).toBe(opts.turnRequest.request_id);
+		});
+
+		await runSandboxChat(makeOptions());
 	});
 
 	it("forwards request sessionId as agent_session_id", async () => {

@@ -9,7 +9,9 @@
  *   DAEMON_VERSION    — surfaced by /health for the chat-api bundle check.
  *   DAEMON_AUTH_TOKEN — required bearer secret for /turn.
  *   DATABASE_URL      — held only to forward into sync.js's env.
- *   ANTHROPIC_API_KEY — held only to forward into agent.js's env.
+ *
+ * The daemon holds no provider key: the agent's LLM gateway URL and bearer
+ * token arrive per turn in the /turn body and are forwarded into agent.js's env.
  */
 
 import { Hono } from "hono";

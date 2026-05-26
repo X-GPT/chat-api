@@ -1,9 +1,5 @@
 import { afterEach, describe, expect, it, mock } from "bun:test";
 
-Bun.env.OPENAI_API_KEY = Bun.env.OPENAI_API_KEY ?? "test-openai-key";
-Bun.env.ANTHROPIC_API_KEY = Bun.env.ANTHROPIC_API_KEY ?? "test-anthropic-key";
-Bun.env.DEEPSEEK_API_KEY = Bun.env.DEEPSEEK_API_KEY ?? "test-deepseek-key";
-
 import { ConversationBusyError } from "./errors";
 import { forwardChatTurnToSandbox, type TurnRequest } from "./sandbox-proxy";
 
@@ -14,6 +10,8 @@ function makeTurnRequest(overrides: Partial<TurnRequest> = {}): TurnRequest {
 		scope_type: "global",
 		message: "hello",
 		system_prompt: "you are helpful",
+		llm_base_url: "https://gateway.test",
+		llm_token: "test-token",
 		...overrides,
 	};
 }
