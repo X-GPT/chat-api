@@ -88,6 +88,8 @@ describe("POST /turn integration", () => {
 			scope_type: "global",
 			message: "hello",
 			system_prompt: "you are helpful",
+			llm_base_url: "https://gateway.test",
+			llm_token: "test-token",
 			...overrides,
 		};
 	}
@@ -189,6 +191,26 @@ describe("POST /turn integration", () => {
 			.filter((e) => e.type === "text_delta")
 			.map((e) => e.text);
 		expect(deltas).toEqual(["Hello ", "World"]);
+	});
+
+	it("forwards llm_base_url and llm_token from the body to spawnAgent", async () => {
+		let captured: SpawnAgentInput | undefined;
+		mockSpawnAgent.mockImplementation((input) => {
+			captured = input;
+			return emitAgent(input, [{ type: "completed" }]);
+		});
+
+		const res = await app.request("/turn", {
+			method: "POST",
+			headers: turnHeaders(),
+			body: JSON.stringify(makeTurnBody()),
+		});
+		// Drain the stream so the turn completes and releases the lock before we
+		// assert (and before the next test runs).
+		await res.text();
+
+		expect(captured?.llmBaseUrl).toBe("https://gateway.test");
+		expect(captured?.llmToken).toBe("test-token");
 	});
 
 	it("forwards session_id from agent.js", async () => {

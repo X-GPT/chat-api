@@ -70,8 +70,11 @@ Source: [forrestchang/andrej-karpathy-skills](https://github.com/forrestchang/an
 
 ## Project Overview
 
-MyMemo Monorepo containing the chat-api application:
-- **chat-api** (TypeScript/Bun) - AI chat service at `apps/chat-api/`
+MyMemo Monorepo (Bun workspaces) containing:
+- **chat-api** (`apps/chat-api/`) - AI chat service; orchestrates per-user E2B sandboxes
+- **sandbox-daemon** (`apps/sandbox-daemon/`) - in-sandbox HTTP daemon; bundled and shipped into E2B
+- **llm-gateway** (`apps/llm-gateway/`) - control plane; the only service holding the real `ANTHROPIC_API_KEY`. Verifies the per-turn bearer token and proxies to Anthropic
+- **@mymemo/db** (`packages/db/`), **@mymemo/llm-token** (`packages/llm-token/`) - shared packages
 
 ## Commands
 
@@ -100,7 +103,7 @@ docker-compose up    # Local development
    - **Identity headers** (`InternalIdentity`): `X-Member-Code` (required), `X-Partner-Code` (required), `X-Team-Code`, `X-Member-Name`, `X-Partner-Name` (all optional)
 2. SSE stream initiated in `chat.route.ts` after body validation (`.strict()`, rejects extra keys) and identity-header validation (401 on missing/invalid)
 3. `chat.controller.ts::complete()` orchestrates the merged request — no upstream API calls
-4. `runSandboxChat` is the sole agent path: forwards the turn to a per-user E2B sandbox daemon. The optional `sessionId` from the request body is passed through as the daemon's `agent_session_id`; when omitted, the daemon allocates a new session. The optional `sandboxId` is used to reconnect to an existing E2B sandbox; when omitted (or reconnection fails), a new sandbox is created.
+4. `runSandboxChat` is the sole agent path: forwards the turn to a per-user E2B sandbox daemon. The optional `sessionId` from the request body is passed through as the daemon's `agent_session_id`; when omitted, the daemon allocates a new session. The optional `sandboxId` is used to reconnect to an existing E2B sandbox; when omitted (or reconnection fails), a new sandbox is created. chat-api also mints a short-lived `@mymemo/llm-token` bound to `{userId, sandboxId, requestId}` and sends it (with `LLM_GATEWAY_PUBLIC_URL`) in the turn body. The daemon sets these as `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` on the agent process, so **the sandbox never holds a provider key** — all LLM calls route through `llm-gateway`, which validates the token and injects the real `ANTHROPIC_API_KEY`.
 5. Events emitted via SSE:
    - `text_delta` — `{ text }` payload, one event per streamed token chunk; the client concatenates these to build the full response
    - `done` — `{}` payload, marks end-of-stream after the final `text_delta`
@@ -112,14 +115,18 @@ docker-compose up    # Local development
 
 Identity arrives via `X-*` headers, **not** the JSON body. chat-api does not authenticate users itself; the internal caller (gateway / BFF) is responsible for authenticating the user and forwarding their identity. The body schema uses `.strict()` so any attempt to pass identity in the body is rejected with a 400. This service must therefore only be reachable from trusted internal callers; do not expose `POST /api/v1/chat` directly to untrusted networks.
 
+The sandboxed agent is treated as untrusted (it runs prompt-injectable, Bash-capable code). It holds no provider key — only a short-lived, single-user, signed bearer token. The single inbound edge from a sandbox is **sandbox → llm-gateway**; `llm-gateway` holds `ANTHROPIC_API_KEY` + `LLM_TOKEN_SECRET` and should only be reachable from sandboxes (and only reach `api.anthropic.com` outbound). chat-api and llm-gateway share `LLM_TOKEN_SECRET` (chat-api mints, gateway verifies); the daemon never sees it.
+
 ### Key Modules
 
 | Path | Purpose |
 |------|---------|
 | `src/features/chat/chat.controller.ts` | Reads context from request body, hands the turn to the sandbox |
-| `src/features/sandbox-orchestration/` | `runSandboxChat`, sandbox manager, daemon proxy |
+| `src/features/sandbox-orchestration/` | `runSandboxChat`, sandbox manager, daemon proxy; mints the per-turn LLM token |
 | `src/features/sandbox-agent/` | Sandbox-side agent system prompt builder |
 | `src/config/env.ts` | Environment validation |
+| `apps/llm-gateway/src/index.ts` | Control-plane proxy: verifies token, injects `ANTHROPIC_API_KEY`, forwards to Anthropic |
+| `packages/llm-token/index.ts` | `mintLlmToken` / `verifyLlmToken` (shared, HMAC-signed) |
 
 ### Chat Scopes
 
@@ -135,17 +142,26 @@ Identity arrives via `X-*` headers, **not** the JSON body. chat-api does not aut
 
 ## Environment Variables
 
+### chat-api
+
 Required:
-- `OPENAI_API_KEY`
-- `ANTHROPIC_API_KEY`
-- `DEEPSEEK_API_KEY`
 - `E2B_API_KEY`
 - `DATABASE_URL`
 - `DAEMON_AUTH_TOKEN`
+- `LLM_TOKEN_SECRET` — HMAC secret for minting per-turn LLM tokens (shared with llm-gateway)
+- `LLM_GATEWAY_PUBLIC_URL` — gateway base URL the sandbox agent uses; **must be reachable from inside the E2B sandbox**
 
 Optional:
 - `LOG_LEVEL` (default: `info`)
 - `PORT` (default: 3000)
 - `E2B_TEMPLATE` (default: `sandbox-template-dev`)
-- `DEEPSEEK_BASE_URL`
-- `DEEPSEEK_DEFAULT_MODEL` (default: `deepseek-v4-flash`)
+
+### llm-gateway
+
+Required:
+- `ANTHROPIC_API_KEY` — the real provider key; lives **only** in this service
+- `LLM_TOKEN_SECRET` — must match chat-api's
+
+Optional:
+- `UPSTREAM_BASE_URL` (default: `https://api.anthropic.com`)
+- `PORT` (default: 8081)

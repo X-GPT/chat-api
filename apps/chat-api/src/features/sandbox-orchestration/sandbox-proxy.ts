@@ -9,6 +9,10 @@ export interface TurnRequest {
 	message: string;
 	agent_session_id?: string;
 	system_prompt: string;
+	/** LLM gateway base URL the sandbox agent points the Claude binary at. */
+	llm_base_url: string;
+	/** Short-lived bearer token the agent presents to the gateway. */
+	llm_token: string;
 }
 
 interface ForwardOptions {

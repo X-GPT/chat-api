@@ -259,7 +259,6 @@ export class SandboxManager {
 			{
 				background: true,
 				envs: {
-					ANTHROPIC_API_KEY: apiEnv.ANTHROPIC_API_KEY,
 					DATABASE_URL: apiEnv.DATABASE_URL as string,
 					DAEMON_VERSION: expectedVersion,
 					DAEMON_AUTH_TOKEN: apiEnv.DAEMON_AUTH_TOKEN,

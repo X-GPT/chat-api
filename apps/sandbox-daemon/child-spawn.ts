@@ -1,8 +1,9 @@
 /**
  * Spawn helpers for the per-turn sync.js and agent.js children. The daemon
- * holds DATABASE_URL and ANTHROPIC_API_KEY in its env so it can forward
- * each to the correct child, but never imports the DB driver or the Claude
- * Agent SDK itself — those live exclusively in sync.js / agent.js.
+ * holds DATABASE_URL in its env so it can forward it to sync.js, but never
+ * imports the DB driver or the Claude Agent SDK itself — those live exclusively
+ * in sync.js / agent.js. The agent's LLM credentials are not provider keys: it
+ * gets a gateway base URL + short-lived bearer token, supplied per turn.
  *
  * Both children speak NDJSON on stdout. We line-buffer, parse, and dispatch.
  *
@@ -82,8 +83,8 @@ function getClaudeProjectsDir(): string {
  *
  * Namespaces:
  *   - --unshare-user, --unshare-pid, --unshare-uts, --unshare-ipc.
- *   - Inherited network — the Claude SDK calls api.anthropic.com over
- *     HTTPS, so we cannot --unshare-net.
+ *   - Inherited network — the Claude SDK calls the LLM gateway over HTTPS,
+ *     so we cannot --unshare-net.
  *
  * Lifetime:
  *   - --die-with-parent so a daemon crash takes bwrap + the agent with it.
@@ -137,7 +138,8 @@ function ensureClaudeProjectsDir(): void {
 function narrowAgentEvent(raw: Record<string, unknown>): AgentEvent | null {
 	switch (raw.type) {
 		case "text_delta":
-			if (typeof raw.text === "string") return { type: "text_delta", text: raw.text };
+			if (typeof raw.text === "string")
+				return { type: "text_delta", text: raw.text };
 			return null;
 		case "session_id":
 			if (typeof raw.sessionId === "string")
@@ -258,6 +260,10 @@ export interface SpawnAgentInput {
 	systemPrompt: string;
 	cwd: string;
 	sessionId?: string;
+	/** LLM gateway base URL — set as ANTHROPIC_BASE_URL for the Claude binary. */
+	llmBaseUrl: string;
+	/** Short-lived bearer token — set as ANTHROPIC_AUTH_TOKEN. */
+	llmToken: string;
 	onEvent: (event: AgentEvent) => void | Promise<void>;
 }
 
@@ -268,11 +274,14 @@ export interface SpawnAgentResult {
 export async function spawnAgent(
 	input: SpawnAgentInput,
 ): Promise<SpawnAgentResult> {
-	const { onEvent, ...config } = input;
+	const { onEvent, llmBaseUrl, llmToken, ...config } = input;
 	ensureClaudeProjectsDir();
 	const proc = Bun.spawn(buildAgentSpawnArgv(config.cwd), {
 		env: {
-			ANTHROPIC_API_KEY: process.env.ANTHROPIC_API_KEY ?? "",
+			// The agent holds no provider key — it talks to the LLM gateway, which
+			// injects the real key. ANTHROPIC_AUTH_TOKEN is sent as a Bearer header.
+			ANTHROPIC_BASE_URL: llmBaseUrl,
+			ANTHROPIC_AUTH_TOKEN: llmToken,
 			PATH: process.env.PATH ?? "",
 			CLAUDE_CODE_PATH: process.env.CLAUDE_CODE_PATH ?? "/usr/local/bin/claude",
 		},

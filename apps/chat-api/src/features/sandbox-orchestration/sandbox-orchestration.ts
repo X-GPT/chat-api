@@ -1,4 +1,5 @@
-import type { ChatMessagesScope } from "@/config/env";
+import { mintLlmToken } from "@mymemo/llm-token";
+import { apiEnv, type ChatMessagesScope } from "@/config/env";
 import type { ChatLogger } from "@/features/chat/chat.logger";
 import { buildSandboxAgentPrompt } from "@/features/sandbox-agent";
 import { SandboxCreationError } from "./errors";
@@ -80,8 +81,9 @@ export async function runSandboxChat(
 			conversationContext: null,
 		});
 
+		const requestId = crypto.randomUUID();
 		const turnRequest: TurnRequest = {
-			request_id: crypto.randomUUID(),
+			request_id: requestId,
 			user_id: userId,
 			scope_type: toSandboxScope(scope),
 			collection_id: collectionId ?? undefined,
@@ -89,6 +91,11 @@ export async function runSandboxChat(
 			message: query,
 			agent_session_id: sessionId ?? undefined,
 			system_prompt: systemPrompt,
+			llm_base_url: apiEnv.LLM_GATEWAY_PUBLIC_URL,
+			llm_token: mintLlmToken(
+				{ userId, sandboxId: sandbox.sandboxId, requestId },
+				apiEnv.LLM_TOKEN_SECRET,
+			),
 		};
 
 		await forwardChatTurnToSandbox({
