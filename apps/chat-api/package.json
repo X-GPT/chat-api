@@ -7,6 +7,7 @@
 		"lint": "biome lint --write",
 		"check": "biome check --write",
 		"prototype:sandbox": "bun run scripts/run-sandbox-prototype.ts",
+		"smoke:gateway": "bun run scripts/smoke-gateway.ts",
 		"e2b:build:dev": "cd sandbox-template && bun run build.dev.ts",
 		"e2b:build:prod": "cd sandbox-template && bun run build.prod.ts"
 	},
