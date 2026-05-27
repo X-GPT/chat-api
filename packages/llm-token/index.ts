@@ -33,7 +33,9 @@ function isLlmTokenClaims(value: unknown): value is LlmTokenClaims {
 		typeof c.userId === "string" &&
 		typeof c.sandboxId === "string" &&
 		typeof c.requestId === "string" &&
-		typeof c.exp === "number"
+		// Number.isFinite (not `typeof === "number"`) so a signed `{"exp":1e999}`
+		// → Infinity is rejected instead of being treated as never-expiring.
+		Number.isFinite(c.exp)
 	);
 }
 

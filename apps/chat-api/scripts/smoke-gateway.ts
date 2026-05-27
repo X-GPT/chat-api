@@ -181,7 +181,11 @@ async function run(): Promise<number> {
 		method: "POST",
 		body: "{}",
 	});
-	check("missing token → 401", noauth.status === 401, `status ${noauth.status}`);
+	check(
+		"missing token → 401",
+		noauth.status === 401,
+		`status ${noauth.status}`,
+	);
 	await noauth.body?.cancel();
 
 	console.log("\nLayer B — claude binary → gateway (Authorization: Bearer)");
@@ -189,13 +193,20 @@ async function run(): Promise<number> {
 	if (!RUN_BINARY) {
 		console.log("  · skipped (--no-binary)");
 	} else if (!claudeBin) {
-		console.log("  · skipped (claude not on PATH; set CLAUDE_CODE_PATH to run)");
+		console.log(
+			"  · skipped (claude not on PATH; set CLAUDE_CODE_PATH to run)",
+		);
 	} else {
 		const proc = Bun.spawn(
 			[claudeBin, "-p", "Reply with the single word: pong"],
 			{
+				// Scrubbed env: mirror the production agent, which holds NO provider
+				// key — only the gateway base URL + bearer token. Spreading
+				// process.env here would leak ANTHROPIC_API_KEY and let the binary
+				// bypass the gateway, invalidating the contract this leg proves.
 				env: {
-					...process.env,
+					PATH: process.env.PATH ?? "",
+					HOME: process.env.HOME ?? "",
 					ANTHROPIC_BASE_URL: BASE,
 					ANTHROPIC_AUTH_TOKEN: mint(),
 				},

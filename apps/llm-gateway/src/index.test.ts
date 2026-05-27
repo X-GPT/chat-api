@@ -61,4 +61,34 @@ describe("llm-gateway", () => {
 		expect(sent.get("anthropic-version")).toBe("2023-06-01");
 		expect(sent.has("authorization")).toBe(false);
 	});
+
+	it("404s a non-messages path even with a valid token (no upstream call)", async () => {
+		fetchSpy = spyOn(globalThis, "fetch").mockRejectedValue(
+			new Error("should not forward"),
+		);
+		const res = await app.request("/v1/files", {
+			method: "POST",
+			headers: { authorization: `Bearer ${validToken()}` },
+			body: "{}",
+		});
+		expect(res.status).toBe(404);
+		expect(fetchSpy).not.toHaveBeenCalled();
+	});
+
+	it("normalizes a double-slash path and still proxies /v1/messages", async () => {
+		fetchSpy = spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response("{}", { status: 200 }),
+		);
+		const res = await app.request("//v1/messages", {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${validToken()}`,
+				"content-type": "application/json",
+			},
+			body: "{}",
+		});
+		expect(res.status).toBe(200);
+		const [url] = fetchSpy.mock.calls[0] as [string, RequestInit];
+		expect(url).toBe("https://api.anthropic.com/v1/messages");
+	});
 });

@@ -84,4 +84,14 @@ describe("llm-token", () => {
 			verifyLlmToken(signedToken({ exp: Date.now() + 1000 }), SECRET),
 		).toBeNull();
 	});
+
+	it("rejects a validly-signed payload whose exp is non-finite (Infinity)", () => {
+		// JSON.stringify(Infinity) === "null", so craft raw JSON: 1e999 → Infinity,
+		// which `Infinity < Date.now()` would treat as never-expiring.
+		const body = Buffer.from(
+			'{"userId":"u","sandboxId":"s","requestId":"r","exp":1e999}',
+		).toString("base64url");
+		const sig = createHmac("sha256", SECRET).update(body).digest("base64url");
+		expect(verifyLlmToken(`${body}.${sig}`, SECRET)).toBeNull();
+	});
 });

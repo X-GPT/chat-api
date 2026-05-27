@@ -7,24 +7,30 @@ import { gwEnv } from "./env";
  *
  * Sandboxed agents point the Claude binary at this service via ANTHROPIC_BASE_URL
  * and authenticate with a short-lived ANTHROPIC_AUTH_TOKEN (Bearer). The agent
- * therefore holds no provider key: we validate the token, inject the real
- * `x-api-key`, and stream the upstream response straight back.
+ * holds no provider key: we validate the token, inject the real `x-api-key`, and
+ * stream the upstream response straight back.
  *
- * The gateway is a transparent, token-gated reverse proxy: it forwards whatever
- * path/method/headers the client sends (so SDK features and any Anthropic
- * endpoint keep working) and only rewrites auth. Everything except /health is
- * proxied.
+ * Scope is intentionally narrow: only the Anthropic Messages endpoints are
+ * proxied, and only an allowlist of request headers is forwarded. A leaked token
+ * therefore cannot reach files/batches/admin endpoints with the org key, and no
+ * arbitrary client headers (cookies, x-forwarded-*, accept-encoding) leak
+ * upstream.
  */
 
-// Client request headers we must NOT forward upstream: authorization is replaced
-// by x-api-key; host/content-length/connection are recomputed by fetch (the body
-// is re-streamed with chunked encoding).
-const REQUEST_DROP_HEADERS = new Set([
-	"authorization",
-	"host",
-	"content-length",
-	"connection",
-]);
+// Paths the gateway will proxy (after slash-normalization). Everything else 404s
+// even with a valid token.
+const ALLOWED_PATHS = new Set(["/v1/messages", "/v1/messages/count_tokens"]);
+
+// The only request headers forwarded upstream. Authorization is replaced by
+// x-api-key; everything else (host, content-length, accept-encoding, cookie, …)
+// is dropped so fetch controls compression and nothing leaks to Anthropic.
+const FORWARD_REQUEST_HEADERS = [
+	"anthropic-version",
+	"anthropic-beta",
+	"content-type",
+	"accept",
+	"x-claude-code-session-id",
+];
 
 // Response headers fetch already decoded for us; forwarding them would mislead
 // the client into decompressing again or mismatching the streamed length.
@@ -39,7 +45,8 @@ export const app = new Hono();
 
 app.get("/health", (c) => c.json({ status: "ok" }));
 
-// Token-gated transparent proxy for everything else.
+// Token-gated proxy for the messages endpoints. Catch-all so a trailing-slash
+// base URL (`…//v1/messages`) still routes here and gets normalized below.
 app.all("*", proxyToAnthropic);
 
 function bearerToken(c: Context): string {
@@ -63,21 +70,34 @@ async function proxyToAnthropic(c: Context) {
 		);
 	}
 
+	// Collapse duplicate slashes (a trailing-slash base URL yields `//v1/messages`)
+	// before the scope check and forwarding.
+	const url = new URL(c.req.url);
+	const path = url.pathname.replace(/\/{2,}/g, "/");
+	if (!ALLOWED_PATHS.has(path)) {
+		return c.json(
+			{
+				type: "error",
+				error: {
+					type: "not_found_error",
+					message: `unsupported path: ${path}`,
+				},
+			},
+			404,
+		);
+	}
+
 	// Cost-cap / metering hook: claims.userId identifies the end user, and
-	// X-Claude-Code-Session-Id aggregates a session without parsing the body.
+	// x-claude-code-session-id aggregates a session without parsing the body.
 
 	const headers = new Headers();
-	c.req.raw.headers.forEach((value, name) => {
-		if (!REQUEST_DROP_HEADERS.has(name.toLowerCase())) headers.set(name, value);
-	});
+	for (const name of FORWARD_REQUEST_HEADERS) {
+		const value = c.req.header(name);
+		if (value) headers.set(name, value);
+	}
 	headers.set("x-api-key", gwEnv.ANTHROPIC_API_KEY);
 
-	const url = new URL(c.req.url);
-	// Collapse duplicate slashes (a trailing-slash base URL yields `//v1/messages`)
-	// and preserve the query string.
-	const path = url.pathname.replace(/\/{2,}/g, "/");
 	const target = `${gwEnv.UPSTREAM_BASE_URL}${path}${url.search}`;
-
 	const method = c.req.method;
 	const hasBody = method !== "GET" && method !== "HEAD";
 	const init: RequestInit & { duplex?: "half" } = { method, headers };
