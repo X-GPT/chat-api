@@ -6,7 +6,12 @@ WORKDIR /usr/src/app
 FROM base AS install
 RUN mkdir -p /temp/prod
 COPY package.json bun.lock /temp/prod/
+# The root lockfile describes every workspace member, so --frozen-lockfile needs
+# each member's package.json present (only package.json — no source).
 COPY apps/llm-gateway/package.json /temp/prod/apps/llm-gateway/
+COPY apps/chat-api/package.json /temp/prod/apps/chat-api/
+COPY apps/sandbox-daemon/package.json /temp/prod/apps/sandbox-daemon/
+COPY packages/db/package.json /temp/prod/packages/db/
 COPY packages/llm-token/package.json /temp/prod/packages/llm-token/
 RUN cd /temp/prod && bun install --frozen-lockfile --production
 

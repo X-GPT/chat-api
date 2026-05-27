@@ -43,7 +43,9 @@ const RESPONSE_DROP_HEADERS = new Set([
 
 export const app = new Hono();
 
-app.get("/health", (c) => c.json({ status: "ok" }));
+// GET and HEAD so load-balancer / k8s probes (which often use HEAD) don't fall
+// through to the token-gated proxy and 401.
+app.on(["GET", "HEAD"], "/health", (c) => c.json({ status: "ok" }));
 
 // Token-gated proxy for the messages endpoints. Catch-all so a trailing-slash
 // base URL (`…//v1/messages`) still routes here and gets normalized below.

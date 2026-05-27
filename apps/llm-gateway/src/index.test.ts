@@ -21,6 +21,11 @@ let fetchSpy: ReturnType<typeof spyOn> | undefined;
 afterEach(() => fetchSpy?.mockRestore());
 
 describe("llm-gateway", () => {
+	it("answers GET and HEAD /health without a token", async () => {
+		expect((await app.request("/health")).status).toBe(200);
+		expect((await app.request("/health", { method: "HEAD" })).status).toBe(200);
+	});
+
 	it("rejects requests with no bearer token", async () => {
 		const res = await app.request("/v1/messages", { method: "POST" });
 		expect(res.status).toBe(401);
