@@ -80,6 +80,23 @@ describe("llm-gateway", () => {
 		expect(fetchSpy).not.toHaveBeenCalled();
 	});
 
+	it("normalizes a trailing slash and still proxies /v1/messages", async () => {
+		fetchSpy = spyOn(globalThis, "fetch").mockResolvedValue(
+			new Response("{}", { status: 200 }),
+		);
+		const res = await app.request("/v1/messages/", {
+			method: "POST",
+			headers: {
+				authorization: `Bearer ${validToken()}`,
+				"content-type": "application/json",
+			},
+			body: "{}",
+		});
+		expect(res.status).toBe(200);
+		const [url] = fetchSpy.mock.calls[0] as [string, RequestInit];
+		expect(url).toBe("https://api.anthropic.com/v1/messages");
+	});
+
 	it("normalizes a double-slash path and still proxies /v1/messages", async () => {
 		fetchSpy = spyOn(globalThis, "fetch").mockResolvedValue(
 			new Response("{}", { status: 200 }),

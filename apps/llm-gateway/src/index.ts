@@ -72,10 +72,12 @@ async function proxyToAnthropic(c: Context) {
 		);
 	}
 
-	// Collapse duplicate slashes (a trailing-slash base URL yields `//v1/messages`)
-	// before the scope check and forwarding.
+	// Normalize the path before the scope check / forwarding: collapse duplicate
+	// slashes (a trailing-slash base URL yields `//v1/messages`) and drop a single
+	// trailing slash (`/v1/messages/` → `/v1/messages`) so exact-match still holds.
 	const url = new URL(c.req.url);
-	const path = url.pathname.replace(/\/{2,}/g, "/");
+	let path = url.pathname.replace(/\/{2,}/g, "/");
+	if (path.length > 1 && path.endsWith("/")) path = path.slice(0, -1);
 	if (!ALLOWED_PATHS.has(path)) {
 		return c.json(
 			{

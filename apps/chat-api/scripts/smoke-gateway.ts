@@ -197,22 +197,19 @@ async function run(): Promise<number> {
 			"  · skipped (claude not on PATH; set CLAUDE_CODE_PATH to run)",
 		);
 	} else {
+		// Inherit the full env (PATH, HOME, and any proxy/CA/SHELL vars the CLI
+		// needs in CI) but scrub the provider key, so this leg proves the keyless
+		// Bearer contract without breaking behind a proxy or custom CA. The minted
+		// token overrides any ANTHROPIC_AUTH_TOKEN already in the env.
+		const childEnv: Record<string, string | undefined> = {
+			...process.env,
+			ANTHROPIC_BASE_URL: BASE,
+			ANTHROPIC_AUTH_TOKEN: mint(),
+		};
+		delete childEnv.ANTHROPIC_API_KEY;
 		const proc = Bun.spawn(
 			[claudeBin, "-p", "Reply with the single word: pong"],
-			{
-				// Scrubbed env: mirror the production agent, which holds NO provider
-				// key — only the gateway base URL + bearer token. Spreading
-				// process.env here would leak ANTHROPIC_API_KEY and let the binary
-				// bypass the gateway, invalidating the contract this leg proves.
-				env: {
-					PATH: process.env.PATH ?? "",
-					HOME: process.env.HOME ?? "",
-					ANTHROPIC_BASE_URL: BASE,
-					ANTHROPIC_AUTH_TOKEN: mint(),
-				},
-				stdout: "pipe",
-				stderr: "pipe",
-			},
+			{ env: childEnv, stdout: "pipe", stderr: "pipe" },
 		);
 		const out = (await new Response(proc.stdout).text()).trim();
 		const err = (await new Response(proc.stderr).text()).trim();
