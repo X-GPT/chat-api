@@ -239,7 +239,7 @@
 
           <div class="node">
             <div class="nh"><span class="nm">llm-gateway</span><span class="badge key">ANTHROPIC_API_KEY</span></div>
-            <div class="role">New stateless service. Verifies the bearer token, injects the real <code>x-api-key</code>, and transparently proxies to Anthropic. The only key-holder.</div>
+            <div class="role">Stateless service. Verifies the bearer token, injects the real <code>x-api-key</code>, and proxies a strict path allowlist (<code>/v1/messages</code>, <code>/v1/messages/count_tokens</code>) to Anthropic. The only key-holder.</div>
           </div>
         </div>
 
@@ -253,14 +253,14 @@
 
           <div class="node">
             <div class="nh"><span class="nm">agent · claude</span><span class="badge tok">bearer token only</span></div>
-            <div class="role">bwrap-isolated. Runs with <code>ANTHROPIC_BASE_URL</code> + <code>ANTHROPIC_AUTH_TOKEN</code> — nothing worth stealing.</div>
+            <div class="role"><b>srt</b>-isolated (bwrap on Linux · sandbox-exec on macOS), <b>network egress allowlisted to the gateway host only</b>. Env: <code>ANTHROPIC_BASE_URL</code> + <code>ANTHROPIC_AUTH_TOKEN</code> — nothing worth stealing, nowhere to send it.</div>
           </div>
         </div>
       </div>
 
       <div class="boundary-note">
         <span class="tag">trust boundary</span>
-        <div>The single inbound edge from the sandbox is <b>agent → llm-gateway</b>, carrying <b>only</b> a 10-minute, single-user <span style="color:var(--green);font-weight:600">Bearer token</span>. A prompt-injected agent has no provider key to exfiltrate.</div>
+        <div>The agent has <b>nowhere else to reach</b> — srt's network allowlist denies every egress except the gateway host. Combined with the 10-minute, single-user <span style="color:var(--green);font-weight:600">Bearer token</span>, a prompt-injected agent has nothing worth stealing <em>and</em> nowhere to send a stolen secret.</div>
       </div>
       <div class="external">
         <span class="dot"></span>EXTERNAL &nbsp;·&nbsp; <b>api.anthropic.com</b> — reached only by llm-gateway (with the injected <span style="color:var(--red)">x-api-key</span>) &nbsp;·&nbsp; <b>Postgres</b> — read by the daemon's sync.js
@@ -312,8 +312,8 @@
         <div class="d">Daemon spawns <code>sync.js</code>, which diffs Postgres against the sandbox FS and materializes the user's documents for the requested scope.</div>
       </div></div>
       <div class="step"><div class="num"></div><div class="body">
-        <div class="t">Spawn the agent (bwrap)</div>
-        <div class="d">Daemon spawns <code>bun agent.js</code> under bubblewrap with env <code class="tok">ANTHROPIC_BASE_URL</code> + <code class="tok">ANTHROPIC_AUTH_TOKEN</code> — and <b>no</b> <code class="key">ANTHROPIC_API_KEY</code>.</div>
+        <div class="t">Spawn the agent (srt)</div>
+        <div class="d">Daemon spawns <code>bun agent.js</code> under <a href="https://github.com/anthropic-experimental/sandbox-runtime" target="_blank" rel="noopener">srt</a> (bwrap on Linux · sandbox-exec on macOS) — filesystem allowlist for the scope cwd, network allowlist for the gateway host only. Env: <code class="tok">ANTHROPIC_BASE_URL</code> + <code class="tok">ANTHROPIC_AUTH_TOKEN</code>, <b>no</b> <code class="key">ANTHROPIC_API_KEY</code>.</div>
       </div></div>
       <div class="step"><div class="num"></div><div class="body">
         <div class="t">claude → llm-gateway</div>
@@ -384,7 +384,7 @@
           <td class="c no">✕</td>
           <td class="c no">✕</td>
           <td class="c no">✕</td>
-          <td>→ llm-gateway only</td>
+          <td>→ llm-gateway only <span class="sm">(srt egress allowlist)</span></td>
         </tr>
       </tbody>
     </table>
@@ -401,22 +401,71 @@
     </div>
     <div class="tree rv">
 <span class="b">daemon.js</span> <span class="c"># long-running Hono server · port 8080 · holds no provider key</span>
-├─ spawn <span class="b">bun sync.js</span>      <span class="c"># per-turn: reconcile Postgres → sandbox FS, then exits</span>
-└─ spawn <span class="b">bwrap …</span>           <span class="c"># per-turn child: ro-bind /, tmpfs /workspace, unshare ns</span>
+├─ spawn <span class="b">bun sync.js</span>       <span class="c"># per-turn: reconcile Postgres → sandbox FS, then exits</span>
+└─ spawn <span class="b">srt …</span>             <span class="c"># per-turn: filesystem allowlist + network allowlist + ns</span>
    └─ <span class="b">bun agent.js</span>          <span class="g"># env: ANTHROPIC_BASE_URL + ANTHROPIC_AUTH_TOKEN (no key)</span>
-      └─ <span class="b">claude</span>             <span class="c"># Agent SDK → </span><span class="g">Authorization: Bearer</span><span class="c"> → llm-gateway</span>
-         ├─ Bash / Grep / Read  <span class="c"># tool subprocesses</span>
-         └─ <span class="r">✗ api.anthropic.com</span>  <span class="c"># unreachable directly — only via the gateway</span>
+      └─ <span class="b">claude</span>             <span class="c"># Agent SDK · </span><span class="g">Authorization: Bearer</span>
+         ├─ Bash / Grep / Read   <span class="c"># tool subprocesses</span>
+         ├─ <span class="g">✓ llm-gateway</span>        <span class="c"># the only host srt allows outbound</span>
+         └─ <span class="r">✗ everywhere else</span>     <span class="c"># api.anthropic.com, public internet — denied</span>
     </div>
+  </section>
+
+  <!-- 06 RUNTIME VARIANTS -->
+  <section>
+    <div class="sh rv">
+      <div class="n">06</div>
+      <div>
+        <h2>Runtime variants</h2>
+        <p>Same architecture, three deployment shapes — only the sandbox runtime and the gateway's locality change.</p>
+      </div>
+    </div>
+    <table class="mtx rv">
+      <thead>
+        <tr><th>Environment</th><th>Sandbox runtime</th><th>llm-gateway</th><th>Agent isolation</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="comp">production</td>
+          <td>real E2B · Firecracker microVM</td>
+          <td>separate service · public ALB</td>
+          <td>srt (bwrap) + egress allowlist</td>
+        </tr>
+        <tr>
+          <td class="comp">E2B integration test</td>
+          <td>real E2B</td>
+          <td>sibling process inside the sandbox · loopback</td>
+          <td>srt (bwrap) + egress allowlist</td>
+        </tr>
+        <tr>
+          <td class="comp">local dev · agent + gateway</td>
+          <td>none — bun on host</td>
+          <td>bun on host · localhost</td>
+          <td>(skipped — no sandbox runtime)</td>
+        </tr>
+      </tbody>
+    </table>
+    <p style="margin-top:14px;font-size:13.5px;color:var(--ink-soft);max-width:680px">
+      The same code path runs in all three — the toggle is <code style="font-family:var(--mono);background:var(--paper-2);border:1px solid var(--line);border-radius:3px;padding:1px 5px">LLM_GATEWAY_PUBLIC_URL</code> (loopback vs. public URL) plus the choice of sandbox provider. chat-api always mints the token; the gateway always verifies it.
+    </p>
   </section>
 
   <footer>
     AS-BUILT ARCHITECTURE OF PR #107 · GENERATED FROM THE llm-gateway CONTROL-PLANE CHANGE<br/>
     PR — <a href="https://github.com/X-GPT/chat-api/pull/107" target="_blank" rel="noopener">github.com/X-GPT/chat-api/pull/107</a><br/>
-    FOLLOW-UPS — <a href="https://github.com/X-GPT/chat-api/issues/103" target="_blank" rel="noopener">#103</a>
+    FOLLOW-UPS —
+    <a href="https://github.com/X-GPT/chat-api/issues/103" target="_blank" rel="noopener">#103</a>
     <a href="https://github.com/X-GPT/chat-api/issues/104" target="_blank" rel="noopener">#104</a>
     <a href="https://github.com/X-GPT/chat-api/issues/105" target="_blank" rel="noopener">#105</a>
     <a href="https://github.com/X-GPT/chat-api/issues/106" target="_blank" rel="noopener">#106</a>
+    <a href="https://github.com/X-GPT/chat-api/issues/108" target="_blank" rel="noopener">#108</a>
+    <a href="https://github.com/X-GPT/chat-api/issues/109" target="_blank" rel="noopener">#109</a>
+    <a href="https://github.com/X-GPT/chat-api/issues/110" target="_blank" rel="noopener">#110</a>
+    <a href="https://github.com/X-GPT/chat-api/issues/111" target="_blank" rel="noopener">#111</a>
+    <a href="https://github.com/X-GPT/chat-api/issues/112" target="_blank" rel="noopener">#112</a>
+    <a href="https://github.com/X-GPT/chat-api/issues/113" target="_blank" rel="noopener">#113</a>
+    <a href="https://github.com/X-GPT/chat-api/issues/114" target="_blank" rel="noopener">#114</a>
+    <br/>NOTE — agent isolation migrates from raw <code style="font-family:var(--mono)">bwrap</code> to <a href="https://github.com/anthropic-experimental/sandbox-runtime" target="_blank" rel="noopener">srt</a> alongside #103 (adds the egress allowlist). SDK pinned at <code style="font-family:var(--mono)">@anthropic-ai/claude-agent-sdk@0.2.97</code>.
     <div class="pills">
       <span>apps/chat-api</span><span>apps/llm-gateway</span><span>apps/sandbox-daemon</span><span>packages/llm-token</span><span>packages/db</span>
     </div>
