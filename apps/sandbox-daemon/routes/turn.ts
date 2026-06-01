@@ -2,18 +2,20 @@ import { timingSafeEqual } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { Hono } from "hono";
 import { stream } from "hono/streaming";
-import { spawnAgent, spawnSync } from "../child-spawn";
-import {
-	createEphemeralDocumentScope,
-	findCanonicalDoc,
-	getDataRoot,
-	removeEphemeralDocumentScope,
-	resolveScopeCwd,
-} from "../materialization";
+import { spawnAgent } from "../child-spawn";
 import { acquireTurn } from "../turn-lock";
 
 const app = new Hono();
 const DAEMON_AUTH_HEADER = "x-daemon-auth-token";
+
+// The agent's working directory inside the sandbox. Documents are no longer
+// materialized to disk — the agent fetches them via the document MCP tools —
+// so this is just an empty rw scratch dir for the agent's Bash/file tools.
+// Must be a subpath of /workspace that bwrap re-binds rw (see child-spawn).
+// Env-overridable so integration tests can point it at a temp dir.
+function getAgentCwd(): string {
+	return process.env.SANDBOX_AGENT_CWD ?? "/workspace/agent";
+}
 
 function authTokenMatches(
 	presented: string | undefined,
@@ -36,6 +38,7 @@ interface TurnRequest {
 	agent_session_id?: string;
 	system_prompt: string;
 	llm_base_url: string;
+	doc_gateway_url: string;
 	llm_token: string;
 }
 
@@ -60,6 +63,7 @@ app.post("/turn", async (c) => {
 		!body.message ||
 		!body.system_prompt ||
 		!body.llm_base_url ||
+		!body.doc_gateway_url ||
 		!body.llm_token
 	) {
 		return c.json({ error: "Missing required fields" }, 400);
@@ -67,7 +71,6 @@ app.post("/turn", async (c) => {
 
 	const {
 		request_id,
-		user_id,
 		scope_type,
 		collection_id,
 		summary_id,
@@ -75,6 +78,7 @@ app.post("/turn", async (c) => {
 		agent_session_id,
 		system_prompt,
 		llm_base_url,
+		doc_gateway_url,
 		llm_token,
 	} = body;
 
@@ -88,22 +92,8 @@ app.post("/turn", async (c) => {
 		async (s) => {
 			c.header("Content-Type", "application/x-ndjson");
 
-			const dataRoot = getDataRoot(user_id);
-			let ephemeralScope: string | null = null;
-
 			try {
 				await s.write(ndjsonLine({ type: "started", turn_id: request_id }));
-
-				const syncResult = await spawnSync({ userId: user_id });
-				if (syncResult.type === "failed") {
-					await s.write(
-						ndjsonLine({
-							type: "failed",
-							message: `sync failed: ${syncResult.message}`,
-						}),
-					);
-					return;
-				}
 
 				if (scope_type === "collection" && !collection_id) {
 					await s.write(
@@ -124,32 +114,8 @@ app.post("/turn", async (c) => {
 					return;
 				}
 
-				let cwd: string;
-				if (scope_type === "document" && summary_id) {
-					const doc = findCanonicalDoc(dataRoot, summary_id);
-					if (!doc) {
-						await s.write(
-							ndjsonLine({
-								type: "failed",
-								message: `Document ${summary_id} not found`,
-							}),
-						);
-						return;
-					}
-					ephemeralScope = createEphemeralDocumentScope(
-						dataRoot,
-						summary_id,
-						doc,
-					);
-					cwd = ephemeralScope;
-				} else {
-					cwd = resolveScopeCwd(
-						dataRoot,
-						scope_type,
-						collection_id ?? undefined,
-					);
-					mkdirSync(cwd, { recursive: true });
-				}
+				const cwd = getAgentCwd();
+				mkdirSync(cwd, { recursive: true });
 
 				let turnFailed = false;
 				const agentResult = await spawnAgent({
@@ -158,6 +124,7 @@ app.post("/turn", async (c) => {
 					cwd,
 					sessionId: agent_session_id,
 					llmBaseUrl: llm_base_url,
+					docGatewayUrl: doc_gateway_url,
 					llmToken: llm_token,
 					onEvent: async (event) => {
 						if (event.type === "completed") {
@@ -188,9 +155,6 @@ app.post("/turn", async (c) => {
 				const errorMessage = err instanceof Error ? err.message : String(err);
 				await s.write(ndjsonLine({ type: "failed", message: errorMessage }));
 			} finally {
-				if (ephemeralScope && summary_id) {
-					removeEphemeralDocumentScope(dataRoot, summary_id);
-				}
 				lock.release();
 			}
 		},

@@ -15,38 +15,24 @@ import type {
 	AgentEvent,
 	SpawnAgentInput,
 	SpawnAgentResult,
-	SyncResult,
 } from "../child-spawn";
 
-// Mock spawnSync / spawnAgent — turn route no longer runs sync/agent
-// in-process. Sync now executes inside sync.js (spawned), agent inside
-// agent.js (spawned). The test stubs both functions to control behavior.
-const mockSpawnSync = mock(
-	async (_input: { userId: string }): Promise<SyncResult> => ({
-		type: "synced",
-		changed: false,
-		dataRoot: "/tmp/data",
-	}),
-);
+// Mock spawnAgent — the turn route spawns the agent inside agent.js (a separate
+// process) in production. The test stubs it to control behavior. Documents are
+// fetched by the agent via the document MCP tools, so there is no sync step.
 const mockSpawnAgent = mock(
 	async (_input: SpawnAgentInput): Promise<SpawnAgentResult> => ({
 		exitCode: 0,
 	}),
 );
 mock.module("../child-spawn", () => ({
-	spawnSync: mockSpawnSync,
 	spawnAgent: mockSpawnAgent,
 }));
 
-// Override getDataRoot to use a temp directory
+// Point the agent's working directory at a temp dir so the turn route's
+// mkdirSync doesn't touch the host's /workspace.
 const testRoot = join(tmpdir(), `turn-integration-${Date.now()}`);
-mock.module("../materialization", () => {
-	const actual = require("../materialization");
-	return {
-		...actual,
-		getDataRoot: (userId: string) => join(testRoot, userId),
-	};
-});
+process.env.SANDBOX_AGENT_CWD = join(testRoot, "agent");
 
 // Ensure turn-lock module is loaded
 require("../turn-lock");
@@ -60,18 +46,10 @@ describe("POST /turn integration", () => {
 
 	beforeAll(() => {
 		mkdirSync(testRoot, { recursive: true });
-		const userRoot = join(testRoot, "user-1");
-		mkdirSync(join(userRoot, "scopes", "global"), { recursive: true });
 	});
 
 	beforeEach(() => {
 		process.env.DAEMON_AUTH_TOKEN = "daemon-token";
-		mockSpawnSync.mockReset();
-		mockSpawnSync.mockImplementation(async () => ({
-			type: "synced",
-			changed: false,
-			dataRoot: "/tmp/data",
-		}));
 		mockSpawnAgent.mockReset();
 	});
 
@@ -89,6 +67,7 @@ describe("POST /turn integration", () => {
 			message: "hello",
 			system_prompt: "you are helpful",
 			llm_base_url: "https://gateway.test",
+			doc_gateway_url: "https://docs.test",
 			llm_token: "test-token",
 			...overrides,
 		};
@@ -128,7 +107,6 @@ describe("POST /turn integration", () => {
 
 		expect(res.status).toBe(401);
 		expect(await res.json()).toEqual({ error: "Unauthorized" });
-		expect(mockSpawnSync).not.toHaveBeenCalled();
 		expect(mockSpawnAgent).not.toHaveBeenCalled();
 	});
 
@@ -144,7 +122,6 @@ describe("POST /turn integration", () => {
 
 		expect(res.status).toBe(401);
 		expect(await res.json()).toEqual({ error: "Unauthorized" });
-		expect(mockSpawnSync).not.toHaveBeenCalled();
 		expect(mockSpawnAgent).not.toHaveBeenCalled();
 	});
 
@@ -160,7 +137,6 @@ describe("POST /turn integration", () => {
 
 		expect(res.status).toBe(401);
 		expect(await res.json()).toEqual({ error: "Unauthorized" });
-		expect(mockSpawnSync).not.toHaveBeenCalled();
 		expect(mockSpawnAgent).not.toHaveBeenCalled();
 	});
 
@@ -264,26 +240,6 @@ describe("POST /turn integration", () => {
 		const failed = events.find((e) => e.type === "failed");
 		expect(failed).toBeDefined();
 		expect(failed?.message).toBe("agent ended badly");
-	});
-
-	it("emits failed when sync.js fails", async () => {
-		mockSpawnSync.mockImplementation(async () => ({
-			type: "failed",
-			message: "DB unreachable",
-		}));
-
-		const res = await app.request("/turn", {
-			method: "POST",
-			headers: turnHeaders(),
-			body: JSON.stringify(makeTurnBody()),
-		});
-
-		const events = parseNdjson(await res.text());
-		const failed = events.find((e) => e.type === "failed");
-		expect(failed).toBeDefined();
-		expect(failed?.message).toContain("DB unreachable");
-		// Agent must not be spawned if sync failed
-		expect(mockSpawnAgent).not.toHaveBeenCalled();
 	});
 
 	it("returns 409 when a turn is already in progress", async () => {

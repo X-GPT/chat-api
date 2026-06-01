@@ -14,10 +14,6 @@ function toSandboxScope(scope: ChatMessagesScope): SandboxScopeType {
 	return "global";
 }
 
-export function sanitizePathSegment(value: string): string {
-	return value.trim().replace(/[^a-zA-Z0-9._-]+/g, "-") || "unknown";
-}
-
 export interface RunSandboxChatOptions {
 	userId: string;
 	query: string;
@@ -25,7 +21,6 @@ export interface RunSandboxChatOptions {
 	collectionId: string | null;
 	summaryId: string | null;
 	sessionId: string | null;
-	sandboxId: string | null;
 	onTextDelta: (text: string) => Promise<void>;
 	onTextEnd: () => Promise<void>;
 	onSessionId: (sessionId: string) => Promise<void>;
@@ -45,7 +40,6 @@ export async function runSandboxChat(
 		collectionId,
 		summaryId,
 		sessionId,
-		sandboxId,
 		onTextDelta,
 		onTextEnd,
 		onSessionId,
@@ -53,61 +47,72 @@ export async function runSandboxChat(
 		logger,
 	} = options;
 
-	// Note: user_files is populated by an external service. The daemon's
-	// reconcile() diffs user_files against its local .sync-manifest.json
-	// on each turn to sync documents into the sandbox filesystem.
-
 	const attempt = async () => {
-		const sandbox = await sandboxManager.getOrCreateSandbox(
-			userId,
-			sandboxId,
-			logger,
-		);
+		const sandbox = await sandboxManager.createSandbox(userId, logger);
 
-		await onSandboxId(sandbox.sandboxId);
+		// Sandboxes are ephemeral — one per turn — so they must be torn down when
+		// the turn finishes (success or failure), or they accumulate in E2B. The
+		// finally also covers the partial-failure path (created, then daemon
+		// startup throws). createSandbox stays outside the try: if it throws there
+		// is no sandbox to kill and the outer retry handles it.
+		try {
+			await onSandboxId(sandbox.sandboxId);
 
-		const daemon = await sandboxManager.ensureSandboxDaemon(
-			userId,
-			sandbox,
-			logger,
-		);
+			const daemon = await sandboxManager.ensureSandboxDaemon(
+				userId,
+				sandbox,
+				logger,
+			);
 
-		const docsRoot = `/workspace/data/${sanitizePathSegment(userId)}`;
-		const systemPrompt = buildSandboxAgentPrompt({
-			scope,
-			summaryId,
-			collectionId,
-			docsRoot,
-			conversationContext: null,
-		});
+			const systemPrompt = buildSandboxAgentPrompt({
+				scope,
+				summaryId,
+				collectionId,
+				conversationContext: null,
+			});
 
-		const requestId = crypto.randomUUID();
-		const turnRequest: TurnRequest = {
-			request_id: requestId,
-			user_id: userId,
-			scope_type: toSandboxScope(scope),
-			collection_id: collectionId ?? undefined,
-			summary_id: summaryId ?? undefined,
-			message: query,
-			agent_session_id: sessionId ?? undefined,
-			system_prompt: systemPrompt,
-			llm_base_url: apiEnv.LLM_GATEWAY_PUBLIC_URL,
-			llm_token: mintLlmToken(
-				{ userId, sandboxId: sandbox.sandboxId, requestId },
-				apiEnv.LLM_TOKEN_SECRET,
-			),
-		};
+			const requestId = crypto.randomUUID();
+			const turnRequest: TurnRequest = {
+				request_id: requestId,
+				user_id: userId,
+				scope_type: toSandboxScope(scope),
+				collection_id: collectionId ?? undefined,
+				summary_id: summaryId ?? undefined,
+				message: query,
+				agent_session_id: sessionId ?? undefined,
+				system_prompt: systemPrompt,
+				llm_base_url: apiEnv.LLM_GATEWAY_PUBLIC_URL,
+				doc_gateway_url: apiEnv.DOCUMENT_GATEWAY_PUBLIC_URL,
+				// One per-turn capability token. The llm-gateway uses
+				// {userId,sandboxId,requestId}; the document-gateway additionally
+				// enforces the signed scope. The daemon sets it as both the LLM and
+				// the document bearer token on the agent.
+				llm_token: mintLlmToken(
+					{
+						userId,
+						sandboxId: sandbox.sandboxId,
+						requestId,
+						scope: toSandboxScope(scope),
+						collectionId: collectionId ?? undefined,
+						summaryId: summaryId ?? undefined,
+					},
+					apiEnv.LLM_TOKEN_SECRET,
+				),
+			};
 
-		await forwardChatTurnToSandbox({
-			daemonUrl: daemon.url,
-			daemonAuthToken: daemon.authToken,
-			turnRequest,
-			onTextDelta,
-			onTextEnd,
-			onSessionId,
-		});
+			await forwardChatTurnToSandbox({
+				daemonUrl: daemon.url,
+				daemonAuthToken: daemon.authToken,
+				turnRequest,
+				onTextDelta,
+				onTextEnd,
+				onSessionId,
+			});
 
-		return { status: "completed" } as const;
+			return { status: "completed" } as const;
+		} finally {
+			await sandboxManager.killSandbox(userId, sandbox, logger);
+		}
 	};
 
 	try {

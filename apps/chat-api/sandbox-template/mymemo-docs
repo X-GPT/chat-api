@@ -1,0 +1,83 @@
+#!/usr/bin/env bun
+/**
+ * mymemo-docs — document access for the sandboxed agent.
+ *
+ * The agent calls this via its Bash tool. It holds NO credential: it reads the
+ * per-turn document-gateway URL + bearer token from the environment (set on the
+ * agent process by the daemon) and forwards search/fetch to the gateway, which
+ * verifies the token and enforces the turn's scope server-side.
+ *
+ *   mymemo-docs search "<query>" [--collection <id>]
+ *   mymemo-docs fetch <documentId>
+ */
+
+const BASE = process.env.MYMEMO_DOC_GATEWAY_URL;
+const TOKEN = process.env.MYMEMO_DOC_TOKEN;
+
+function fail(msg, code = 1) {
+	console.error(msg);
+	process.exit(code);
+}
+
+async function call(path, body) {
+	let res;
+	try {
+		res = await fetch(`${BASE}${path}`, {
+			method: "POST",
+			headers: {
+				"content-type": "application/json",
+				authorization: `Bearer ${TOKEN}`,
+			},
+			body: JSON.stringify(body),
+		});
+	} catch (err) {
+		fail(`mymemo-docs: request failed: ${err}`);
+	}
+	if (!res.ok) fail(`mymemo-docs: ${res.status} ${await res.text()}`);
+	return res.json();
+}
+
+async function main() {
+	if (!BASE || !TOKEN) {
+		fail("mymemo-docs: MYMEMO_DOC_GATEWAY_URL / MYMEMO_DOC_TOKEN not set");
+	}
+
+	const [cmd, ...rest] = process.argv.slice(2);
+
+	if (cmd === "search") {
+		const ci = rest.indexOf("--collection");
+		const collectionId = ci >= 0 ? rest[ci + 1] : undefined;
+		const query = rest
+			.filter((_, i) => ci < 0 || (i !== ci && i !== ci + 1))
+			.join(" ");
+		if (!query) fail("usage: mymemo-docs search <query> [--collection <id>]", 2);
+
+		const { documents = [] } = await call("/v1/documents/search", {
+			query,
+			collectionId,
+		});
+		if (documents.length === 0) {
+			console.log("(no documents found)");
+			return;
+		}
+		for (const d of documents) {
+			console.log(`${d.documentId}\t${d.title ?? ""}\t${d.snippet ?? ""}`);
+		}
+	} else if (cmd === "fetch") {
+		const documentId = rest[0];
+		if (!documentId) fail("usage: mymemo-docs fetch <documentId>", 2);
+
+		const doc = await call("/v1/documents/fetch", { documentId });
+		console.log(`cite: ${doc.cite ?? ""}`);
+		console.log(`title: ${doc.title ?? ""}`);
+		console.log("---");
+		console.log(doc.content ?? "");
+	} else {
+		fail(
+			"usage: mymemo-docs search <query> [--collection <id>] | fetch <documentId>",
+			2,
+		);
+	}
+}
+
+main();

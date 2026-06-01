@@ -3,7 +3,6 @@ import { buildSandboxAgentPrompt } from "./sandbox-agent.prompt";
 
 describe("buildSandboxAgentPrompt", () => {
 	const baseOptions = {
-		docsRoot: "/workspace/sandbox-prototype/docs/user-1",
 		summaryId: null,
 		collectionId: null,
 		conversationContext: null,
@@ -17,18 +16,16 @@ describe("buildSandboxAgentPrompt", () => {
 
 		expect(prompt).toContain("[[N]][cN]");
 		expect(prompt).toContain("[c1]: detail/");
-		expect(prompt).toContain("notes/3/");
 	});
 
-	it("includes retrieval strategy", () => {
+	it("instructs use of the mymemo-docs CLI", () => {
 		const prompt = buildSandboxAgentPrompt({
 			...baseOptions,
 			scope: "general",
 		});
 
-		expect(prompt).toContain("Grep");
-		expect(prompt).toContain("Read");
-		expect(prompt).toContain("YAML frontmatter");
+		expect(prompt).toContain("mymemo-docs search");
+		expect(prompt).toContain("mymemo-docs fetch");
 	});
 
 	it("includes source restriction rules", () => {
@@ -37,7 +34,7 @@ describe("buildSandboxAgentPrompt", () => {
 			scope: "general",
 		});
 
-		expect(prompt).toContain("ONLY use information from files");
+		expect(prompt).toContain("ONLY use information from documents");
 		expect(prompt).toContain("NEVER use outside knowledge");
 	});
 
@@ -48,27 +45,25 @@ describe("buildSandboxAgentPrompt", () => {
 				scope: "general",
 			});
 
-			expect(prompt).toContain("all files in your working directory");
+			expect(prompt).toContain("across all of the user's documents");
 		});
 	});
 
 	describe("collection scope", () => {
-		it("includes collection scope context", () => {
+		it("injects the collectionId into the search instruction", () => {
 			const prompt = buildSandboxAgentPrompt({
 				...baseOptions,
 				scope: "collection",
 				collectionId: "col-123",
 			});
 
-			expect(prompt).toContain("specific collection");
-			expect(prompt).toContain(
-				"All files in your working directory belong to this collection",
-			);
+			expect(prompt).toContain("single collection");
+			expect(prompt).toContain("--collection col-123");
 		});
 	});
 
 	describe("document scope", () => {
-		it("includes document scope context with summaryId", () => {
+		it("injects the summaryId as the documentId to fetch", () => {
 			const prompt = buildSandboxAgentPrompt({
 				...baseOptions,
 				scope: "document",
@@ -76,7 +71,7 @@ describe("buildSandboxAgentPrompt", () => {
 			});
 
 			expect(prompt).toContain("single specific document");
-			expect(prompt).toContain("doc-456");
+			expect(prompt).toContain("mymemo-docs fetch doc-456");
 		});
 	});
 

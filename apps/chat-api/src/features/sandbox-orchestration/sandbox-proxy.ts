@@ -11,7 +11,12 @@ export interface TurnRequest {
 	system_prompt: string;
 	/** LLM gateway base URL the sandbox agent points the Claude binary at. */
 	llm_base_url: string;
-	/** Short-lived bearer token the agent presents to the gateway. */
+	/** Document gateway base URL the sandbox agent's `mymemo-docs` CLI calls. */
+	doc_gateway_url: string;
+	/**
+	 * Short-lived bearer token the agent presents to both gateways. Carries the
+	 * signed turn scope that the document gateway enforces.
+	 */
 	llm_token: string;
 }
 

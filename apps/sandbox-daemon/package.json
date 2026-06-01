@@ -3,16 +3,13 @@
 	"version": "0.1.0",
 	"type": "module",
 	"scripts": {
-		"build": "bun build ./daemon-entry.ts --target=bun --minify --outfile=dist/daemon.js && bun build ./sync-entry.ts --target=bun --minify --outfile=dist/sync.js && bun build ./agent-entry.ts --target=bun --minify --outfile=dist/agent.js",
+		"build": "bun build ./daemon-entry.ts --target=bun --minify --outfile=dist/daemon.js && bun build ./agent-entry.ts --target=bun --minify --outfile=dist/agent.js",
 		"format": "biome format --write",
 		"lint": "biome lint --write",
 		"check": "biome check --write"
 	},
 	"dependencies": {
 		"hono": "^4.10.1",
-		"@anthropic-ai/claude-agent-sdk": "0.2.97",
-		"@mymemo/db": "workspace:*",
-		"drizzle-orm": "^0.44.1",
-		"mysql2": "^3.14.1"
+		"@anthropic-ai/claude-agent-sdk": "0.2.97"
 	}
 }

@@ -25,6 +25,17 @@ describe("llm-token", () => {
 		expect(verified?.exp).toBeGreaterThan(Date.now());
 	});
 
+	it("round-trips optional document-scope claims", () => {
+		const token = mintLlmToken(
+			{ ...claims, scope: "collection", collectionId: "col-1" },
+			SECRET,
+		);
+		const verified = verifyLlmToken(token, SECRET);
+		expect(verified?.scope).toBe("collection");
+		expect(verified?.collectionId).toBe("col-1");
+		expect(verified?.summaryId).toBeUndefined();
+	});
+
 	it("rejects a token signed with a different secret", () => {
 		const token = mintLlmToken(claims, SECRET);
 		expect(verifyLlmToken(token, "other-secret")).toBeNull();

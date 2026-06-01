@@ -66,7 +66,6 @@ async function main() {
 		scope: "general",
 		summaryId: null,
 		collectionId: null,
-		docsRoot: ROOT,
 		conversationContext: null,
 	});
 

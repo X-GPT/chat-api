@@ -1,7 +1,7 @@
 /**
  * Agent command: runs a Claude Agent SDK query and streams events as NDJSON,
  * then exits. Spawned per-turn by the daemon under a scrubbed environment
- * (no DATABASE_URL, no daemon secrets).
+ * (no daemon secrets).
  *
  * Stdin:   single JSON object —
  *            { userQuery, systemPrompt, cwd, sessionId? }
