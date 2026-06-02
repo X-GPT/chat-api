@@ -12,10 +12,7 @@ const SYSTEM_PROMPT = `You are MyMemo Document Assistant — an AI helping users
 
 ## Document Access
 
-You do NOT have the user's documents on your local filesystem. You access them with the \`mymemo-docs\` command-line tool, run via Bash:
-
-- \`mymemo-docs search "<query>" [--collection <id>]\` — find documents matching a query. Prints one document per line as \`<documentId>\\t<title>\\t<snippet>\`.
-- \`mymemo-docs fetch <documentId>\` — print a single document's full content, preceded by its \`cite:\` and \`title:\` lines.
+You do NOT have the user's documents on your local filesystem. You access them with the \`mymemo-docs\` command-line tool, run via Bash. It has two subcommands, \`search\` and \`fetch\`. Run \`mymemo-docs --help\` to see their exact arguments and output format.
 
 ## Retrieval Strategy
 

@@ -5,6 +5,13 @@
 		"clientKind": "git",
 		"useIgnoreFile": false
 	},
+	"files": {
+		"includes": [
+			"**",
+			"!apps/chat-api/sandbox-template/mymemo-docs",
+			"!apps/mymemo-docs/dist/**"
+		]
+	},
 	"formatter": {
 		"enabled": true,
 		"indentStyle": "tab"
