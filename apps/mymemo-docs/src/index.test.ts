@@ -46,7 +46,12 @@ async function runSearch(args: string[]) {
 	const exitCode = await proc.exited;
 	const stdout = await new Response(proc.stdout).text();
 	const stderr = await new Response(proc.stderr).text();
-	return { exitCode, stdout, stderr, sent: lastSearch as SearchBody | undefined };
+	return {
+		exitCode,
+		stdout,
+		stderr,
+		sent: lastSearch as SearchBody | undefined,
+	};
 }
 
 async function runHelp(args: string[]) {
