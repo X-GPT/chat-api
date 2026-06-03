@@ -17,8 +17,8 @@ import { gwEnv } from "./env";
  *   - collection → search forced to collectionId; fetch must be in collectionId
  *   - document   → search disabled; fetch must equal summaryId
  *
- * TODO(doc-api-contract): the upstream endpoints + request/response shapes below
- * are ASSUMED. Confirm them against the real MyMemo document API and adjust.
+ * TODO(doc-api-contract, #117): the upstream endpoints + request/response shapes
+ * below are ASSUMED. Confirm them against the real MyMemo document API and adjust.
  */
 
 export const app = new Hono();
