@@ -1,3 +1,7 @@
+# Gitignored local files copied into new worktrees (.gitignore syntax).
+# Only files that are ALSO gitignored are copied.
+
+# dotenv (root + per-app, any depth: .env, .env.local, .env.dev-tool, ...)
 .env
+.env.*
 .env.local
-config/secrets.json
