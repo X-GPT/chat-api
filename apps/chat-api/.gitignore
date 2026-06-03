@@ -9,6 +9,9 @@ node_modules
 dist
 build
 .next
+
+# Generated: bundled mymemo-docs CLI (source is sandbox-template/mymemo-docs.ts)
+sandbox-template/mymemo-docs
 .turbo
 .vercel
 .wrangler

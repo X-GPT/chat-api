@@ -10,14 +10,8 @@ export async function complete(
 	mymemoEventSender: MymemoEventSender,
 	logger: ChatLogger,
 ) {
-	const {
-		chatContent,
-		collectionId,
-		summaryId,
-		sessionId,
-		sandboxId,
-		memberCode,
-	} = request;
+	const { chatContent, collectionId, summaryId, sessionId, memberCode } =
+		request;
 
 	const normalizedCollectionId = collectionId?.trim() ?? null;
 	const normalizedSummaryId = summaryId?.trim() ?? null;
@@ -55,8 +49,6 @@ export async function complete(
 	};
 
 	const onSandboxId = async (newSandboxId: string) => {
-		// Skip echoing a sandboxId the client already supplied.
-		if (newSandboxId === sandboxId) return;
 		try {
 			await sendEvent({ type: "sandbox_id", sandboxId: newSandboxId });
 		} catch (err) {
@@ -71,7 +63,6 @@ export async function complete(
 		collectionId: normalizedCollectionId,
 		summaryId: normalizedSummaryId,
 		sessionId: sessionId ?? null,
-		sandboxId: sandboxId ?? null,
 		onTextDelta,
 		onTextEnd,
 		onSessionId,

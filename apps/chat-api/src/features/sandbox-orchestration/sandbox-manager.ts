@@ -13,26 +13,20 @@ const DAEMON_PORT = 8080;
 const DAEMON_STARTUP_TIMEOUT_MS = 15_000;
 const DAEMON_HEALTH_CHECK_INTERVAL_MS = 500;
 
-// Three separate bundles deployed into the sandbox. Versioned together by
-// the hash of all three concatenated — any change to any one triggers a
-// daemon restart. The daemon spawns sync.js / agent.js per turn; only the
-// daemon bundle is long-running.
+// Two separate bundles deployed into the sandbox. Versioned together by the
+// hash of both concatenated — any change to either triggers a daemon restart.
+// The daemon spawns agent.js per turn; only the daemon bundle is long-running.
 const DAEMON_BUNDLE = {
 	name: "daemon",
 	sandboxPath: "/workspace/daemon.js",
 	distFile: "daemon.js",
-} as const;
-const SYNC_BUNDLE = {
-	name: "sync",
-	sandboxPath: "/workspace/sync.js",
-	distFile: "sync.js",
 } as const;
 const AGENT_BUNDLE = {
 	name: "agent",
 	sandboxPath: "/workspace/agent.js",
 	distFile: "agent.js",
 } as const;
-const SANDBOX_BUNDLES = [DAEMON_BUNDLE, SYNC_BUNDLE, AGENT_BUNDLE] as const;
+const SANDBOX_BUNDLES = [DAEMON_BUNDLE, AGENT_BUNDLE] as const;
 const DAEMON_BUNDLE_PATH = DAEMON_BUNDLE.sandboxPath;
 const DIST_DIR = resolve(
 	import.meta.dirname,
@@ -78,37 +72,7 @@ async function loadSandboxBundles(): Promise<SandboxBundleSet> {
 }
 
 export class SandboxManager {
-	async getOrCreateSandbox(
-		userId: string,
-		sandboxId: string | null,
-		logger: SyncLogger,
-	): Promise<Sandbox> {
-		if (sandboxId) {
-			try {
-				const info = await Sandbox.getInfo(sandboxId);
-				if (info.metadata.userId === userId) {
-					logger.info({
-						msg: "Reconnecting to sandbox from request",
-						userId,
-						sandboxId,
-					});
-					return await Sandbox.connect(sandboxId);
-				}
-				logger.error({
-					msg: "Sandbox userId mismatch, creating new sandbox",
-					userId,
-					sandboxId,
-				});
-			} catch (err) {
-				logger.error({
-					msg: "Failed to reconnect, creating new sandbox",
-					userId,
-					sandboxId,
-					error: err instanceof Error ? err.message : String(err),
-				});
-			}
-		}
-
+	async createSandbox(userId: string, logger: SyncLogger): Promise<Sandbox> {
 		logger.info({ msg: "Creating sandbox", userId });
 
 		try {
@@ -259,7 +223,6 @@ export class SandboxManager {
 			{
 				background: true,
 				envs: {
-					DATABASE_URL: apiEnv.DATABASE_URL as string,
 					DAEMON_VERSION: expectedVersion,
 					DAEMON_AUTH_TOKEN: apiEnv.DAEMON_AUTH_TOKEN,
 				},

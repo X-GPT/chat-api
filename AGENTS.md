@@ -74,7 +74,8 @@ MyMemo Monorepo (Bun workspaces) containing:
 - **chat-api** (`apps/chat-api/`) - AI chat service; orchestrates per-user E2B sandboxes
 - **sandbox-daemon** (`apps/sandbox-daemon/`) - in-sandbox HTTP daemon; bundled and shipped into E2B
 - **llm-gateway** (`apps/llm-gateway/`) - control plane; the only service holding the real `ANTHROPIC_API_KEY`. Verifies the per-turn bearer token and proxies to Anthropic
-- **@mymemo/db** (`packages/db/`), **@mymemo/llm-token** (`packages/llm-token/`) - shared packages
+- **document-gateway** (`apps/document-gateway/`) - control plane; the only service holding the real document-API credential. Verifies the per-turn token, enforces the turn's signed scope, and proxies document search/fetch to the MyMemo document API
+- **@mymemo/llm-token** (`packages/llm-token/`) - shared package
 
 ## Commands
 
@@ -99,23 +100,23 @@ docker-compose up    # Local development
 ### Request Flow
 
 1. `POST /api/v1/chat` with:
-   - **JSON body** (`ChatBodyRequest`): chat payload — `chatContent`, optional `collectionId`/`summaryId`/`sessionId`/`sandboxId`
+   - **JSON body** (`ChatBodyRequest`): chat payload — `chatContent`, optional `collectionId`/`summaryId`/`sessionId`
    - **Identity headers** (`InternalIdentity`): `X-Member-Code` (required), `X-Partner-Code` (required), `X-Team-Code`, `X-Member-Name`, `X-Partner-Name` (all optional)
 2. SSE stream initiated in `chat.route.ts` after body validation (`.strict()`, rejects extra keys) and identity-header validation (401 on missing/invalid)
 3. `chat.controller.ts::complete()` orchestrates the merged request — no upstream API calls
-4. `runSandboxChat` is the sole agent path: forwards the turn to a per-user E2B sandbox daemon. The optional `sessionId` from the request body is passed through as the daemon's `agent_session_id`; when omitted, the daemon allocates a new session. The optional `sandboxId` is used to reconnect to an existing E2B sandbox; when omitted (or reconnection fails), a new sandbox is created. chat-api also mints a short-lived `@mymemo/llm-token` bound to `{userId, sandboxId, requestId}` and sends it (with `LLM_GATEWAY_PUBLIC_URL`) in the turn body. The daemon sets these as `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` on the agent process, so **the sandbox never holds a provider key** — all LLM calls route through `llm-gateway`, which validates the token and injects the real `ANTHROPIC_API_KEY`.
+4. `runSandboxChat` is the sole agent path: creates a fresh per-user E2B sandbox each turn and forwards the turn to its daemon. The optional `sessionId` from the request body is passed through as the daemon's `agent_session_id`; when omitted, the daemon allocates a new session. chat-api mints a short-lived `@mymemo/llm-token` bound to `{userId, sandboxId, requestId}` and sends it (with `LLM_GATEWAY_PUBLIC_URL`) in the turn body. The daemon sets these as `ANTHROPIC_BASE_URL` + `ANTHROPIC_AUTH_TOKEN` on the agent process, so **the sandbox never holds a provider key** — all LLM calls route through `llm-gateway`, which validates the token and injects the real `ANTHROPIC_API_KEY`. The agent accesses the user's documents on demand via the `mymemo-docs` CLI (on PATH in the sandbox template), which calls `document-gateway` with the same per-turn token (sent as `MYMEMO_DOC_GATEWAY_URL` + `MYMEMO_DOC_TOKEN`); the gateway enforces the turn's **signed scope** server-side. Documents are **not** materialized to the sandbox filesystem.
 5. Events emitted via SSE:
    - `text_delta` — `{ text }` payload, one event per streamed token chunk; the client concatenates these to build the full response
    - `done` — `{}` payload, marks end-of-stream after the final `text_delta`
    - `session_id` — `{ sessionId }`, daemon-assigned conversation session; clients must persist and echo back to resume
-   - `sandbox_id` — `{ sandboxId }`, the active E2B sandbox; clients must persist and echo back to reuse the same sandbox across requests
+   - `sandbox_id` — `{ sandboxId }`, the E2B sandbox created for this turn (a fresh sandbox is created per turn)
    - `error` — `{ message }`, surfaced on agent or transport failure
 
 ### Trust Boundary
 
 Identity arrives via `X-*` headers, **not** the JSON body. chat-api does not authenticate users itself; the internal caller (gateway / BFF) is responsible for authenticating the user and forwarding their identity. The body schema uses `.strict()` so any attempt to pass identity in the body is rejected with a 400. This service must therefore only be reachable from trusted internal callers; do not expose `POST /api/v1/chat` directly to untrusted networks.
 
-The sandboxed agent is treated as untrusted (it runs prompt-injectable, Bash-capable code). It holds no provider key — only a short-lived, single-user, signed bearer token. The single inbound edge from a sandbox is **sandbox → llm-gateway**; `llm-gateway` holds `ANTHROPIC_API_KEY` + `LLM_TOKEN_SECRET` and should only be reachable from sandboxes (and only reach `api.anthropic.com` outbound). chat-api and llm-gateway share `LLM_TOKEN_SECRET` (chat-api mints, gateway verifies); the daemon never sees it.
+The sandboxed agent is treated as untrusted (it runs prompt-injectable, Bash-capable code). It holds no provider key and no document credential — only a short-lived, single-user, signed bearer token whose claims include the turn's document scope. The inbound edges from a sandbox are **sandbox → llm-gateway** and **sandbox → document-gateway**; each gateway holds its real credential + `LLM_TOKEN_SECRET`, should only be reachable from sandboxes, and reaches only its upstream (`api.anthropic.com` / the MyMemo document API). Because scope is signed into the token and enforced by `document-gateway`, a prompt-injected agent cannot read documents outside its turn's scope. chat-api mints the token; both gateways verify it; the daemon never sees `LLM_TOKEN_SECRET`.
 
 ### Key Modules
 
@@ -146,10 +147,10 @@ The sandboxed agent is treated as untrusted (it runs prompt-injectable, Bash-cap
 
 Required:
 - `E2B_API_KEY`
-- `DATABASE_URL`
 - `DAEMON_AUTH_TOKEN`
-- `LLM_TOKEN_SECRET` — HMAC secret for minting per-turn LLM tokens (shared with llm-gateway)
-- `LLM_GATEWAY_PUBLIC_URL` — gateway base URL the sandbox agent uses; **must be reachable from inside the E2B sandbox**
+- `LLM_TOKEN_SECRET` — HMAC secret for minting per-turn tokens (shared with both gateways)
+- `LLM_GATEWAY_PUBLIC_URL` — llm-gateway base URL the sandbox agent uses; **must be reachable from inside the E2B sandbox**
+- `DOCUMENT_GATEWAY_PUBLIC_URL` — document-gateway base URL the sandbox agent's `mymemo-docs` CLI uses; **must be reachable from inside the E2B sandbox**
 
 Optional:
 - `LOG_LEVEL` (default: `info`)
@@ -164,4 +165,14 @@ Required:
 
 Optional:
 - `UPSTREAM_BASE_URL` (default: `https://api.anthropic.com`)
-- `PORT` (default: 8081)
+- `GATEWAY_PORT` (default: 8081)
+
+### document-gateway
+
+Required:
+- `MYMEMO_DOC_API_URL` — base URL of the real MyMemo document API
+- `MYMEMO_DOC_API_KEY` — the real document-API credential; lives **only** in this service
+- `LLM_TOKEN_SECRET` — must match chat-api's
+
+Optional:
+- `DOCUMENT_GATEWAY_PORT` (default: 8082)

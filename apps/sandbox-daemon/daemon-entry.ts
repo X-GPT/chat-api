@@ -1,14 +1,12 @@
 /**
  * Daemon: long-running HTTP server in the E2B sandbox. Owns /turn, request
- * locking, and streaming. Spawns sync.js and agent.js per turn — never
- * imports DB code (drizzle/mysql2) or the Claude Agent SDK directly, so
- * the daemon bundle's transitive graph stays minimal.
+ * locking, and streaming. Spawns agent.js per turn — never imports the Claude
+ * Agent SDK directly, so the daemon bundle's transitive graph stays minimal.
  *
  * Env:
  *   DAEMON_PORT       — HTTP port (default 8080).
  *   DAEMON_VERSION    — surfaced by /health for the chat-api bundle check.
  *   DAEMON_AUTH_TOKEN — required bearer secret for /turn.
- *   DATABASE_URL      — held only to forward into sync.js's env.
  *
  * The daemon holds no provider key: the agent's LLM gateway URL and bearer
  * token arrive per turn in the /turn body and are forwarded into agent.js's env.

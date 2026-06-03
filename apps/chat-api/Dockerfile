@@ -8,14 +8,12 @@ RUN mkdir -p /temp/dev /temp/prod
 COPY package.json bun.lock /temp/dev/
 COPY apps/chat-api/package.json /temp/dev/apps/chat-api/
 COPY apps/sandbox-daemon/package.json /temp/dev/apps/sandbox-daemon/
-COPY packages/db/package.json /temp/dev/packages/db/
 COPY packages/llm-token/package.json /temp/dev/packages/llm-token/
 RUN cd /temp/dev && bun install --frozen-lockfile
 
 COPY package.json bun.lock /temp/prod/
 COPY apps/chat-api/package.json /temp/prod/apps/chat-api/
 COPY apps/sandbox-daemon/package.json /temp/prod/apps/sandbox-daemon/
-COPY packages/db/package.json /temp/prod/packages/db/
 COPY packages/llm-token/package.json /temp/prod/packages/llm-token/
 RUN cd /temp/prod && bun install --frozen-lockfile --production
 
@@ -24,7 +22,6 @@ FROM base AS prerelease
 COPY --from=install /temp/dev/node_modules node_modules
 COPY apps/chat-api/ apps/chat-api/
 COPY apps/sandbox-daemon/ apps/sandbox-daemon/
-COPY packages/db/ packages/db/
 COPY packages/llm-token/ packages/llm-token/
 COPY package.json .
 
@@ -40,7 +37,6 @@ COPY --from=prerelease /usr/src/app/apps/chat-api/src apps/chat-api/src
 COPY --from=prerelease /usr/src/app/apps/chat-api/package.json apps/chat-api/
 COPY --from=prerelease /usr/src/app/apps/chat-api/tsconfig.json apps/chat-api/
 COPY --from=prerelease /usr/src/app/apps/sandbox-daemon/dist apps/sandbox-daemon/dist
-COPY --from=prerelease /usr/src/app/packages/db packages/db
 COPY --from=prerelease /usr/src/app/packages/llm-token packages/llm-token
 COPY --from=prerelease /usr/src/app/package.json .
 

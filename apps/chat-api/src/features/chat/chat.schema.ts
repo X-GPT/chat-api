@@ -21,11 +21,6 @@ export const ChatBodyRequest = z
 		// session. Clients are responsible for persisting the latest
 		// sessionId emitted via the `session_id` SSE event.
 		sessionId: z.string().min(1).max(MAX_IDENTIFIER_LENGTH).optional(),
-
-		// E2B sandbox to reconnect to. When omitted, a new sandbox is
-		// created. Clients are responsible for persisting the latest
-		// sandboxId emitted via the `sandbox_id` SSE event.
-		sandboxId: z.string().min(1).max(MAX_IDENTIFIER_LENGTH).optional(),
 	})
 	.strict();
 export type ChatBodyRequest = z.infer<typeof ChatBodyRequest>;

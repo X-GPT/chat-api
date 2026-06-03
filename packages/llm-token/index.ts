@@ -18,6 +18,16 @@ export interface LlmTokenClaims {
 	requestId: string;
 	/** Expiry as ms since epoch. */
 	exp: number;
+	/**
+	 * The turn's document scope. The document-gateway enforces these server-side
+	 * (the agent cannot widen them, since they're signed). The llm-gateway
+	 * ignores them. Absent for turns that don't touch documents.
+	 */
+	scope?: "global" | "collection" | "document";
+	/** Present iff scope === "collection". */
+	collectionId?: string;
+	/** Present iff scope === "document". */
+	summaryId?: string;
 }
 
 const DEFAULT_TTL_MS = 10 * 60_000;

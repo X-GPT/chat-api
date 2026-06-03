@@ -33,7 +33,6 @@ function makeOptions(
 		collectionId: null,
 		summaryId: null,
 		sessionId: null,
-		sandboxId: null,
 		onTextDelta: async () => {},
 		onTextEnd: async () => {},
 		onSessionId: async () => {},
@@ -47,24 +46,25 @@ describe("runSandboxChat", () => {
 	let runSandboxChat: typeof import("./sandbox-orchestration").runSandboxChat;
 	let singletonModule: typeof import("./singleton");
 	let proxyModule: typeof import("./sandbox-proxy");
-	let spyGetOrCreate: ReturnType<typeof spyOn>;
+	let spyCreate: ReturnType<typeof spyOn>;
 	let spyEnsureDaemon: ReturnType<typeof spyOn>;
 	let spyForwardTurn: ReturnType<typeof spyOn>;
+	let spyKill: ReturnType<typeof spyOn>;
 
 	beforeEach(async () => {
 		Bun.env.E2B_API_KEY = "test-e2b-key";
 		Bun.env.DAEMON_AUTH_TOKEN = "test-daemon-auth-token";
-		Bun.env.DATABASE_URL = "mysql://user:pass@localhost:3306/test";
 		Bun.env.LLM_TOKEN_SECRET = "test-llm-token-secret";
 		Bun.env.LLM_GATEWAY_PUBLIC_URL = "https://gateway.test";
+		Bun.env.DOCUMENT_GATEWAY_PUBLIC_URL = "https://docs.test";
 		({ runSandboxChat } = await import("./sandbox-orchestration"));
 		singletonModule = await import("./singleton");
 		proxyModule = await import("./sandbox-proxy");
 
 		const sandbox = createMockSandbox();
-		spyGetOrCreate = spyOn(
+		spyCreate = spyOn(
 			singletonModule.sandboxManager,
-			"getOrCreateSandbox",
+			"createSandbox",
 		).mockResolvedValue(sandbox as unknown as import("e2b").Sandbox);
 		spyEnsureDaemon = spyOn(
 			singletonModule.sandboxManager,
@@ -73,12 +73,17 @@ describe("runSandboxChat", () => {
 			url: "http://daemon:8080",
 			authToken: "test-daemon-auth-token",
 		});
+		spyKill = spyOn(
+			singletonModule.sandboxManager,
+			"killSandbox",
+		).mockResolvedValue(undefined);
 	});
 
 	afterEach(() => {
-		spyGetOrCreate?.mockRestore();
+		spyCreate?.mockRestore();
 		spyEnsureDaemon?.mockRestore();
 		spyForwardTurn?.mockRestore();
+		spyKill?.mockRestore();
 		mock.restore();
 	});
 
@@ -91,7 +96,7 @@ describe("runSandboxChat", () => {
 		const result = await runSandboxChat(makeOptions());
 
 		expect(result).toEqual({ status: "completed" });
-		expect(spyGetOrCreate).toHaveBeenCalled();
+		expect(spyCreate).toHaveBeenCalled();
 		expect(spyEnsureDaemon).toHaveBeenCalled();
 		expect(spyForwardTurn).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -141,34 +146,30 @@ describe("runSandboxChat", () => {
 		await runSandboxChat(makeOptions({ sessionId: null }));
 	});
 
-	it("forwards request sandboxId to sandbox manager", async () => {
+	it("always creates a fresh sandbox for the user", async () => {
 		spyForwardTurn = spyOn(
 			proxyModule,
 			"forwardChatTurnToSandbox",
 		).mockResolvedValue(undefined);
 
-		await runSandboxChat(makeOptions({ sandboxId: "sbx-from-client" }));
+		await runSandboxChat(makeOptions());
 
-		expect(spyGetOrCreate).toHaveBeenCalledWith(
-			"user-1",
-			"sbx-from-client",
-			expect.anything(),
-		);
+		expect(spyCreate).toHaveBeenCalledWith("user-1", expect.anything());
+		// Ephemeral: the sandbox is torn down once the turn completes.
+		expect(spyKill).toHaveBeenCalled();
 	});
 
-	it("passes null sandboxId when none provided", async () => {
+	it("kills the sandbox even when the turn fails", async () => {
 		spyForwardTurn = spyOn(
 			proxyModule,
 			"forwardChatTurnToSandbox",
-		).mockResolvedValue(undefined);
+		).mockRejectedValue(new Error("daemon unreachable"));
 
-		await runSandboxChat(makeOptions({ sandboxId: null }));
-
-		expect(spyGetOrCreate).toHaveBeenCalledWith(
-			"user-1",
-			null,
-			expect.anything(),
+		await expect(runSandboxChat(makeOptions())).rejects.toThrow(
+			"daemon unreachable",
 		);
+
+		expect(spyKill).toHaveBeenCalled();
 	});
 
 	it("invokes onSandboxId with the resolved sandbox id", async () => {

@@ -31,6 +31,8 @@ export async function runAgent(
 	const queryOptions: Record<string, unknown> = {
 		cwd,
 		systemPrompt,
+		// The agent reaches documents via the `mymemo-docs` CLI (Bash), which calls
+		// the document gateway. No MCP server is needed.
 		allowedTools: ["Bash", "Read", "Grep", "Glob"],
 		permissionMode: "bypassPermissions",
 		includePartialMessages: true,

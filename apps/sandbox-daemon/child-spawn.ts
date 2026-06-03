@@ -1,25 +1,20 @@
 /**
- * Spawn helpers for the per-turn sync.js and agent.js children. The daemon
- * holds DATABASE_URL in its env so it can forward it to sync.js, but never
- * imports the DB driver or the Claude Agent SDK itself — those live exclusively
- * in sync.js / agent.js. The agent's LLM credentials are not provider keys: it
- * gets a gateway base URL + short-lived bearer token, supplied per turn.
+ * Spawn helper for the per-turn agent.js child. The daemon never imports the
+ * Claude Agent SDK itself — it lives exclusively in agent.js. The agent's LLM
+ * credentials are not provider keys: it gets a gateway base URL + short-lived
+ * bearer token, supplied per turn.
  *
- * Both children speak NDJSON on stdout. We line-buffer, parse, and dispatch.
+ * The agent speaks NDJSON on stdout. We line-buffer, parse, and dispatch.
  *
  * Bundle paths are env-overridable for tests; in production sandboxes the
- * chat-api writes the three bundles to /workspace/{daemon,sync,agent}.js.
+ * chat-api writes the two bundles to /workspace/{daemon,agent}.js.
  */
 
 import { mkdirSync } from "node:fs";
-import type { AgentEvent, SyncEvent } from "./ipc-protocol";
+import type { AgentEvent } from "./ipc-protocol";
 
-export type { AgentEvent, SyncEvent } from "./ipc-protocol";
-export type SyncResult = SyncEvent;
+export type { AgentEvent } from "./ipc-protocol";
 
-function getSyncBundlePath(): string {
-	return process.env.SANDBOX_SYNC_PATH ?? "/workspace/sync.js";
-}
 function getAgentBundlePath(): string {
 	return process.env.SANDBOX_AGENT_PATH ?? "/workspace/agent.js";
 }
@@ -59,19 +54,15 @@ function getClaudeProjectsDir(): string {
  *                                             directory entirely. Hides
  *                                             daemon.log (which accumulates
  *                                             stderr across turns),
- *                                             daemon.js, sync.js, and every
- *                                             user's data tree.
+ *                                             daemon.js, and agent.js.
  *   3. --ro-bind /workspace/agent.js ...   — re-expose only the agent bundle
  *                                             so bun can load it.
- *   4. --bind <cwd> <cwd>                  — re-expose only the selected
- *                                             scope as read-write. For
- *                                             collection/document scopes
- *                                             this is a subdir; for global
- *                                             scope it's the canonical tree.
- *                                             Hardlinks resolve via inode,
- *                                             not path, so collection scopes
- *                                             can still read their
- *                                             underlying canonical content.
+ *   4. --bind <cwd> <cwd>                  — re-expose only the agent's
+ *                                             working directory as
+ *                                             read-write (an empty scratch
+ *                                             dir; documents are fetched via
+ *                                             the `mymemo-docs` CLI, not
+ *                                             read from disk).
  *   5. --bind ~/.claude/projects ...       — re-expose the Claude Agent SDK's
  *                                             session transcript directory
  *                                             rw so resume across turns
@@ -212,49 +203,6 @@ async function drainStderr(stream: ReadableStream<Uint8Array>): Promise<void> {
 	}
 }
 
-export async function spawnSync(input: {
-	userId: string;
-}): Promise<SyncResult> {
-	const proc = Bun.spawn(
-		[getBunExecutable(), getSyncBundlePath(), "--user-id", input.userId],
-		{
-			env: {
-				DATABASE_URL: process.env.DATABASE_URL ?? "",
-				PATH: process.env.PATH ?? "",
-			},
-			stdout: "pipe",
-			stderr: "pipe",
-			stdin: "ignore",
-		},
-	);
-
-	const stderrPromise = drainStderr(proc.stderr);
-	let terminal: SyncEvent | null = null;
-	for await (const event of readNdjson(proc.stdout)) {
-		if (
-			event.type === "synced" &&
-			typeof event.changed === "boolean" &&
-			typeof event.dataRoot === "string"
-		) {
-			terminal = {
-				type: "synced",
-				changed: event.changed,
-				dataRoot: event.dataRoot,
-			};
-		} else if (event.type === "failed" && typeof event.message === "string") {
-			terminal = { type: "failed", message: event.message };
-		}
-	}
-	await stderrPromise;
-	const exitCode = await proc.exited;
-
-	if (terminal) return terminal;
-	return {
-		type: "failed",
-		message: `sync exited with code ${exitCode} without emitting a terminal event`,
-	};
-}
-
 export interface SpawnAgentInput {
 	userQuery: string;
 	systemPrompt: string;
@@ -262,7 +210,13 @@ export interface SpawnAgentInput {
 	sessionId?: string;
 	/** LLM gateway base URL — set as ANTHROPIC_BASE_URL for the Claude binary. */
 	llmBaseUrl: string;
-	/** Short-lived bearer token — set as ANTHROPIC_AUTH_TOKEN. */
+	/** Document gateway base URL — set as MYMEMO_DOC_GATEWAY_URL for the CLI. */
+	docGatewayUrl: string;
+	/**
+	 * Short-lived bearer token — set as ANTHROPIC_AUTH_TOKEN (LLM gateway) and
+	 * MYMEMO_DOC_TOKEN (document gateway). The signed scope is enforced by the
+	 * document gateway.
+	 */
 	llmToken: string;
 	onEvent: (event: AgentEvent) => void | Promise<void>;
 }
@@ -274,7 +228,7 @@ export interface SpawnAgentResult {
 export async function spawnAgent(
 	input: SpawnAgentInput,
 ): Promise<SpawnAgentResult> {
-	const { onEvent, llmBaseUrl, llmToken, ...config } = input;
+	const { onEvent, llmBaseUrl, docGatewayUrl, llmToken, ...config } = input;
 	ensureClaudeProjectsDir();
 	const proc = Bun.spawn(buildAgentSpawnArgv(config.cwd), {
 		env: {
@@ -282,6 +236,11 @@ export async function spawnAgent(
 			// injects the real key. ANTHROPIC_AUTH_TOKEN is sent as a Bearer header.
 			ANTHROPIC_BASE_URL: llmBaseUrl,
 			ANTHROPIC_AUTH_TOKEN: llmToken,
+			// Document access: the `mymemo-docs` CLI (on PATH) calls the document
+			// gateway with this token. The gateway enforces the token's signed
+			// scope, so the agent holds no document credential.
+			MYMEMO_DOC_GATEWAY_URL: docGatewayUrl,
+			MYMEMO_DOC_TOKEN: llmToken,
 			PATH: process.env.PATH ?? "",
 			CLAUDE_CODE_PATH: process.env.CLAUDE_CODE_PATH ?? "/usr/local/bin/claude",
 		},
