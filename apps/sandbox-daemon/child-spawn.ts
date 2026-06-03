@@ -61,7 +61,7 @@ function getClaudeProjectsDir(): string {
  *                                             working directory as
  *                                             read-write (an empty scratch
  *                                             dir; documents are fetched via
- *                                             the document MCP tools, not
+ *                                             the `mymemo-docs` CLI, not
  *                                             read from disk).
  *   5. --bind ~/.claude/projects ...       — re-expose the Claude Agent SDK's
  *                                             session transcript directory

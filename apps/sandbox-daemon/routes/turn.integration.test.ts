@@ -19,7 +19,7 @@ import type {
 
 // Mock spawnAgent — the turn route spawns the agent inside agent.js (a separate
 // process) in production. The test stubs it to control behavior. Documents are
-// fetched by the agent via the document MCP tools, so there is no sync step.
+// fetched by the agent via the `mymemo-docs` CLI, so there is no sync step.
 const mockSpawnAgent = mock(
 	async (_input: SpawnAgentInput): Promise<SpawnAgentResult> => ({
 		exitCode: 0,

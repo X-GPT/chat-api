@@ -9,8 +9,9 @@ const app = new Hono();
 const DAEMON_AUTH_HEADER = "x-daemon-auth-token";
 
 // The agent's working directory inside the sandbox. Documents are no longer
-// materialized to disk — the agent fetches them via the document MCP tools —
-// so this is just an empty rw scratch dir for the agent's Bash/file tools.
+// materialized to disk — the agent fetches them on demand via the
+// `mymemo-docs` CLI (which calls the document-gateway) — so this is just an
+// empty rw scratch dir for the agent's Bash/file tools.
 // Must be a subpath of /workspace that bwrap re-binds rw (see child-spawn).
 // Env-overridable so integration tests can point it at a temp dir.
 function getAgentCwd(): string {
