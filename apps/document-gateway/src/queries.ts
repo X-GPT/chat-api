@@ -115,10 +115,15 @@ export async function resolveDocumentId(
  * Collection scope: resolve the turn's collectionId (= content_collection
  * compat_str_id) to the KB document ids in that collection, pinned to the
  * workspace. Returns [] if the collection is unknown or empty.
+ *
+ * User scoping is the `p.workspace_id = $2` pin, NOT `content_collection
+ * .member_code` (which is stored in a different representation — verified
+ * against staging: pinning by workspace returns the collection's docs and a
+ * cross-workspace collectionId yields nothing).
  */
 export async function resolveCollectionDocumentIds(
 	db: Db,
-	opts: { collectionId: string; workspaceId: string; memberCode: string },
+	opts: { collectionId: string; workspaceId: string },
 ): Promise<string[]> {
 	const rows = await db.query<{ document_id: string }>(
 		`SELECT DISTINCT p.document_id
@@ -126,10 +131,9 @@ export async function resolveCollectionDocumentIds(
 		   JOIN passage_collection pc ON pc.collection_id = c.compat_int_id::text
 		   JOIN passage p ON p.id = pc.passage_id
 		  WHERE c.compat_str_id = $1
-		    AND c.member_code = $2
-		    AND p.workspace_id = $3
+		    AND p.workspace_id = $2
 		    AND p.status = 'active'`,
-		[opts.collectionId, opts.memberCode, opts.workspaceId],
+		[opts.collectionId, opts.workspaceId],
 	);
 	return rows.map((r) => r.document_id);
 }

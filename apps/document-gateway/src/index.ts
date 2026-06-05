@@ -86,7 +86,6 @@ app.post("/v1/documents/search", async (c) => {
 		documentIds = await resolveCollectionDocumentIds(db(), {
 			collectionId: claims.collectionId ?? "",
 			workspaceId,
-			memberCode: claims.userId,
 		});
 		if (documentIds.length === 0) return c.json({ documents: [] });
 	}
@@ -126,7 +125,6 @@ app.post("/v1/documents/fetch", async (c) => {
 		const allowed = await resolveCollectionDocumentIds(db(), {
 			collectionId: claims.collectionId ?? "",
 			workspaceId,
-			memberCode: claims.userId,
 		});
 		if (!allowed.includes(body.documentId)) {
 			return forbidden(c, "document not in collection");

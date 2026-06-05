@@ -139,7 +139,7 @@ describe("document-gateway (FTS / Postgres)", () => {
 			headers: headers(token({ scope: "collection", collectionId: "col-1" })),
 			body: JSON.stringify({ query: "x" }),
 		});
-		expect(callOf("resolveColl")?.params).toEqual(["col-1", "u1", "u1"]);
+		expect(callOf("resolveColl")?.params).toEqual(["col-1", "u1"]);
 		expect(callOf("search")?.params[2]).toEqual(["d1", "d2"]);
 	});
 
