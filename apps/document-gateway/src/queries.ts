@@ -38,6 +38,22 @@ export async function searchPassages(
 		limit: number;
 	},
 ): Promise<SearchHit[]> {
+	// Build the optional document filter with one bind param per id — Bun.sql
+	// does not bind a JS array to a Postgres text[] (it sends "a,b", not "{a,b}"),
+	// so `= ANY($n)` is unusable. `IN ($3,$4,…)` keeps every id a scalar param.
+	const params: unknown[] = [opts.workspaceId, opts.query];
+	let docFilter = "";
+	if (opts.documentIds) {
+		if (opts.documentIds.length === 0) return [];
+		const slots = opts.documentIds
+			.map((_, i) => `$${params.length + i + 1}`)
+			.join(", ");
+		params.push(...opts.documentIds);
+		docFilter = `AND p.document_id IN (${slots})`;
+	}
+	const limitSlot = `$${params.length + 1}`;
+	params.push(opts.limit);
+
 	const rows = await db.query<{
 		passage_id: string;
 		document_id: string;
@@ -52,11 +68,11 @@ export async function searchPassages(
 		  WHERE p.workspace_id = $1
 		    AND p.status = 'active'
 		    AND d.status = 'active'
-		    AND ($3::text[] IS NULL OR p.document_id = ANY($3))
+		    ${docFilter}
 		    AND p.search_tsv @@ plainto_tsquery('simple', $2)
 		  ORDER BY score DESC
-		  LIMIT $4`,
-		[opts.workspaceId, opts.query, opts.documentIds, opts.limit],
+		  LIMIT ${limitSlot}`,
+		params,
 	);
 	return rows.map((r) => ({
 		passageId: r.passage_id,

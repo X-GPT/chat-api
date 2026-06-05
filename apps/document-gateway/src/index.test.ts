@@ -93,9 +93,9 @@ describe("document-gateway (FTS / Postgres)", () => {
 			],
 		});
 		const search = callOf("search");
-		expect(search?.params[0]).toBe("u1"); // workspace_id
-		expect(search?.params[1]).toBe("hello world");
-		expect(search?.params[2]).toBeNull(); // no document filter in global scope
+		// global scope: no document filter — params are [workspace, query, limit].
+		expect(search?.params).toEqual(["u1", "hello world", 8]);
+		expect(search?.text).not.toContain("p.document_id IN");
 	});
 
 	it("document search resolves summaryId and restricts to that document", async () => {
@@ -113,7 +113,8 @@ describe("document-gateway (FTS / Postgres)", () => {
 			body: JSON.stringify({ query: "x" }),
 		});
 		expect(callOf("resolveDoc")?.params).toEqual(["42", "u1"]);
-		expect(callOf("search")?.params[2]).toEqual(["kb-doc-9"]);
+		expect(callOf("search")?.text).toContain("p.document_id IN");
+		expect(callOf("search")?.params).toContain("kb-doc-9");
 	});
 
 	it("document search with an unknown summaryId returns empty, no search", async () => {
@@ -165,7 +166,9 @@ describe("document-gateway (FTS / Postgres)", () => {
 			body: JSON.stringify({ query: "x" }),
 		});
 		expect(callOf("resolveColl")?.params).toEqual(["col-1", "u1"]);
-		expect(callOf("search")?.params[2]).toEqual(["d1", "d2"]);
+		expect(callOf("search")?.params).toEqual(
+			expect.arrayContaining(["d1", "d2"]),
+		);
 	});
 
 	it("collection search with an empty collection returns empty, no search", async () => {
