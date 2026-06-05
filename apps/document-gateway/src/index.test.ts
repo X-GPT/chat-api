@@ -127,6 +127,31 @@ describe("document-gateway (FTS / Postgres)", () => {
 		expect(callOf("search")).toBeUndefined();
 	});
 
+	it("document search with a non-numeric summaryId fails closed (no DB)", async () => {
+		const res = await app.request("/v1/documents/search", {
+			method: "POST",
+			headers: headers(token({ scope: "document", summaryId: "not-a-number" })),
+			body: JSON.stringify({ query: "x" }),
+		});
+		expect(await res.json()).toEqual({ documents: [] });
+		// The numeric guard returns before the $1::bigint query runs.
+		expect(callOf("resolveDoc")).toBeUndefined();
+		expect(callOf("search")).toBeUndefined();
+	});
+
+	it("fetch clips document content to 50k chars", async () => {
+		responder = (t) =>
+			kind(t) === "fetch"
+				? [{ document_id: "d1", title: "T", content: "body" }]
+				: [];
+		await app.request("/v1/documents/fetch", {
+			method: "POST",
+			headers: headers(token({ scope: "global" })),
+			body: JSON.stringify({ documentId: "d1" }),
+		});
+		expect(callOf("fetch")?.text).toContain("left(canonical_markdown, 50000)");
+	});
+
 	it("collection search restricts to the collection's documents", async () => {
 		responder = (t) => {
 			if (kind(t) === "resolveColl")

@@ -76,7 +76,9 @@ export async function fetchDocument(
 		title: string;
 		content: string;
 	}>(
-		`SELECT id AS document_id, title, canonical_markdown AS content
+		// Clip to 50k chars (matches the production read_document) so a large
+		// document can't dump hundreds of KB into the agent's context.
+		`SELECT id AS document_id, title, left(canonical_markdown, 50000) AS content
 		   FROM document
 		  WHERE id = $1 AND workspace_id = $2 AND status = 'active'
 		  LIMIT 1`,
@@ -99,6 +101,9 @@ export async function resolveDocumentId(
 	db: Db,
 	opts: { summaryId: string; memberCode: string },
 ): Promise<string | null> {
+	// summaryId is platform_knowledge.id (a bigint). Fail closed on anything
+	// non-numeric rather than letting `$1::bigint` raise a SQL error.
+	if (!/^\d+$/.test(opts.summaryId)) return null;
 	const rows = await db.query<{ kb_document_id: string }>(
 		`SELECT kb_document_id
 		   FROM content_asset
