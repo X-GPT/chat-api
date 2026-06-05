@@ -28,10 +28,10 @@ You do NOT have the user's documents on your local filesystem. You access them w
   * **N** starts from **1** and increments in order of appearance
   * Example: \`The robots are autonomous [[1]][c1].\`
 * After the final answer, append only citation definitions at the very end of the message in plain text (no code fences). Example (each line exactly as shown, with no leading dash):
-[c1]: <path>
-[c2]: <path>
-* **Path format**: Use the value from the \`cite:\` line that \`mymemo-docs fetch\` prints for each document.
-  * Example: if \`mymemo-docs fetch\` prints \`cite: detail/0/12345\`, emit \`[c1]: detail/0/12345\`
+[c1]: <passageId>
+[c2]: <passageId>
+* **Path format**: Use the \`passageId\` from the \`mymemo-docs search\` result the fact came from.
+  * Example: for a search hit \`{"passageId":"p_abc123",...}\`, emit \`[c1]: p_abc123\`
 * Do not include a section heading like "References"
 * Do not wrap the citation list in code blocks
 * **Emit references only for markers used in the message**
@@ -61,7 +61,7 @@ const GENERAL_SCOPE_CONTEXT = `
 
 ### Scope
 
-The user's question is not restricted to a particular collection. Use \`mymemo-docs search\` (without \`--collection\`) to find relevant documents across all of the user's documents.
+The user's question is not restricted to a particular collection. Use \`mymemo-docs search\` to find relevant documents across all of the user's documents.
 
 **CRITICAL RULES:**
 - You MUST use \`mymemo-docs search\` and \`mymemo-docs fetch\` to find and read documents before answering.
@@ -70,30 +70,30 @@ The user's question is not restricted to a particular collection. Use \`mymemo-d
 
 ---`;
 
-function buildCollectionScopeContext(collectionId: string): string {
+function buildCollectionScopeContext(): string {
 	return `
 ---
 
 ### Scope
 
-You are answering within a single collection. Pass \`--collection ${collectionId}\` to \`mymemo-docs search\` so results are restricted to that collection.
+You are answering within a single collection. Search is **automatically restricted** to that collection by the gateway — just run \`mymemo-docs search "<query>"\` normally.
 
 **CRITICAL RULES:**
-- You must answer ONLY using documents from this collection.
-- You MUST run \`mymemo-docs search "<query>" --collection ${collectionId}\` and \`mymemo-docs fetch\` before answering.
+- You must answer ONLY using documents from this collection (the gateway enforces this).
+- You MUST run \`mymemo-docs search\` and \`mymemo-docs fetch\` before answering.
 - If the collection's documents do not contain the answer, explicitly state: "I cannot find this information in the provided collection."
 - DO NOT respond that information is missing until you have searched and fetched documents.
 
 ---`;
 }
 
-function buildDocumentScopeContext(summaryId: string): string {
+function buildDocumentScopeContext(): string {
 	return `
 ---
 
 ### Scope
 
-You are answering questions about a single specific document. Run \`mymemo-docs fetch ${summaryId}\`, then answer based on its content.
+You are answering questions about a single specific document. Search is **automatically restricted** to that document — run \`mymemo-docs search "<query>"\` to find the relevant passages, then \`mymemo-docs fetch <documentId>\` (the documentId from a search result) to read the full content.
 
 **CRITICAL RULES:**
 - Answer ONLY using the content of this specific document.
@@ -111,9 +111,9 @@ export function buildSandboxAgentPrompt(
 	let scopeContext: string;
 
 	if (scope === "document" && summaryId) {
-		scopeContext = buildDocumentScopeContext(summaryId);
+		scopeContext = buildDocumentScopeContext();
 	} else if (scope === "collection" && collectionId) {
-		scopeContext = buildCollectionScopeContext(collectionId);
+		scopeContext = buildCollectionScopeContext();
 	} else {
 		scopeContext = GENERAL_SCOPE_CONTEXT;
 	}

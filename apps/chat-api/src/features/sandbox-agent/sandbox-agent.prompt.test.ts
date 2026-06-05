@@ -15,7 +15,8 @@ describe("buildSandboxAgentPrompt", () => {
 		});
 
 		expect(prompt).toContain("[[N]][cN]");
-		expect(prompt).toContain("[c1]: detail/");
+		expect(prompt).toContain("passageId");
+		expect(prompt).toContain("[c1]: p_abc123");
 	});
 
 	it("instructs use of the mymemo-docs CLI", () => {
@@ -50,7 +51,7 @@ describe("buildSandboxAgentPrompt", () => {
 	});
 
 	describe("collection scope", () => {
-		it("injects the collectionId into the search instruction", () => {
+		it("explains search is auto-restricted to the collection", () => {
 			const prompt = buildSandboxAgentPrompt({
 				...baseOptions,
 				scope: "collection",
@@ -58,12 +59,12 @@ describe("buildSandboxAgentPrompt", () => {
 			});
 
 			expect(prompt).toContain("single collection");
-			expect(prompt).toContain("--collection col-123");
+			expect(prompt).toContain("automatically restricted");
 		});
 	});
 
 	describe("document scope", () => {
-		it("injects the summaryId as the documentId to fetch", () => {
+		it("explains search is auto-restricted to the document", () => {
 			const prompt = buildSandboxAgentPrompt({
 				...baseOptions,
 				scope: "document",
@@ -71,7 +72,7 @@ describe("buildSandboxAgentPrompt", () => {
 			});
 
 			expect(prompt).toContain("single specific document");
-			expect(prompt).toContain("mymemo-docs fetch doc-456");
+			expect(prompt).toContain("automatically restricted");
 		});
 	});
 

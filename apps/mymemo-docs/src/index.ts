@@ -18,13 +18,13 @@ const BASE = process.env.MYMEMO_DOC_GATEWAY_URL;
 const TOKEN = process.env.MYMEMO_DOC_TOKEN;
 
 interface SearchHit {
+	passageId: string;
 	documentId: string;
 	title?: string;
 	snippet?: string;
 }
 
 interface FetchedDocument {
-	cite?: string;
 	title?: string;
 	content?: string;
 }
@@ -49,7 +49,7 @@ const search = defineCommand({
 	meta: {
 		name: "search",
 		description:
-			"Find documents matching a query. Prints one JSON object per line: {documentId, title, snippet}.",
+			"Find passages matching a query. Prints one JSON object per line: {passageId, documentId, title, snippet}. Cite the passageId; fetch the documentId for full content. (Search is scoped to the turn automatically.)",
 	},
 	args: {
 		query: {
@@ -57,18 +57,15 @@ const search = defineCommand({
 			required: true,
 			description: "Search text (wrap a multi-word query in quotes).",
 		},
-		collection: {
-			type: "string",
-			description: "Restrict the search to a collection id.",
-		},
 	},
 	async run({ args }) {
-		// args._ holds every positional (citty keeps --collection out of it), so
-		// joining reproduces the query whether quoted or unquoted.
+		// args._ holds every positional, so joining reproduces the query whether
+		// quoted or unquoted. Scope (collection/document) is enforced by the
+		// gateway from the signed token — the agent cannot widen it here.
 		const query = args._.join(" ");
 		const result = await call<{ documents?: SearchHit[] }>(
 			"/v1/documents/search",
-			{ query, collectionId: args.collection },
+			{ query },
 		);
 		// Tolerate a malformed upstream payload (null / non-array) instead of
 		// crashing — treat anything that isn't an array as zero results.
@@ -83,6 +80,7 @@ const search = defineCommand({
 		for (const d of documents) {
 			console.log(
 				JSON.stringify({
+					passageId: d.passageId ?? "",
 					documentId: d.documentId ?? "",
 					title: d.title ?? "",
 					snippet: d.snippet ?? "",
@@ -96,20 +94,19 @@ const fetchCommand = defineCommand({
 	meta: {
 		name: "fetch",
 		description:
-			"Print a single document's full content, preceded by a 'cite:' line (the citation path) and a 'title:' line.",
+			"Print a document's full content (preceded by a 'title:' line) by its documentId from a search result.",
 	},
 	args: {
 		documentId: {
 			type: "positional",
 			required: true,
-			description: "The id of the document to fetch.",
+			description: "A documentId from a search result.",
 		},
 	},
 	async run({ args }) {
 		const doc = await call<FetchedDocument>("/v1/documents/fetch", {
 			documentId: args.documentId,
 		});
-		console.log(`cite: ${doc.cite ?? ""}`);
 		console.log(`title: ${doc.title ?? ""}`);
 		console.log("---");
 		console.log(doc.content ?? "");

@@ -215,7 +215,7 @@
       for the model and a <b>document-gateway</b> for the user's documents. chat-api mints one short-lived,
       <b>scope-bound</b> bearer token per turn; the gateways are the <b>only</b> places the real
       <code style="font-family:var(--mono);color:var(--red)">ANTHROPIC_API_KEY</code> and
-      <code style="font-family:var(--mono);color:var(--amber)">MYMEMO_DOC_API_KEY</code> live.
+      <code style="font-family:var(--mono);color:var(--amber)">DATABASE_URL</code> live.
     </p>
   </header>
 
@@ -225,7 +225,7 @@
       <div class="n">01</div>
       <div>
         <h2>Topology &amp; trust boundary</h2>
-        <p>Two zones. Credentials are color-coded: <b style="color:var(--red)">● provider key</b>, <b style="color:var(--amber)">● document-API key</b>, <b style="color:var(--green)">● bearer token</b>.</p>
+        <p>Two zones. Credentials are color-coded: <b style="color:var(--red)">● provider key</b>, <b style="color:var(--amber)">● KB database URL</b>, <b style="color:var(--green)">● bearer token</b>.</p>
       </div>
     </div>
 
@@ -245,8 +245,8 @@
           </div>
 
           <div class="node">
-            <div class="nh"><span class="nm">document-gateway</span><span class="badge db">MYMEMO_DOC_API_KEY</span></div>
-            <div class="role">Stateless service. Verifies the same token, <b>enforces its signed scope</b> (global / collection / document) server-side, pins every call to the token's <code>userId</code>, and proxies search/fetch to the MyMemo document API. The only document-key holder.</div>
+            <div class="nh"><span class="nm">document-gateway</span><span class="badge db">DATABASE_URL</span></div>
+            <div class="role">Stateless service. Verifies the same token, <b>enforces its signed scope</b> (global / collection / document) server-side, pins every call to the token's <code>userId</code> (the KB <code>workspace_id</code>), and reads the user's MyMemo knowledge base (Postgres) directly — FTS over passages. The only holder of the read-only <code>DATABASE_URL</code>.</div>
           </div>
         </div>
 
@@ -270,7 +270,7 @@
         <div>The agent has <b>nowhere else to reach</b> — srt's network allowlist denies every egress except the two gateway hosts. Its only token is a 10-minute, single-user <span style="color:var(--green);font-weight:600">Bearer token</span> whose <b>scope is signed in</b>, so a prompt-injected agent can't widen its document access, has nothing worth stealing, <em>and</em> nowhere to send a stolen secret.</div>
       </div>
       <div class="external">
-        <span class="dot"></span>EXTERNAL &nbsp;·&nbsp; <b>api.anthropic.com</b> — reached only by llm-gateway (with the injected <span style="color:var(--red)">x-api-key</span>) &nbsp;·&nbsp; <b>MyMemo document API</b> — reached only by document-gateway (with the injected <span style="color:var(--amber)">doc key</span>)
+        <span class="dot"></span>EXTERNAL &nbsp;·&nbsp; <b>api.anthropic.com</b> — reached only by llm-gateway (with the injected <span style="color:var(--red)">x-api-key</span>) &nbsp;·&nbsp; <b>MyMemo KB Postgres (RDS)</b> — read only by document-gateway (with <span style="color:var(--amber)">DATABASE_URL</span>)
       </div>
     </div>
 
@@ -278,7 +278,7 @@
       <div class="cf k">
         <h4>● the real keys — contained</h4>
         <p>Each lives on one service, is used in one place, and crosses one external edge.</p>
-        <div class="path"><span class="hot">llm-gateway</span> &nbsp;set x-api-key&nbsp; → &nbsp;api.anthropic.com<br/><span class="hot">document-gateway</span> &nbsp;set doc key&nbsp; → &nbsp;MyMemo doc API</div>
+        <div class="path"><span class="hot">llm-gateway</span> &nbsp;set x-api-key&nbsp; → &nbsp;api.anthropic.com<br/><span class="hot">document-gateway</span> &nbsp;DATABASE_URL&nbsp; → &nbsp;MyMemo KB Postgres</div>
       </div>
       <div class="cf t">
         <h4>● the token — travels</h4>
@@ -316,11 +316,11 @@
       </div></div>
       <div class="step"><div class="num"></div><div class="body">
         <div class="t">Spawn the agent (srt)</div>
-        <div class="d">Daemon spawns <code>bun agent.js</code> under <a href="https://github.com/anthropic-experimental/sandbox-runtime" target="_blank" rel="noopener">srt</a> (bwrap on Linux · sandbox-exec on macOS) — filesystem allowlist for the workspace cwd, network allowlist for the gateway hosts only. Env: <code class="tok">ANTHROPIC_BASE_URL</code>/<code class="tok">ANTHROPIC_AUTH_TOKEN</code> + <code class="tok">MYMEMO_DOC_GATEWAY_URL</code>/<code class="tok">MYMEMO_DOC_TOKEN</code>, <b>no</b> <code class="key">ANTHROPIC_API_KEY</code>, <b>no</b> <code class="key">MYMEMO_DOC_API_KEY</code>.</div>
+        <div class="d">Daemon spawns <code>bun agent.js</code> under <a href="https://github.com/anthropic-experimental/sandbox-runtime" target="_blank" rel="noopener">srt</a> (bwrap on Linux · sandbox-exec on macOS) — filesystem allowlist for the workspace cwd, network allowlist for the gateway hosts only. Env: <code class="tok">ANTHROPIC_BASE_URL</code>/<code class="tok">ANTHROPIC_AUTH_TOKEN</code> + <code class="tok">MYMEMO_DOC_GATEWAY_URL</code>/<code class="tok">MYMEMO_DOC_TOKEN</code>, <b>no</b> <code class="key">ANTHROPIC_API_KEY</code>, <b>no</b> <code class="key">DATABASE_URL</code>.</div>
       </div></div>
       <div class="step"><div class="num"></div><div class="body">
         <div class="t">agent → document-gateway (on demand)</div>
-        <div class="d">When it needs documents the agent runs <code>mymemo-docs search</code>/<code>fetch</code> (a CLI on its <code>PATH</code>) → <code>document-gateway</code> verifies the token, <b>enforces the signed scope</b>, and proxies to the MyMemo doc API with the real <code class="key">doc key</code>. Nothing is materialized to the sandbox FS.</div>
+        <div class="d">When it needs documents the agent runs <code>mymemo-docs search</code>/<code>fetch</code> (a CLI on its <code>PATH</code>) → <code>document-gateway</code> verifies the token, <b>enforces the signed scope</b>, and reads the KB Postgres (FTS over passages) with the read-only <code class="key">DATABASE_URL</code>. Nothing is materialized to the sandbox FS.</div>
       </div></div>
       <div class="step"><div class="num"></div><div class="body">
         <div class="t">claude → llm-gateway</div>
@@ -362,7 +362,7 @@
     </div>
     <table class="mtx rv">
       <thead>
-        <tr><th>Component</th><th>ANTHROPIC_API_KEY</th><th>MYMEMO_DOC_API_KEY</th><th>LLM_TOKEN_SECRET</th><th>Talks to</th></tr>
+        <tr><th>Component</th><th>ANTHROPIC_API_KEY</th><th>DATABASE_URL</th><th>LLM_TOKEN_SECRET</th><th>Talks to</th></tr>
       </thead>
       <tbody>
         <tr>
@@ -384,7 +384,7 @@
           <td class="c no">✕</td>
           <td class="c only">✓ only here</td>
           <td class="c yes">✓ <span class="sm">verify + enforce scope</span></td>
-          <td>← sandboxes · → MyMemo doc API</td>
+          <td>← sandboxes · → KB Postgres</td>
         </tr>
         <tr>
           <td class="comp">sandbox-daemon</td>
@@ -422,7 +422,7 @@
          ├─ <span class="a">mymemo-docs</span>          <span class="c"># CLI on PATH · search/fetch via document-gateway</span>
          ├─ <span class="g">✓ llm-gateway</span>        <span class="c"># model calls — allowed outbound</span>
          ├─ <span class="g">✓ document-gateway</span>   <span class="c"># document calls — allowed outbound</span>
-         └─ <span class="r">✗ everywhere else</span>     <span class="c"># anthropic, MyMemo doc API, public internet — denied</span>
+         └─ <span class="r">✗ everywhere else</span>     <span class="c"># anthropic, KB Postgres, public internet — denied</span>
     </div>
   </section>
 

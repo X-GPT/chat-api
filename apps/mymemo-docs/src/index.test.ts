@@ -7,7 +7,6 @@ import { build } from "../build";
 
 interface SearchBody {
 	query?: string;
-	collectionId?: string;
 }
 
 let CLI: string;
@@ -73,22 +72,18 @@ describe("mymemo-docs --help (citty-generated)", () => {
 		expect(exitCode).toBe(0);
 		expect(stdout).toContain("search");
 		expect(stdout).toContain("fetch");
-		expect(stdout).toContain("Find documents matching a query");
-		expect(stdout).toContain("Print a single document's full content");
-	});
-
-	it("documents the --collection option under `search --help`", async () => {
-		const { exitCode, stdout } = await runHelp(["search", "--help"]);
-		expect(exitCode).toBe(0);
-		expect(stdout).toContain("--collection");
-		expect(stdout).toContain("QUERY");
+		expect(stdout).toContain("Find passages matching a query");
+		expect(stdout).toContain("Print a document's full content");
 	});
 
 	it("documents the search output format in --help (keeps the prompt's promise true)", async () => {
-		const { stdout } = await runHelp(["search", "--help"]);
+		const { exitCode, stdout } = await runHelp(["search", "--help"]);
+		expect(exitCode).toBe(0);
+		expect(stdout).toContain("QUERY");
 		// The system prompt tells the agent to learn the output format from
 		// --help, so the documented shape must actually appear here.
 		expect(stdout).toContain("JSON object per line");
+		expect(stdout).toContain("passageId");
 		expect(stdout).toContain("documentId");
 		expect(stdout).toContain("title");
 		expect(stdout).toContain("snippet");
@@ -96,11 +91,21 @@ describe("mymemo-docs --help (citty-generated)", () => {
 });
 
 describe("mymemo-docs search output (NDJSON)", () => {
-	it("emits one parseable JSON object per document and escapes newlines", async () => {
+	it("emits one parseable JSON object per hit and escapes newlines", async () => {
 		searchResponse = {
 			documents: [
-				{ documentId: "d1", title: "ML intro", snippet: "line one\nline two" },
-				{ documentId: "d2", title: "Neural\tnets", snippet: "s2" },
+				{
+					passageId: "p1",
+					documentId: "d1",
+					title: "ML intro",
+					snippet: "line one\nline two",
+				},
+				{
+					passageId: "p2",
+					documentId: "d2",
+					title: "Neural\tnets",
+					snippet: "s2",
+				},
 			],
 		};
 		const { exitCode, stdout } = await runSearch(["machine learning"]);
@@ -111,7 +116,11 @@ describe("mymemo-docs search output (NDJSON)", () => {
 		// line contract: exactly 2 non-empty lines, each valid JSON.
 		const lines = stdout.split("\n").filter((l) => l.length > 0);
 		expect(lines).toHaveLength(2);
-		const first = JSON.parse(lines[0] as string) as { documentId?: string };
+		const first = JSON.parse(lines[0] as string) as {
+			passageId?: string;
+			documentId?: string;
+		};
+		expect(first.passageId).toBe("p1");
 		expect(first.documentId).toBe("d1");
 		expect((JSON.parse(lines[1] as string) as { title?: string }).title).toBe(
 			"Neural\tnets",
@@ -135,40 +144,27 @@ describe("mymemo-docs search output (NDJSON)", () => {
 		expect(stdout).toBe("");
 	});
 
-	it("always emits a documentId key even if the hit omits it", async () => {
-		searchResponse = { documents: [{ title: "no id here" }] };
+	it("always emits passageId + documentId keys even if the hit omits them", async () => {
+		searchResponse = { documents: [{ title: "no ids here" }] };
 		const { exitCode, stdout } = await runSearch(["x"]);
 		searchResponse = { documents: [] };
 		expect(exitCode).toBe(0);
 		const obj = JSON.parse(stdout.trim()) as Record<string, unknown>;
-		expect(obj).toHaveProperty("documentId");
+		expect(obj.passageId).toBe("");
 		expect(obj.documentId).toBe("");
 	});
 });
 
 describe("mymemo-docs search arg parsing", () => {
-	it("preserves a quoted multi-word query when --collection is absent", async () => {
+	it("preserves a quoted multi-word query", async () => {
 		const { exitCode, sent } = await runSearch(["machine learning"]);
 		expect(exitCode).toBe(0);
 		expect(sent?.query).toBe("machine learning");
-		expect(sent?.collectionId).toBeUndefined();
 	});
 
 	it("joins an unquoted multi-word query without dropping the first word", async () => {
 		const { exitCode, sent } = await runSearch(["machine", "learning"]);
 		expect(exitCode).toBe(0);
 		expect(sent?.query).toBe("machine learning");
-	});
-
-	it("extracts --collection and keeps the surrounding query intact", async () => {
-		const { exitCode, sent } = await runSearch([
-			"neural",
-			"--collection",
-			"col-1",
-			"nets",
-		]);
-		expect(exitCode).toBe(0);
-		expect(sent?.query).toBe("neural nets");
-		expect(sent?.collectionId).toBe("col-1");
 	});
 });

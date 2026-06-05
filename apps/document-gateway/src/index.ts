@@ -1,27 +1,38 @@
 import { type LlmTokenClaims, verifyLlmToken } from "@mymemo/llm-token";
 import { type Context, Hono } from "hono";
+import { type Db, getDb } from "./db";
 import { gwEnv } from "./env";
+import {
+	documentInCollection,
+	fetchDocument,
+	resolveDocumentId,
+	searchPassages,
+} from "./queries";
 
 /**
  * Document gateway — the trusted control plane for sandboxed-agent document
- * access.
+ * access. It reads the MyMemo knowledge base (Postgres) directly and ENFORCES
+ * the turn's signed scope server-side, so a prompt-injected agent cannot widen
+ * it. Search is FTS-only (lexical `search_tsv`); no dense/vector or rerank.
  *
- * The sandboxed agent calls this service (via the `mymemo-docs` CLI) with a
- * short-lived per-turn Bearer token. The agent holds no document-API
- * credential: we verify the token, ENFORCE the turn's scope server-side, then
- * call the real MyMemo document API with the real key (always pinned to the
- * token's userId — never a client-supplied id).
- *
- * Scope is signed into the token, so a prompt-injected agent cannot widen it:
- *   - global     → search/fetch any of the user's own documents
- *   - collection → search forced to collectionId; fetch must be in collectionId
- *   - document   → search disabled; fetch must equal summaryId
- *
- * TODO(doc-api-contract, #117): the upstream endpoints + request/response shapes
- * below are ASSUMED. Confirm them against the real MyMemo document API and adjust.
+ * The user's workspace is their member_code (= token userId); scope narrows it:
+ *   - global     → search/fetch any document in the workspace
+ *   - collection → restricted to documents in the turn's collection
+ *   - document   → restricted to the single document (summaryId)
  */
 
 export const app = new Hono();
+
+const SEARCH_LIMIT = 8;
+
+// Test seam: inject a fake Db so query logic is exercised without a live RDS.
+let testDb: Db | null = null;
+export function setDbForTests(d: Db | null): void {
+	testDb = d;
+}
+function db(): Db {
+	return testDb ?? getDb();
+}
 
 app.on(["GET", "HEAD"], "/health", (c) => c.json({ status: "ok" }));
 
@@ -50,93 +61,104 @@ function isKnownScope(
 	return scope === "global" || scope === "collection" || scope === "document";
 }
 
-/** GET the upstream MyMemo document API, authenticated with the real key. */
-async function docApiGet(path: string, qs: URLSearchParams): Promise<Response> {
-	const query = qs.toString();
-	const url = `${gwEnv.MYMEMO_DOC_API_URL}${path}${query ? `?${query}` : ""}`;
-	return fetch(url, {
-		headers: { authorization: `Bearer ${gwEnv.MYMEMO_DOC_API_KEY}` },
-	});
-}
-
-interface FetchedDocument {
-	documentId: string;
-	title?: string;
-	content?: string;
-	cite?: string;
-	collections?: string[];
+/**
+ * Fail closed on the identity/scope ids too: the workspace pin and scope
+ * narrowing are only safe if these are non-empty. Returns an error message to
+ * forbid on, or null when the claims are usable.
+ */
+function scopeError(claims: LlmTokenClaims): string | null {
+	if (!claims.userId) return "missing user";
+	if (claims.scope === "collection" && !claims.collectionId)
+		return "missing collection";
+	if (claims.scope === "document" && !claims.summaryId)
+		return "missing document";
+	return null;
 }
 
 app.post("/v1/documents/search", async (c) => {
 	const claims = bearerClaims(c);
 	if (!claims) return unauthorized(c);
 	if (!isKnownScope(claims.scope)) return forbidden(c, "unknown scope");
+	const bad = scopeError(claims);
+	if (bad) return forbidden(c, bad);
 
 	const body = await c.req
-		.json<{ query?: string; collectionId?: string }>()
-		.catch(() => ({}) as { query?: string; collectionId?: string });
+		.json<{ query?: string }>()
+		.catch(() => ({}) as { query?: string });
 	if (!body.query) return c.json({ error: "query is required" }, 400);
 
-	// Server-side scope enforcement — never trust the agent's collectionId.
-	if (claims.scope === "document") {
-		// In document scope there is nothing to search; the agent must fetch the
-		// one in-scope document directly.
-		return c.json({ documents: [] });
-	}
-	const qs = new URLSearchParams({ q: body.query });
-	if (claims.scope === "collection") {
-		qs.set("collection", claims.collectionId ?? "");
-	} else if (body.collectionId) {
-		// global scope: an optional narrowing within the user's own documents.
-		qs.set("collection", body.collectionId);
-	}
+	const workspaceId = claims.userId;
 
-	// Upstream call is pinned to the token's userId.
-	const upstream = await docApiGet(
-		`/users/${encodeURIComponent(claims.userId)}/documents`,
-		qs,
-	).catch(() => null);
-	if (!upstream || !upstream.ok) {
+	try {
+		// Server-side scope enforcement — narrow what is searchable.
+		let documentIds: string[] | null = null;
+		let collectionId: string | null = null;
+		if (claims.scope === "document") {
+			const docId = await resolveDocumentId(db(), {
+				summaryId: claims.summaryId ?? "",
+				memberCode: claims.userId,
+			});
+			if (!docId) return c.json({ documents: [] });
+			documentIds = [docId];
+		} else if (claims.scope === "collection") {
+			collectionId = claims.collectionId ?? "";
+		}
+
+		const documents = await searchPassages(db(), {
+			workspaceId,
+			query: body.query,
+			documentIds,
+			collectionId,
+			limit: SEARCH_LIMIT,
+		});
+		return c.json({ documents });
+	} catch {
 		return c.json({ error: "document search failed" }, 502);
 	}
-	return c.json(await upstream.json());
 });
 
 app.post("/v1/documents/fetch", async (c) => {
 	const claims = bearerClaims(c);
 	if (!claims) return unauthorized(c);
 	if (!isKnownScope(claims.scope)) return forbidden(c, "unknown scope");
+	const bad = scopeError(claims);
+	if (bad) return forbidden(c, bad);
 
 	const body = await c.req
 		.json<{ documentId?: string }>()
 		.catch(() => ({}) as { documentId?: string });
 	if (!body.documentId) return c.json({ error: "documentId is required" }, 400);
 
-	// Document scope: the agent may fetch only the single in-scope document.
-	if (claims.scope === "document" && body.documentId !== claims.summaryId) {
-		return forbidden(c, "document out of scope");
+	const workspaceId = claims.userId;
+
+	try {
+		// Server-side scope enforcement — the document must be in scope.
+		if (claims.scope === "document") {
+			const docId = await resolveDocumentId(db(), {
+				summaryId: claims.summaryId ?? "",
+				memberCode: claims.userId,
+			});
+			if (!docId || body.documentId !== docId) {
+				return forbidden(c, "document out of scope");
+			}
+		} else if (claims.scope === "collection") {
+			const inCollection = await documentInCollection(db(), {
+				collectionId: claims.collectionId ?? "",
+				workspaceId,
+				documentId: body.documentId,
+			});
+			if (!inCollection) return forbidden(c, "document not in collection");
+		}
+
+		const doc = await fetchDocument(db(), {
+			workspaceId,
+			documentId: body.documentId,
+		});
+		if (doc === null) return c.json({ error: "not found" }, 404);
+		return c.json(doc);
+	} catch {
+		return c.json({ error: "document fetch failed" }, 502);
 	}
-
-	const upstream = await docApiGet(
-		`/users/${encodeURIComponent(claims.userId)}/documents/${encodeURIComponent(body.documentId)}`,
-		new URLSearchParams(),
-	).catch(() => null);
-	if (!upstream) return c.json({ error: "document fetch failed" }, 502);
-	if (upstream.status === 404) return c.json({ error: "not found" }, 404);
-	if (!upstream.ok) return c.json({ error: "document fetch failed" }, 502);
-
-	const doc = (await upstream.json()) as FetchedDocument;
-
-	// Collection scope: the fetched document must belong to the in-scope
-	// collection (the upstream call only enforces user ownership).
-	if (
-		claims.scope === "collection" &&
-		!doc.collections?.includes(claims.collectionId ?? "")
-	) {
-		return forbidden(c, "document not in collection");
-	}
-
-	return c.json(doc);
 });
 
 export default {
