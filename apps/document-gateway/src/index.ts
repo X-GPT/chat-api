@@ -3,8 +3,8 @@ import { type Context, Hono } from "hono";
 import { type Db, getDb } from "./db";
 import { gwEnv } from "./env";
 import {
+	documentInCollection,
 	fetchDocument,
-	resolveCollectionDocumentIds,
 	resolveDocumentId,
 	searchPassages,
 } from "./queries";
@@ -61,10 +61,26 @@ function isKnownScope(
 	return scope === "global" || scope === "collection" || scope === "document";
 }
 
+/**
+ * Fail closed on the identity/scope ids too: the workspace pin and scope
+ * narrowing are only safe if these are non-empty. Returns an error message to
+ * forbid on, or null when the claims are usable.
+ */
+function scopeError(claims: LlmTokenClaims): string | null {
+	if (!claims.userId) return "missing user";
+	if (claims.scope === "collection" && !claims.collectionId)
+		return "missing collection";
+	if (claims.scope === "document" && !claims.summaryId)
+		return "missing document";
+	return null;
+}
+
 app.post("/v1/documents/search", async (c) => {
 	const claims = bearerClaims(c);
 	if (!claims) return unauthorized(c);
 	if (!isKnownScope(claims.scope)) return forbidden(c, "unknown scope");
+	const bad = scopeError(claims);
+	if (bad) return forbidden(c, bad);
 
 	const body = await c.req
 		.json<{ query?: string }>()
@@ -73,37 +89,40 @@ app.post("/v1/documents/search", async (c) => {
 
 	const workspaceId = claims.userId;
 
-	// Server-side scope enforcement — narrow the searchable documents.
-	let documentIds: string[] | null = null;
-	if (claims.scope === "document") {
-		const docId = await resolveDocumentId(db(), {
-			summaryId: claims.summaryId ?? "",
-			memberCode: claims.userId,
-		});
-		if (!docId) return c.json({ documents: [] });
-		documentIds = [docId];
-	} else if (claims.scope === "collection") {
-		documentIds = await resolveCollectionDocumentIds(db(), {
-			collectionId: claims.collectionId ?? "",
-			workspaceId,
-		});
-		if (documentIds.length === 0) return c.json({ documents: [] });
-	}
+	try {
+		// Server-side scope enforcement — narrow what is searchable.
+		let documentIds: string[] | null = null;
+		let collectionId: string | null = null;
+		if (claims.scope === "document") {
+			const docId = await resolveDocumentId(db(), {
+				summaryId: claims.summaryId ?? "",
+				memberCode: claims.userId,
+			});
+			if (!docId) return c.json({ documents: [] });
+			documentIds = [docId];
+		} else if (claims.scope === "collection") {
+			collectionId = claims.collectionId ?? "";
+		}
 
-	const documents = await searchPassages(db(), {
-		workspaceId,
-		query: body.query,
-		documentIds,
-		limit: SEARCH_LIMIT,
-	}).catch(() => null);
-	if (!documents) return c.json({ error: "document search failed" }, 502);
-	return c.json({ documents });
+		const documents = await searchPassages(db(), {
+			workspaceId,
+			query: body.query,
+			documentIds,
+			collectionId,
+			limit: SEARCH_LIMIT,
+		});
+		return c.json({ documents });
+	} catch {
+		return c.json({ error: "document search failed" }, 502);
+	}
 });
 
 app.post("/v1/documents/fetch", async (c) => {
 	const claims = bearerClaims(c);
 	if (!claims) return unauthorized(c);
 	if (!isKnownScope(claims.scope)) return forbidden(c, "unknown scope");
+	const bad = scopeError(claims);
+	if (bad) return forbidden(c, bad);
 
 	const body = await c.req
 		.json<{ documentId?: string }>()
@@ -112,31 +131,34 @@ app.post("/v1/documents/fetch", async (c) => {
 
 	const workspaceId = claims.userId;
 
-	// Server-side scope enforcement — the document must be in scope.
-	if (claims.scope === "document") {
-		const docId = await resolveDocumentId(db(), {
-			summaryId: claims.summaryId ?? "",
-			memberCode: claims.userId,
-		});
-		if (!docId || body.documentId !== docId) {
-			return forbidden(c, "document out of scope");
+	try {
+		// Server-side scope enforcement — the document must be in scope.
+		if (claims.scope === "document") {
+			const docId = await resolveDocumentId(db(), {
+				summaryId: claims.summaryId ?? "",
+				memberCode: claims.userId,
+			});
+			if (!docId || body.documentId !== docId) {
+				return forbidden(c, "document out of scope");
+			}
+		} else if (claims.scope === "collection") {
+			const inCollection = await documentInCollection(db(), {
+				collectionId: claims.collectionId ?? "",
+				workspaceId,
+				documentId: body.documentId,
+			});
+			if (!inCollection) return forbidden(c, "document not in collection");
 		}
-	} else if (claims.scope === "collection") {
-		const allowed = await resolveCollectionDocumentIds(db(), {
-			collectionId: claims.collectionId ?? "",
-			workspaceId,
-		});
-		if (!allowed.includes(body.documentId)) {
-			return forbidden(c, "document not in collection");
-		}
-	}
 
-	const doc = await fetchDocument(db(), {
-		workspaceId,
-		documentId: body.documentId,
-	}).catch(() => null);
-	if (doc === null) return c.json({ error: "not found" }, 404);
-	return c.json(doc);
+		const doc = await fetchDocument(db(), {
+			workspaceId,
+			documentId: body.documentId,
+		});
+		if (doc === null) return c.json({ error: "not found" }, 404);
+		return c.json(doc);
+	} catch {
+		return c.json({ error: "document fetch failed" }, 502);
+	}
 });
 
 export default {

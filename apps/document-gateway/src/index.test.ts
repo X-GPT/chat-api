@@ -153,33 +153,31 @@ describe("document-gateway (FTS / Postgres)", () => {
 		expect(callOf("fetch")?.text).toContain("left(canonical_markdown, 50000)");
 	});
 
-	it("collection search restricts to the collection's documents", async () => {
-		responder = (t) => {
-			if (kind(t) === "resolveColl")
-				return [{ document_id: "d1" }, { document_id: "d2" }];
-			if (kind(t) === "search") return [];
-			return [];
-		};
-		await app.request("/v1/documents/search", {
+	it("collection search joins the collection in one query (no pre-resolve)", async () => {
+		responder = (t) =>
+			kind(t) === "search"
+				? [{ passage_id: "p", document_id: "d1", title: "", snippet: "" }]
+				: [];
+		const res = await app.request("/v1/documents/search", {
 			method: "POST",
 			headers: headers(token({ scope: "collection", collectionId: "col-1" })),
 			body: JSON.stringify({ query: "x" }),
 		});
-		expect(callOf("resolveColl")?.params).toEqual(["col-1", "u1"]);
-		expect(callOf("search")?.params).toEqual(
-			expect.arrayContaining(["d1", "d2"]),
-		);
+		expect(res.status).toBe(200);
+		// No separate roster query; the search joins passage_collection directly.
+		expect(callOf("search")?.text).toContain("passage_collection");
+		expect(callOf("search")?.params).toContain("col-1");
 	});
 
-	it("collection search with an empty collection returns empty, no search", async () => {
-		responder = () => [];
+	it("collection search returns empty when nothing matches (search still runs)", async () => {
+		responder = () => []; // join yields no rows
 		const res = await app.request("/v1/documents/search", {
 			method: "POST",
 			headers: headers(token({ scope: "collection", collectionId: "col-x" })),
 			body: JSON.stringify({ query: "x" }),
 		});
 		expect(await res.json()).toEqual({ documents: [] });
-		expect(callOf("search")).toBeUndefined();
+		expect(callOf("search")).toBeDefined();
 	});
 
 	it("global fetch returns the document pinned to the workspace", async () => {
@@ -228,9 +226,8 @@ describe("document-gateway (FTS / Postgres)", () => {
 		expect(res.status).toBe(200);
 	});
 
-	it("collection-scope fetch rejects a document outside the collection", async () => {
-		responder = (t) =>
-			kind(t) === "resolveColl" ? [{ document_id: "d1" }] : [];
+	it("collection-scope fetch rejects a document not in the collection (no fetch)", async () => {
+		responder = () => []; // documentInCollection: no membership row
 		const res = await app.request("/v1/documents/fetch", {
 			method: "POST",
 			headers: headers(token({ scope: "collection", collectionId: "col-1" })),
@@ -238,6 +235,21 @@ describe("document-gateway (FTS / Postgres)", () => {
 		});
 		expect(res.status).toBe(403);
 		expect(callOf("fetch")).toBeUndefined();
+	});
+
+	it("collection-scope fetch allows a document in the collection", async () => {
+		responder = (t) => {
+			if (kind(t) === "resolveColl") return [{ one: 1 }]; // membership found
+			if (kind(t) === "fetch")
+				return [{ document_id: "d1", title: "T", content: "c" }];
+			return [];
+		};
+		const res = await app.request("/v1/documents/fetch", {
+			method: "POST",
+			headers: headers(token({ scope: "collection", collectionId: "col-1" })),
+			body: JSON.stringify({ documentId: "d1" }),
+		});
+		expect(res.status).toBe(200);
 	});
 
 	it("returns 404 when the document is missing / not in the workspace", async () => {
@@ -248,5 +260,74 @@ describe("document-gateway (FTS / Postgres)", () => {
 			body: JSON.stringify({ documentId: "nope" }),
 		});
 		expect(res.status).toBe(404);
+	});
+
+	// --- fail-closed on empty identity/scope ids ---
+	it("rejects collection scope with no collectionId (fail closed, no DB)", async () => {
+		const res = await app.request("/v1/documents/search", {
+			method: "POST",
+			headers: headers(token({ scope: "collection" })),
+			body: JSON.stringify({ query: "x" }),
+		});
+		expect(res.status).toBe(403);
+		expect(calls).toHaveLength(0);
+	});
+
+	it("rejects document scope with no summaryId (fail closed, no DB)", async () => {
+		const res = await app.request("/v1/documents/search", {
+			method: "POST",
+			headers: headers(token({ scope: "document" })),
+			body: JSON.stringify({ query: "x" }),
+		});
+		expect(res.status).toBe(403);
+		expect(calls).toHaveLength(0);
+	});
+
+	it("rejects a token with an empty userId (fail closed, no DB)", async () => {
+		const res = await app.request("/v1/documents/search", {
+			method: "POST",
+			headers: headers(token({ userId: "", scope: "global" })),
+			body: JSON.stringify({ query: "x" }),
+		});
+		expect(res.status).toBe(403);
+		expect(calls).toHaveLength(0);
+	});
+
+	// --- DB errors map to 502 (not 500 / not 404) ---
+	it("maps a search DB error to 502", async () => {
+		responder = () => {
+			throw new Error("db down");
+		};
+		const res = await app.request("/v1/documents/search", {
+			method: "POST",
+			headers: headers(token({ scope: "global" })),
+			body: JSON.stringify({ query: "x" }),
+		});
+		expect(res.status).toBe(502);
+	});
+
+	it("maps a scope-resolution DB error to 502 (not unhandled 500)", async () => {
+		responder = (t) => {
+			if (kind(t) === "resolveDoc") throw new Error("db down");
+			return [];
+		};
+		const res = await app.request("/v1/documents/search", {
+			method: "POST",
+			headers: headers(token({ scope: "document", summaryId: "42" })),
+			body: JSON.stringify({ query: "x" }),
+		});
+		expect(res.status).toBe(502);
+	});
+
+	it("maps a fetch DB error to 502 (not 404)", async () => {
+		responder = () => {
+			throw new Error("db down");
+		};
+		const res = await app.request("/v1/documents/fetch", {
+			method: "POST",
+			headers: headers(token({ scope: "global" })),
+			body: JSON.stringify({ documentId: "d1" }),
+		});
+		expect(res.status).toBe(502);
 	});
 });
