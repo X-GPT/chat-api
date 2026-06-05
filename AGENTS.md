@@ -170,9 +170,10 @@ Optional:
 ### document-gateway
 
 Required:
-- `MYMEMO_DOC_API_URL` — base URL of the real MyMemo document API
-- `MYMEMO_DOC_API_KEY` — the real document-API credential; lives **only** in this service
+- `DATABASE_URL` — read-only connection to the MyMemo KB Postgres; the credential lives **only** in this service
 - `LLM_TOKEN_SECRET` — must match chat-api's
 
 Optional:
+- `DB_PASSWORD` — spliced into `DATABASE_URL` when it is passwordless (the form the platform injects)
+- `DB_SSL` (default: on; set `disable` for a local non-TLS Postgres)
 - `DOCUMENT_GATEWAY_PORT` (default: 8082)

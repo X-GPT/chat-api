@@ -1,16 +1,16 @@
-import { afterEach, beforeAll, describe, expect, it, spyOn } from "bun:test";
+import { afterEach, beforeAll, describe, expect, it } from "bun:test";
 import { type LlmTokenClaims, mintLlmToken } from "@mymemo/llm-token";
+import type { Db } from "./db";
 
 const SECRET = "test-secret";
-const DOC_API = "https://docs.test";
 
 let app: typeof import("./index").app;
+let setDbForTests: typeof import("./index").setDbForTests;
 
 beforeAll(async () => {
 	Bun.env.LLM_TOKEN_SECRET = SECRET;
-	Bun.env.MYMEMO_DOC_API_URL = DOC_API;
-	Bun.env.MYMEMO_DOC_API_KEY = "real-doc-key";
-	({ app } = await import("./index"));
+	Bun.env.DATABASE_URL = "postgres://test@localhost/test";
+	({ app, setDbForTests } = await import("./index"));
 });
 
 function token(extra: Partial<Omit<LlmTokenClaims, "exp">> = {}): string {
@@ -24,29 +24,39 @@ function headers(t: string): Record<string, string> {
 	return { authorization: `Bearer ${t}`, "content-type": "application/json" };
 }
 
-let fetchSpy: ReturnType<typeof spyOn> | undefined;
-function mockUpstream(body: unknown, status = 200) {
-	const calls: string[] = [];
-	fetchSpy = spyOn(globalThis, "fetch").mockImplementation((async (
-		url: string | URL | Request,
-	) => {
-		calls.push(String(url));
-		return new Response(JSON.stringify(body), {
-			status,
-			headers: { "content-type": "application/json" },
-		});
-	}) as unknown as typeof fetch);
-	return calls;
+// Fake Db: records every query and replies via a per-test responder keyed off
+// the SQL. Lets us assert the exact scope filters without a live Postgres.
+interface Call {
+	text: string;
+	params: unknown[];
 }
+let calls: Call[] = [];
+let responder: (text: string, params: unknown[]) => unknown[];
 
+const fakeDb: Db = {
+	async query<T>(text: string, params: unknown[] = []): Promise<T[]> {
+		calls.push({ text, params });
+		return responder(text, params) as T[];
+	},
+};
+
+function kind(text: string): "search" | "resolveDoc" | "resolveColl" | "fetch" {
+	if (text.includes("ts_rank_cd")) return "search";
+	if (text.includes("FROM content_asset")) return "resolveDoc";
+	if (text.includes("content_collection")) return "resolveColl";
+	return "fetch";
+}
+const callOf = (k: ReturnType<typeof kind>) =>
+	calls.find((c) => kind(c.text) === k);
+
+beforeAll(() => setDbForTests(fakeDb));
 afterEach(() => {
-	fetchSpy?.mockRestore();
-	fetchSpy = undefined;
+	calls = [];
+	responder = () => [];
 });
 
-describe("document-gateway", () => {
-	it("rejects requests without a valid token", async () => {
-		const calls = mockUpstream({});
+describe("document-gateway (FTS / Postgres)", () => {
+	it("rejects requests without a valid token (no DB touched)", async () => {
 		const res = await app.request("/v1/documents/search", {
 			method: "POST",
 			headers: { "content-type": "application/json" },
@@ -56,106 +66,159 @@ describe("document-gateway", () => {
 		expect(calls).toHaveLength(0);
 	});
 
-	it("global search pins the upstream call to the token userId", async () => {
-		const calls = mockUpstream({ documents: [{ documentId: "d1" }] });
+	it("rejects search when the token has no scope (fail closed)", async () => {
+		const res = await app.request("/v1/documents/search", {
+			method: "POST",
+			headers: headers(token()),
+			body: JSON.stringify({ query: "x" }),
+		});
+		expect(res.status).toBe(403);
+		expect(calls).toHaveLength(0);
+	});
+
+	it("global search pins workspace_id to the token userId and no doc filter", async () => {
+		responder = (t) =>
+			kind(t) === "search"
+				? [{ passage_id: "p1", document_id: "d1", title: "T", snippet: "S" }]
+				: [];
 		const res = await app.request("/v1/documents/search", {
 			method: "POST",
 			headers: headers(token({ scope: "global" })),
 			body: JSON.stringify({ query: "hello world" }),
 		});
 		expect(res.status).toBe(200);
-		expect(await res.json()).toEqual({ documents: [{ documentId: "d1" }] });
-		expect(calls[0]).toContain("/users/u1/documents");
-		expect(calls[0]).toContain("q=hello+world");
+		expect(await res.json()).toEqual({
+			documents: [
+				{ passageId: "p1", documentId: "d1", title: "T", snippet: "S" },
+			],
+		});
+		const search = callOf("search");
+		expect(search?.params[0]).toBe("u1"); // workspace_id
+		expect(search?.params[1]).toBe("hello world");
+		expect(search?.params[2]).toBeNull(); // no document filter in global scope
 	});
 
-	it("collection search forces the token collectionId, ignoring the body", async () => {
-		const calls = mockUpstream({ documents: [] });
+	it("document search resolves summaryId and restricts to that document", async () => {
+		responder = (t) => {
+			if (kind(t) === "resolveDoc") return [{ kb_document_id: "kb-doc-9" }];
+			if (kind(t) === "search")
+				return [
+					{ passage_id: "p", document_id: "kb-doc-9", title: "", snippet: "" },
+				];
+			return [];
+		};
 		await app.request("/v1/documents/search", {
 			method: "POST",
-			headers: headers(token({ scope: "collection", collectionId: "col-1" })),
-			body: JSON.stringify({ query: "x", collectionId: "col-evil" }),
+			headers: headers(token({ scope: "document", summaryId: "42" })),
+			body: JSON.stringify({ query: "x" }),
 		});
-		expect(calls[0]).toContain("collection=col-1");
-		expect(calls[0]).not.toContain("col-evil");
+		expect(callOf("resolveDoc")?.params).toEqual(["42", "u1"]);
+		expect(callOf("search")?.params[2]).toEqual(["kb-doc-9"]);
 	});
 
-	it("document-scope search is disabled and never hits upstream", async () => {
-		const calls = mockUpstream({ documents: [{ documentId: "leak" }] });
+	it("document search with an unknown summaryId returns empty, no search", async () => {
+		responder = () => []; // resolveDoc finds nothing
 		const res = await app.request("/v1/documents/search", {
 			method: "POST",
-			headers: headers(token({ scope: "document", summaryId: "d-1" })),
+			headers: headers(token({ scope: "document", summaryId: "999" })),
 			body: JSON.stringify({ query: "x" }),
 		});
 		expect(await res.json()).toEqual({ documents: [] });
-		expect(calls).toHaveLength(0);
+		expect(callOf("search")).toBeUndefined();
 	});
 
-	it("document-scope fetch rejects an out-of-scope documentId", async () => {
-		const calls = mockUpstream({ documentId: "d-other" });
+	it("collection search restricts to the collection's documents", async () => {
+		responder = (t) => {
+			if (kind(t) === "resolveColl")
+				return [{ document_id: "d1" }, { document_id: "d2" }];
+			if (kind(t) === "search") return [];
+			return [];
+		};
+		await app.request("/v1/documents/search", {
+			method: "POST",
+			headers: headers(token({ scope: "collection", collectionId: "col-1" })),
+			body: JSON.stringify({ query: "x" }),
+		});
+		expect(callOf("resolveColl")?.params).toEqual(["col-1", "u1", "u1"]);
+		expect(callOf("search")?.params[2]).toEqual(["d1", "d2"]);
+	});
+
+	it("collection search with an empty collection returns empty, no search", async () => {
+		responder = () => [];
+		const res = await app.request("/v1/documents/search", {
+			method: "POST",
+			headers: headers(token({ scope: "collection", collectionId: "col-x" })),
+			body: JSON.stringify({ query: "x" }),
+		});
+		expect(await res.json()).toEqual({ documents: [] });
+		expect(callOf("search")).toBeUndefined();
+	});
+
+	it("global fetch returns the document pinned to the workspace", async () => {
+		responder = (t) =>
+			kind(t) === "fetch"
+				? [{ document_id: "d1", title: "T", content: "body" }]
+				: [];
 		const res = await app.request("/v1/documents/fetch", {
 			method: "POST",
-			headers: headers(token({ scope: "document", summaryId: "d-allowed" })),
-			body: JSON.stringify({ documentId: "d-other" }),
+			headers: headers(token({ scope: "global" })),
+			body: JSON.stringify({ documentId: "d1" }),
+		});
+		expect(res.status).toBe(200);
+		expect(await res.json()).toEqual({
+			documentId: "d1",
+			title: "T",
+			content: "body",
+		});
+		expect(callOf("fetch")?.params).toEqual(["d1", "u1"]);
+	});
+
+	it("document-scope fetch rejects an out-of-scope documentId (no fetch)", async () => {
+		responder = (t) =>
+			kind(t) === "resolveDoc" ? [{ kb_document_id: "kb-doc-9" }] : [];
+		const res = await app.request("/v1/documents/fetch", {
+			method: "POST",
+			headers: headers(token({ scope: "document", summaryId: "42" })),
+			body: JSON.stringify({ documentId: "kb-doc-other" }),
 		});
 		expect(res.status).toBe(403);
-		expect(calls).toHaveLength(0);
+		expect(callOf("fetch")).toBeUndefined();
 	});
 
 	it("document-scope fetch allows the in-scope documentId", async () => {
-		mockUpstream({
-			documentId: "d-allowed",
-			content: "hi",
-			cite: "detail/0/1",
-		});
+		responder = (t) => {
+			if (kind(t) === "resolveDoc") return [{ kb_document_id: "kb-doc-9" }];
+			if (kind(t) === "fetch")
+				return [{ document_id: "kb-doc-9", title: "T", content: "c" }];
+			return [];
+		};
 		const res = await app.request("/v1/documents/fetch", {
 			method: "POST",
-			headers: headers(token({ scope: "document", summaryId: "d-allowed" })),
-			body: JSON.stringify({ documentId: "d-allowed" }),
+			headers: headers(token({ scope: "document", summaryId: "42" })),
+			body: JSON.stringify({ documentId: "kb-doc-9" }),
 		});
 		expect(res.status).toBe(200);
-		expect(((await res.json()) as { cite?: string }).cite).toBe("detail/0/1");
 	});
 
 	it("collection-scope fetch rejects a document outside the collection", async () => {
-		mockUpstream({ documentId: "d1", collections: ["col-2"] });
+		responder = (t) =>
+			kind(t) === "resolveColl" ? [{ document_id: "d1" }] : [];
 		const res = await app.request("/v1/documents/fetch", {
 			method: "POST",
 			headers: headers(token({ scope: "collection", collectionId: "col-1" })),
-			body: JSON.stringify({ documentId: "d1" }),
+			body: JSON.stringify({ documentId: "d2" }),
 		});
 		expect(res.status).toBe(403);
+		expect(callOf("fetch")).toBeUndefined();
 	});
 
-	it("rejects search when the token has no scope (fail closed)", async () => {
-		const calls = mockUpstream({ documents: [{ documentId: "leak" }] });
-		const res = await app.request("/v1/documents/search", {
-			method: "POST",
-			headers: headers(token()),
-			body: JSON.stringify({ query: "x" }),
-		});
-		expect(res.status).toBe(403);
-		expect(calls).toHaveLength(0);
-	});
-
-	it("rejects fetch when the token has no scope (fail closed)", async () => {
-		const calls = mockUpstream({ documentId: "any" });
+	it("returns 404 when the document is missing / not in the workspace", async () => {
+		responder = () => []; // fetch finds nothing
 		const res = await app.request("/v1/documents/fetch", {
 			method: "POST",
-			headers: headers(token()),
-			body: JSON.stringify({ documentId: "any" }),
+			headers: headers(token({ scope: "global" })),
+			body: JSON.stringify({ documentId: "nope" }),
 		});
-		expect(res.status).toBe(403);
-		expect(calls).toHaveLength(0);
-	});
-
-	it("collection-scope fetch allows a document in the collection", async () => {
-		mockUpstream({ documentId: "d1", collections: ["col-1", "col-9"] });
-		const res = await app.request("/v1/documents/fetch", {
-			method: "POST",
-			headers: headers(token({ scope: "collection", collectionId: "col-1" })),
-			body: JSON.stringify({ documentId: "d1" }),
-		});
-		expect(res.status).toBe(200);
+		expect(res.status).toBe(404);
 	});
 });

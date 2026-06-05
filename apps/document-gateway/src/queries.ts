@@ -1,0 +1,135 @@
+import type { Db } from "./db";
+
+/**
+ * Read-side of the MyMemo knowledge base, FTS-only (no dense/vector, no rerank).
+ *
+ * Scope mapping (derived from the platform's compat layer):
+ *   - workspace_id  = the user's member_code (personal workspace)
+ *   - summaryId     = platform_knowledge.id = content_asset.compat_int_id
+ *                     → content_asset.kb_document_id = document.id
+ *   - collectionId  = platform_collection.compat_id = content_collection.compat_str_id
+ *                     → content_collection.compat_int_id = passage_collection.collection_id
+ */
+
+export interface SearchHit {
+	passageId: string;
+	documentId: string;
+	title: string;
+	snippet: string;
+}
+
+export interface FetchedDocument {
+	documentId: string;
+	title: string;
+	content: string;
+}
+
+/**
+ * Lexical full-text search over passages, scoped to a workspace and (optionally)
+ * a set of document ids. Uses the precomputed `search_tsv` column with the
+ * `simple` config — no language detection / CJK tokenization (FTS-only).
+ */
+export async function searchPassages(
+	db: Db,
+	opts: {
+		workspaceId: string;
+		query: string;
+		documentIds: string[] | null;
+		limit: number;
+	},
+): Promise<SearchHit[]> {
+	const rows = await db.query<{
+		passage_id: string;
+		document_id: string;
+		title: string;
+		snippet: string;
+	}>(
+		`SELECT p.id AS passage_id, p.document_id, d.title,
+		        left(p.passage_text, 220) AS snippet,
+		        ts_rank_cd(p.search_tsv, plainto_tsquery('simple', $2)) AS score
+		   FROM passage p
+		   JOIN document d ON d.id = p.document_id
+		  WHERE p.workspace_id = $1
+		    AND p.status = 'active'
+		    AND d.status = 'active'
+		    AND ($3::text[] IS NULL OR p.document_id = ANY($3))
+		    AND p.search_tsv @@ plainto_tsquery('simple', $2)
+		  ORDER BY score DESC
+		  LIMIT $4`,
+		[opts.workspaceId, opts.query, opts.documentIds, opts.limit],
+	);
+	return rows.map((r) => ({
+		passageId: r.passage_id,
+		documentId: r.document_id,
+		title: r.title ?? "",
+		snippet: r.snippet ?? "",
+	}));
+}
+
+/** Fetch a single document's full content, pinned to the workspace. */
+export async function fetchDocument(
+	db: Db,
+	opts: { workspaceId: string; documentId: string },
+): Promise<FetchedDocument | null> {
+	const rows = await db.query<{
+		document_id: string;
+		title: string;
+		content: string;
+	}>(
+		`SELECT id AS document_id, title, canonical_markdown AS content
+		   FROM document
+		  WHERE id = $1 AND workspace_id = $2 AND status = 'active'
+		  LIMIT 1`,
+		[opts.documentId, opts.workspaceId],
+	);
+	const row = rows[0];
+	if (!row) return null;
+	return {
+		documentId: row.document_id,
+		title: row.title ?? "",
+		content: row.content ?? "",
+	};
+}
+
+/**
+ * Document scope: resolve the turn's summaryId (= platform_knowledge.id) to the
+ * KB document.id, pinned to the user's member_code. Returns null if not found.
+ */
+export async function resolveDocumentId(
+	db: Db,
+	opts: { summaryId: string; memberCode: string },
+): Promise<string | null> {
+	const rows = await db.query<{ kb_document_id: string }>(
+		`SELECT kb_document_id
+		   FROM content_asset
+		  WHERE compat_int_id = $1::bigint
+		    AND member_code = $2
+		    AND kb_document_id <> ''
+		  LIMIT 1`,
+		[opts.summaryId, opts.memberCode],
+	);
+	return rows[0]?.kb_document_id ?? null;
+}
+
+/**
+ * Collection scope: resolve the turn's collectionId (= content_collection
+ * compat_str_id) to the KB document ids in that collection, pinned to the
+ * workspace. Returns [] if the collection is unknown or empty.
+ */
+export async function resolveCollectionDocumentIds(
+	db: Db,
+	opts: { collectionId: string; workspaceId: string; memberCode: string },
+): Promise<string[]> {
+	const rows = await db.query<{ document_id: string }>(
+		`SELECT DISTINCT p.document_id
+		   FROM content_collection c
+		   JOIN passage_collection pc ON pc.collection_id = c.compat_int_id::text
+		   JOIN passage p ON p.id = pc.passage_id
+		  WHERE c.compat_str_id = $1
+		    AND c.member_code = $2
+		    AND p.workspace_id = $3
+		    AND p.status = 'active'`,
+		[opts.collectionId, opts.memberCode, opts.workspaceId],
+	);
+	return rows.map((r) => r.document_id);
+}
