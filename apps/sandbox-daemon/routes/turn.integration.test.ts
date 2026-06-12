@@ -242,6 +242,29 @@ describe("POST /turn integration", () => {
 		expect(failed?.message).toBe("agent ended badly");
 	});
 
+	it("treats a non-zero exit after completed as success", async () => {
+		// e.g. the idle watchdog SIGKILLs a child that lingered after closing
+		// stdout — the answer fully streamed, so the turn must not fail.
+		mockSpawnAgent.mockImplementation((input) =>
+			emitAgent(
+				input,
+				[{ type: "text_delta", text: "answer" }, { type: "completed" }],
+				137,
+			),
+		);
+
+		const res = await app.request("/turn", {
+			method: "POST",
+			headers: turnHeaders(),
+			body: JSON.stringify(makeTurnBody()),
+		});
+
+		const events = parseNdjson(await res.text());
+		const types = events.map((e) => e.type);
+		expect(types).toContain("completed");
+		expect(types).not.toContain("failed");
+	});
+
 	it("returns 409 when a turn is already in progress", async () => {
 		let resolveAgent!: () => void;
 		const agentPromise = new Promise<void>((resolve) => {

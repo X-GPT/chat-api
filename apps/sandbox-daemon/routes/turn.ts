@@ -119,6 +119,7 @@ app.post("/turn", async (c) => {
 				mkdirSync(cwd, { recursive: true });
 
 				let turnFailed = false;
+				let agentCompleted = false;
 				const agentResult = await spawnAgent({
 					userQuery: message,
 					systemPrompt: system_prompt,
@@ -130,6 +131,7 @@ app.post("/turn", async (c) => {
 					onEvent: async (event) => {
 						if (event.type === "completed") {
 							// We emit our own `completed` below.
+							agentCompleted = true;
 							return;
 						}
 						if (event.type === "failed") {
@@ -139,7 +141,10 @@ app.post("/turn", async (c) => {
 					},
 				});
 
-				if (agentResult.exitCode !== 0 && !turnFailed) {
+				// A non-zero exit after the agent already said `completed` is
+				// teardown noise (e.g. the idle watchdog killing a lingering
+				// child) — the answer fully streamed, so the turn succeeded.
+				if (agentResult.exitCode !== 0 && !turnFailed && !agentCompleted) {
 					turnFailed = true;
 					await s.write(
 						ndjsonLine({

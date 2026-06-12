@@ -1,6 +1,16 @@
-import { afterEach, describe, expect, it, spyOn } from "bun:test";
+import {
+	afterAll,
+	afterEach,
+	beforeAll,
+	describe,
+	expect,
+	it,
+	spyOn,
+} from "bun:test";
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import type { AgentEvent } from "./child-spawn";
 import { buildAgentSpawnArgv, spawnAgent } from "./child-spawn";
 
 describe("buildAgentSpawnArgv", () => {
@@ -172,4 +182,140 @@ describe("spawnAgent agent environment", () => {
 		// The whole point of the gateway: no provider key reaches the agent.
 		expect("ANTHROPIC_API_KEY" in env).toBe(false);
 	});
+});
+
+describe("spawnAgent idle timeout", () => {
+	// Real-subprocess tests: tiny fixture scripts stand in for agent.js, and a
+	// shim replaces bwrap (absent on dev machines) — it drops the bwrap flags
+	// and execs the command after `--`, so we exercise the actual Bun.spawn +
+	// NDJSON + watchdog wiring rather than mocking it.
+	let tmpDir: string;
+	const fixtures: Record<string, string> = {};
+	let originalHome: string | undefined;
+
+	const ENV_VARS = [
+		"SANDBOX_BWRAP_PATH",
+		"SANDBOX_AGENT_PATH",
+		"SANDBOX_AGENT_IDLE_TIMEOUT_MS",
+	];
+	const originalEnv: Record<string, string | undefined> = {};
+
+	beforeAll(() => {
+		tmpDir = mkdtempSync(join(tmpdir(), "child-spawn-"));
+
+		// Keep ensureClaudeProjectsDir's mkdir inside the temp dir.
+		originalHome = Bun.env.HOME;
+		Bun.env.HOME = tmpDir;
+
+		fixtures.bwrapShim = join(tmpDir, "bwrap-shim.sh");
+		writeFileSync(
+			fixtures.bwrapShim,
+			`#!/bin/sh\nwhile [ "$1" != "--" ]; do shift; done\nshift\nexec "$@"\n`,
+		);
+		chmodSync(fixtures.bwrapShim, 0o755);
+
+		// Agent that consumes stdin then hangs (idle forever).
+		fixtures.agentHang = join(tmpDir, "agent-hang.ts");
+		writeFileSync(
+			fixtures.agentHang,
+			`for await (const _ of process.stdin) {}\nawait new Promise(() => {});\n`,
+		);
+
+		// Agent that emits 6 text_delta events 500ms apart, then completes.
+		// Total span ~2.5s exceeds the 2s idle window used in the test, so it
+		// only survives if every event re-arms the timer; the 500ms gaps stay
+		// far below the window.
+		fixtures.agentSlow = join(tmpDir, "agent-slow.ts");
+		writeFileSync(
+			fixtures.agentSlow,
+			`for await (const _ of process.stdin) {}\nfor (let i = 0; i < 6; i++) {\n  process.stdout.write(JSON.stringify({ type: "text_delta", text: "tick" }) + "\\n");\n  await new Promise((r) => setTimeout(r, 500));\n}\nprocess.stdout.write(JSON.stringify({ type: "completed" }) + "\\n");\nprocess.exit(0);\n`,
+		);
+
+		// Agent that emits completed, closes stdout, then lingers forever —
+		// reproduces the teardown race: the read loop ends but the process
+		// never exits, so only the still-armed watchdog unblocks the wait.
+		fixtures.agentLinger = join(tmpDir, "agent-linger.ts");
+		writeFileSync(
+			fixtures.agentLinger,
+			`import { closeSync } from "node:fs";\nfor await (const _ of process.stdin) {}\nprocess.stdout.write(JSON.stringify({ type: "completed" }) + "\\n");\nawait new Promise((r) => setTimeout(r, 50));\ncloseSync(1);\nawait new Promise(() => {});\n`,
+		);
+
+		for (const key of ENV_VARS) originalEnv[key] = process.env[key];
+		process.env.SANDBOX_BWRAP_PATH = fixtures.bwrapShim;
+	});
+
+	afterAll(() => {
+		for (const key of ENV_VARS) {
+			if (originalEnv[key] === undefined) delete process.env[key];
+			else process.env[key] = originalEnv[key];
+		}
+		if (originalHome === undefined) delete Bun.env.HOME;
+		else Bun.env.HOME = originalHome;
+		rmSync(tmpDir, { recursive: true, force: true });
+	});
+
+	function makeInput(onEvent: (e: AgentEvent) => void) {
+		return {
+			userQuery: "test",
+			systemPrompt: "test",
+			cwd: tmpDir,
+			llmBaseUrl: "https://gateway.example",
+			docGatewayUrl: "https://docs.example",
+			llmToken: "tok-test",
+			onEvent,
+		};
+	}
+
+	it("kills the child and emits failed when no events arrive", async () => {
+		process.env.SANDBOX_AGENT_PATH = fixtures.agentHang;
+		process.env.SANDBOX_AGENT_IDLE_TIMEOUT_MS = "200";
+
+		const events: AgentEvent[] = [];
+		const start = Date.now();
+		await spawnAgent(makeInput((e) => events.push(e)));
+		const elapsed = Date.now() - start;
+
+		// 200ms timeout + spawn/teardown overhead. Cap at 5s to catch hangs.
+		expect(elapsed).toBeLessThan(5_000);
+		const failed = events.find((e) => e.type === "failed");
+		expect(failed).toBeDefined();
+		if (failed?.type === "failed") {
+			expect(failed.message).toContain("idle timeout");
+			expect(failed.message).toContain("200");
+		}
+	});
+
+	it("does not fire while events keep arriving (timer resets)", async () => {
+		process.env.SANDBOX_AGENT_PATH = fixtures.agentSlow;
+		// 2s idle window: generous enough to absorb bun's cold start (~900ms
+		// observed) before the first event, while the fixture's ~2.5s total
+		// span exceeds it — so passing proves the timer resets per event.
+		process.env.SANDBOX_AGENT_IDLE_TIMEOUT_MS = "2000";
+
+		const events: AgentEvent[] = [];
+		const result = await spawnAgent(makeInput((e) => events.push(e)));
+
+		expect(result.exitCode).toBe(0);
+		expect(events.find((e) => e.type === "failed")).toBeUndefined();
+		const deltas = events.filter((e) => e.type === "text_delta");
+		expect(deltas.length).toBe(6);
+	}, 15_000);
+
+	it("kills a lingering child after completed without a spurious failed", async () => {
+		process.env.SANDBOX_AGENT_PATH = fixtures.agentLinger;
+		// Same 2s window as above to absorb bun's cold start before `completed`.
+		process.env.SANDBOX_AGENT_IDLE_TIMEOUT_MS = "2000";
+
+		const events: AgentEvent[] = [];
+		const start = Date.now();
+		const result = await spawnAgent(makeInput((e) => events.push(e)));
+		const elapsed = Date.now() - start;
+
+		// The watchdog must bound the wait on the never-exiting child...
+		expect(elapsed).toBeLessThan(10_000);
+		expect(result.exitCode).not.toBe(0);
+		// ...without reporting a failure for an answer that fully streamed.
+		expect(events.find((e) => e.type === "completed")).toBeDefined();
+		expect(events.find((e) => e.type === "failed")).toBeUndefined();
+	}, 15_000);
 });
