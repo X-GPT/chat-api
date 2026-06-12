@@ -1,5 +1,22 @@
 # Migration Plan: Per-User Sandbox Daemon with State Reconciliation
 
+> **⚠️ SUPERSEDED — historical design doc, kept for context only.**
+>
+> This plan describes an earlier design that is **no longer the implemented
+> architecture**. In particular, the following no longer hold:
+>
+> - Sandboxes are **fresh per turn**, not one long-lived sandbox per user.
+> - There is **no Postgres → sandbox filesystem reconciliation** and documents
+>   are **not materialized to disk**. The agent fetches documents on demand via
+>   the `mymemo-docs` CLI, which calls the **document-gateway** (scope enforced
+>   server-side from a signed per-turn token).
+> - LLM calls route through the **llm-gateway**; the sandbox holds no provider
+>   key and no document credential.
+>
+> For the current architecture and trust boundaries, see
+> [AGENTS.md](./AGENTS.md). This file is retained only as a record of the
+> original migration thinking.
+
 ## Summary
 
 Use one E2B sandbox per user and make the sandbox the execution owner for that user.

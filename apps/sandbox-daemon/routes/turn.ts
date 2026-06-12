@@ -72,9 +72,6 @@ app.post("/turn", async (c) => {
 
 	const {
 		request_id,
-		scope_type,
-		collection_id,
-		summary_id,
 		message,
 		agent_session_id,
 		system_prompt,
@@ -95,25 +92,6 @@ app.post("/turn", async (c) => {
 
 			try {
 				await s.write(ndjsonLine({ type: "started", turn_id: request_id }));
-
-				if (scope_type === "collection" && !collection_id) {
-					await s.write(
-						ndjsonLine({
-							type: "failed",
-							message: "collection_id required for collection scope",
-						}),
-					);
-					return;
-				}
-				if (scope_type === "document" && !summary_id) {
-					await s.write(
-						ndjsonLine({
-							type: "failed",
-							message: "summary_id required for document scope",
-						}),
-					);
-					return;
-				}
 
 				const cwd = getAgentCwd();
 				mkdirSync(cwd, { recursive: true });
