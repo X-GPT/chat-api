@@ -278,17 +278,28 @@ export async function spawnAgent(
 	};
 	armIdleTimer();
 
+	// The timer stays armed through the post-loop stderr drain and exit wait,
+	// so a child that closes stdout but never exits is still killed. If the
+	// agent already delivered a terminal event by then, that kill is cleanup,
+	// not a turn failure — suppress the synthetic failed.
+	let sawTerminalEvent = false;
+
 	try {
 		const stderrPromise = drainStderr(proc.stderr);
 		for await (const event of readNdjson(proc.stdout)) {
 			armIdleTimer();
 			const narrowed = narrowAgentEvent(event);
-			if (narrowed) await onEvent(narrowed);
+			if (narrowed) {
+				if (narrowed.type === "completed" || narrowed.type === "failed") {
+					sawTerminalEvent = true;
+				}
+				await onEvent(narrowed);
+			}
 		}
 		await stderrPromise;
 		const exitCode = await proc.exited;
 
-		if (timedOut) {
+		if (timedOut && !sawTerminalEvent) {
 			await onEvent({
 				type: "failed",
 				message: `agent idle timeout: no events for ${idleMs}ms`,

@@ -231,6 +231,15 @@ describe("spawnAgent idle timeout", () => {
 			`for await (const _ of process.stdin) {}\nfor (let i = 0; i < 6; i++) {\n  process.stdout.write(JSON.stringify({ type: "text_delta", text: "tick" }) + "\\n");\n  await new Promise((r) => setTimeout(r, 500));\n}\nprocess.stdout.write(JSON.stringify({ type: "completed" }) + "\\n");\nprocess.exit(0);\n`,
 		);
 
+		// Agent that emits completed, closes stdout, then lingers forever —
+		// reproduces the teardown race: the read loop ends but the process
+		// never exits, so only the still-armed watchdog unblocks the wait.
+		fixtures.agentLinger = join(tmpDir, "agent-linger.ts");
+		writeFileSync(
+			fixtures.agentLinger,
+			`import { closeSync } from "node:fs";\nfor await (const _ of process.stdin) {}\nprocess.stdout.write(JSON.stringify({ type: "completed" }) + "\\n");\nawait new Promise((r) => setTimeout(r, 50));\ncloseSync(1);\nawait new Promise(() => {});\n`,
+		);
+
 		for (const key of ENV_VARS) originalEnv[key] = process.env[key];
 		process.env.SANDBOX_BWRAP_PATH = fixtures.bwrapShim;
 	});
@@ -290,5 +299,23 @@ describe("spawnAgent idle timeout", () => {
 		expect(events.find((e) => e.type === "failed")).toBeUndefined();
 		const deltas = events.filter((e) => e.type === "text_delta");
 		expect(deltas.length).toBe(6);
+	}, 15_000);
+
+	it("kills a lingering child after completed without a spurious failed", async () => {
+		process.env.SANDBOX_AGENT_PATH = fixtures.agentLinger;
+		// Same 2s window as above to absorb bun's cold start before `completed`.
+		process.env.SANDBOX_AGENT_IDLE_TIMEOUT_MS = "2000";
+
+		const events: AgentEvent[] = [];
+		const start = Date.now();
+		const result = await spawnAgent(makeInput((e) => events.push(e)));
+		const elapsed = Date.now() - start;
+
+		// The watchdog must bound the wait on the never-exiting child...
+		expect(elapsed).toBeLessThan(10_000);
+		expect(result.exitCode).not.toBe(0);
+		// ...without reporting a failure for an answer that fully streamed.
+		expect(events.find((e) => e.type === "completed")).toBeDefined();
+		expect(events.find((e) => e.type === "failed")).toBeUndefined();
 	}, 15_000);
 });
