@@ -4,33 +4,42 @@ This repository contains multiple projects for the MyMemo ecosystem.
 
 ## Projects
 
-### 🔷 chat-api (TypeScript)
+The repository is a Bun workspace. See [AGENTS.md](./AGENTS.md) for the
+architecture and trust boundaries.
 
-Chat API service built with TypeScript/Bun.
+| App | Location | Role |
+|-----|----------|------|
+| **chat-api** | `apps/chat-api/` | AI chat service; orchestrates a per-user E2B sandbox per turn |
+| **sandbox-daemon** | `apps/sandbox-daemon/` | In-sandbox HTTP daemon; bundled and shipped into E2B, spawns the agent per turn |
+| **llm-gateway** | `apps/llm-gateway/` | Control plane; the only service holding the real `ANTHROPIC_API_KEY`. Verifies the per-turn token and proxies to Anthropic |
+| **document-gateway** | `apps/document-gateway/` | Control plane; verifies the per-turn token, enforces its signed scope, and proxies document search/fetch |
+| **mymemo-docs** | `apps/mymemo-docs/` | CLI on the sandbox PATH that the agent uses to reach the document-gateway |
 
-**Location:** `apps/chat-api/`
+Shared libraries live under `packages/` (e.g. `@mymemo/llm-token`).
 
 **Setup:**
 ```bash
+bun install          # from the repo root, installs all workspaces
 cd apps/chat-api
-bun install
 bun run dev
 ```
 
-See [apps/chat-api/README.md](./apps/chat-api/README.md) for detailed documentation.
+See [apps/chat-api/README.md](./apps/chat-api/README.md) for chat-api documentation.
 
 ## Repository Structure
 
 ```
 .
-├── apps/               # Deployable applications
-│   └── chat-api/       # TypeScript chat API service
-│       ├── src/
-│       ├── package.json
-│       └── ...
-├── packages/           # Shared libraries
-├── compose.yaml        # Local Docker Compose file
-└── README.md           # This file
+├── apps/                   # Deployable applications
+│   ├── chat-api/           # AI chat service (orchestrator)
+│   ├── sandbox-daemon/     # In-sandbox daemon shipped into E2B
+│   ├── llm-gateway/        # Anthropic proxy (holds the provider key)
+│   ├── document-gateway/   # Scoped document proxy
+│   └── mymemo-docs/        # In-sandbox docs CLI
+├── packages/               # Shared libraries (e.g. @mymemo/llm-token)
+├── AGENTS.md               # Architecture & agent guidance
+├── compose.yaml            # Local Docker Compose file
+└── README.md               # This file
 ```
 
 ## Development

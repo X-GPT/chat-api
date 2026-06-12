@@ -1,13 +1,13 @@
 import { Hono } from "hono";
 import { requestId } from "hono/request-id";
 import { pinoLogger } from "hono-pino";
-// Import apiEnv to validate required environment variables at module load time
-import "./config/env";
+// Importing apiEnv validates required environment variables at module load time
+import { apiEnv } from "./config/env";
 import routes from "./routes";
 
 const app = new Hono();
 app.use(requestId());
-app.use(pinoLogger());
+app.use(pinoLogger({ pino: { level: apiEnv.LOG_LEVEL } }));
 
 app.get("/", (c) => {
 	return c.text("Hello Hono!");

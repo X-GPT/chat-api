@@ -20,7 +20,8 @@ export const apiEnv = (() => {
 	return {
 		DAEMON_AUTH_TOKEN: Bun.env.DAEMON_AUTH_TOKEN,
 		// HMAC secret for the session tokens minted into each sandbox turn. Shared
-		// only with llm-gateway, which verifies them.
+		// with llm-gateway and document-gateway, which both verify them (the
+		// document-gateway additionally enforces the token's signed scope).
 		LLM_TOKEN_SECRET: Bun.env.LLM_TOKEN_SECRET,
 		// Base URL the sandboxed agent points the Claude binary at
 		// (ANTHROPIC_BASE_URL). Must be reachable from inside the E2B sandbox.

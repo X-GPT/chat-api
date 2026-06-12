@@ -119,8 +119,12 @@ export class SandboxManager {
 	}
 
 	/**
-	 * Ensure the sandbox daemon is running and up-to-date.
-	 * Returns the daemon URL and the fixed auth token clients must present.
+	 * Deploy the daemon + agent bundles onto the freshly created sandbox and
+	 * wait for the daemon to report healthy. Returns the daemon URL and the
+	 * fixed auth token clients must present.
+	 *
+	 * Sandboxes are created fresh per turn, so the daemon is never already
+	 * running — there is nothing to health-check or restart, only to deploy.
 	 */
 	async ensureSandboxDaemon(
 		userId: string,
@@ -131,25 +135,6 @@ export class SandboxManager {
 		const endpoint = { url: daemonUrl, authToken: apiEnv.DAEMON_AUTH_TOKEN };
 
 		const bundles = await getSandboxBundles();
-
-		try {
-			const health = await this.checkDaemonHealth(daemonUrl);
-			if (health && health.version === bundles.version) {
-				return endpoint;
-			}
-
-			if (health) {
-				logger.info({
-					msg: "Daemon version mismatch, restarting",
-					currentVersion: health.version,
-					expectedVersion: bundles.version,
-				});
-				await this.restartDaemon(sandbox, logger, bundles);
-				return endpoint;
-			}
-		} catch {
-			// Daemon not running, deploy it
-		}
 
 		logger.info({
 			msg: "Deploying sandbox daemon",
@@ -197,20 +182,6 @@ export class SandboxManager {
 		);
 
 		await this.startDaemonProcess(sandbox, logger, bundles.version);
-	}
-
-	private async restartDaemon(
-		sandbox: Sandbox,
-		logger: SyncLogger,
-		bundles: SandboxBundleSet,
-	): Promise<void> {
-		// Kill whatever process owns port 8080 (process name may not match pkill pattern)
-		await sandbox.commands.run("kill $(lsof -ti :8080) 2>/dev/null || true", {
-			timeoutMs: 5_000,
-		});
-
-		// Re-deploy with updated bundles
-		await this.deploySandboxBundles(sandbox, logger, bundles);
 	}
 
 	private async startDaemonProcess(
