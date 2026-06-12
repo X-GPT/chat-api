@@ -25,6 +25,17 @@ function getBwrapExecutable(): string {
 	return process.env.SANDBOX_BWRAP_PATH ?? "bwrap";
 }
 
+// The agent is a streaming workload of unbounded but "chatty" duration, so a
+// wall-clock cap would kill healthy long turns. Instead we use an idle
+// timeout, re-armed on every NDJSON event: a healthy agent emits token
+// chunks / tool events continuously, so sustained silence means a hang.
+const DEFAULT_AGENT_IDLE_TIMEOUT_MS = 120_000;
+function getAgentIdleTimeoutMs(): number {
+	return Number(
+		process.env.SANDBOX_AGENT_IDLE_TIMEOUT_MS ?? DEFAULT_AGENT_IDLE_TIMEOUT_MS,
+	);
+}
+
 // Must match the sandbox template's setWorkdir (apps/chat-api/sandbox-template/
 // template.ts) and the path the chat-api writes bundles into
 // (apps/chat-api/src/features/sandbox-orchestration/sandbox-manager.ts).
@@ -252,12 +263,39 @@ export async function spawnAgent(
 	proc.stdin.write(JSON.stringify(config));
 	await proc.stdin.end();
 
-	const stderrPromise = drainStderr(proc.stderr);
-	for await (const event of readNdjson(proc.stdout)) {
-		const narrowed = narrowAgentEvent(event);
-		if (narrowed) await onEvent(narrowed);
+	// Idle watchdog. The SIGKILL lands on the bwrap supervisor;
+	// --die-with-parent (in buildAgentSpawnArgv) propagates it to the inner
+	// agent, which closes stdout and unblocks the read loop below.
+	const idleMs = getAgentIdleTimeoutMs();
+	let timedOut = false;
+	let idleTimer: ReturnType<typeof setTimeout> | undefined;
+	const armIdleTimer = () => {
+		clearTimeout(idleTimer);
+		idleTimer = setTimeout(() => {
+			timedOut = true;
+			proc.kill("SIGKILL");
+		}, idleMs);
+	};
+	armIdleTimer();
+
+	try {
+		const stderrPromise = drainStderr(proc.stderr);
+		for await (const event of readNdjson(proc.stdout)) {
+			armIdleTimer();
+			const narrowed = narrowAgentEvent(event);
+			if (narrowed) await onEvent(narrowed);
+		}
+		await stderrPromise;
+		const exitCode = await proc.exited;
+
+		if (timedOut) {
+			await onEvent({
+				type: "failed",
+				message: `agent idle timeout: no events for ${idleMs}ms`,
+			});
+		}
+		return { exitCode };
+	} finally {
+		clearTimeout(idleTimer);
 	}
-	await stderrPromise;
-	const exitCode = await proc.exited;
-	return { exitCode };
 }
