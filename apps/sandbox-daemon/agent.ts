@@ -3,7 +3,12 @@
  * Ported from agent-runner.mjs to TypeScript, adapted for daemon use.
  */
 
-import { query } from "@anthropic-ai/claude-agent-sdk";
+import {
+	type HookCallbackMatcher,
+	type HookEvent,
+	query,
+} from "@anthropic-ai/claude-agent-sdk";
+import { createHeartbeatController } from "./heartbeat";
 
 export interface AgentRunOptions {
 	userQuery: string;
@@ -15,6 +20,8 @@ export interface AgentRunOptions {
 export interface AgentCallbacks {
 	onTextDelta: (text: string) => void | Promise<void>;
 	onSessionId: (sessionId: string) => void | Promise<void>;
+	/** Internal liveness tick emitted while a tool is executing (no client text). */
+	onHeartbeat: () => void | Promise<void>;
 	onCompleted: () => void | Promise<void>;
 	onFailed: (message: string) => void | Promise<void>;
 }
@@ -44,6 +51,49 @@ export async function runAgent(
 	if (sessionId) {
 		queryOptions.resume = sessionId;
 	}
+
+	// Tool execution emits nothing on stdout, so without this a single tool that
+	// runs longer than the idle window trips the daemon watchdog. Pre/PostToolUse
+	// hooks bracket every tool's wall-clock; while one is in flight we tick a
+	// `heartbeat` to keep the watchdog (and the daemon↔chat-api socket) armed.
+	const heartbeat = createHeartbeatController(() => {
+		void callbacks.onHeartbeat();
+	});
+	const hooks: Partial<Record<HookEvent, HookCallbackMatcher[]>> = {
+		PreToolUse: [
+			{
+				hooks: [
+					async (_input, toolUseId) => {
+						heartbeat.onToolStart(toolUseId ?? "");
+						return {};
+					},
+				],
+			},
+		],
+		PostToolUse: [
+			{
+				hooks: [
+					async (_input, toolUseId) => {
+						heartbeat.onToolEnd(toolUseId ?? "");
+						return {};
+					},
+				],
+			},
+		],
+		// Tool errors take this path instead of PostToolUse; stop the heartbeat
+		// here too so a failing tool doesn't leak the interval.
+		PostToolUseFailure: [
+			{
+				hooks: [
+					async (_input, toolUseId) => {
+						heartbeat.onToolEnd(toolUseId ?? "");
+						return {};
+					},
+				],
+			},
+		],
+	};
+	queryOptions.hooks = hooks;
 
 	let result: ReturnType<typeof query>;
 	try {
@@ -91,5 +141,8 @@ export async function runAgent(
 	} catch (err) {
 		const message = err instanceof Error ? err.message : String(err);
 		await callbacks.onFailed(`Agent stream error: ${message}`);
+	} finally {
+		// Never leak the interval past the turn, even if a hook's Post* never fired.
+		heartbeat.stop();
 	}
 }

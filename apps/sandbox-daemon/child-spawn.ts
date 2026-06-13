@@ -26,13 +26,38 @@ function getBwrapExecutable(): string {
 }
 
 // The agent is a streaming workload of unbounded but "chatty" duration, so a
-// wall-clock cap would kill healthy long turns. Instead we use an idle
-// timeout, re-armed on every NDJSON event: a healthy agent emits token
-// chunks / tool events continuously, so sustained silence means a hang.
+// wall-clock cap alone would kill healthy long turns. We bound it two ways:
+//
+//   1. An idle timeout, re-armed on every NDJSON event. Text streaming covers
+//      the model phase; a `heartbeat` (emitted by agent.ts while a tool runs —
+//      tool execution is otherwise silent on stdout) covers tool phases. So
+//      sustained silence now genuinely means a hang (a wedged model read), and
+//      a healthy long tool no longer trips this.
+//   2. A generous absolute per-turn ceiling as a backstop for the one case the
+//      idle timeout can't see: a tool that hangs forever keeps the heartbeat
+//      ticking, so without this it would never be killed and would pin the
+//      single-turn lock. Set far above any legitimate turn.
 const DEFAULT_AGENT_IDLE_TIMEOUT_MS = 120_000;
+const DEFAULT_AGENT_MAX_TURN_MS = 600_000;
+
+// Number("") -> 0 and Number("abc") -> NaN, and setTimeout(fn, 0|NaN) fires
+// immediately — a malformed env var would SIGKILL every turn at spawn. Fall
+// back to the default on any non-finite or non-positive value.
+function getPositiveMsEnv(value: string | undefined, fallback: number): number {
+	if (value === undefined) return fallback;
+	const n = Number(value);
+	return Number.isFinite(n) && n > 0 ? n : fallback;
+}
 function getAgentIdleTimeoutMs(): number {
-	return Number(
-		process.env.SANDBOX_AGENT_IDLE_TIMEOUT_MS ?? DEFAULT_AGENT_IDLE_TIMEOUT_MS,
+	return getPositiveMsEnv(
+		process.env.SANDBOX_AGENT_IDLE_TIMEOUT_MS,
+		DEFAULT_AGENT_IDLE_TIMEOUT_MS,
+	);
+}
+function getAgentMaxTurnMs(): number {
+	return getPositiveMsEnv(
+		process.env.SANDBOX_AGENT_MAX_TURN_MS,
+		DEFAULT_AGENT_MAX_TURN_MS,
 	);
 }
 
@@ -147,6 +172,8 @@ function narrowAgentEvent(raw: Record<string, unknown>): AgentEvent | null {
 			if (typeof raw.sessionId === "string")
 				return { type: "session_id", sessionId: raw.sessionId };
 			return null;
+		case "heartbeat":
+			return { type: "heartbeat" };
 		case "completed":
 			return { type: "completed" };
 		case "failed":
@@ -263,20 +290,33 @@ export async function spawnAgent(
 	proc.stdin.write(JSON.stringify(config));
 	await proc.stdin.end();
 
-	// Idle watchdog. The SIGKILL lands on the bwrap supervisor;
-	// --die-with-parent (in buildAgentSpawnArgv) propagates it to the inner
-	// agent, which closes stdout and unblocks the read loop below.
+	// Idle watchdog + absolute ceiling. Either SIGKILL lands on the bwrap
+	// supervisor; --die-with-parent (in buildAgentSpawnArgv) propagates it to the
+	// inner agent, which closes stdout and unblocks the read loop below.
 	const idleMs = getAgentIdleTimeoutMs();
+	const maxTurnMs = getAgentMaxTurnMs();
 	let timedOut = false;
+	let hitMaxTurn = false;
 	let idleTimer: ReturnType<typeof setTimeout> | undefined;
 	const armIdleTimer = () => {
 		clearTimeout(idleTimer);
 		idleTimer = setTimeout(() => {
 			timedOut = true;
+			// Cancel the backstop so it can't fire later and mislabel the cause.
+			clearTimeout(maxTurnTimer);
 			proc.kill("SIGKILL");
 		}, idleMs);
 	};
 	armIdleTimer();
+
+	// Absolute backstop — never re-armed. Bounds a turn that stays "alive" on
+	// heartbeats forever (e.g. a tool that hangs and never returns).
+	const maxTurnTimer = setTimeout(() => {
+		timedOut = true;
+		hitMaxTurn = true;
+		clearTimeout(idleTimer);
+		proc.kill("SIGKILL");
+	}, maxTurnMs);
 
 	// The timer stays armed through the post-loop stderr drain and exit wait,
 	// so a child that closes stdout but never exits is still killed. If the
@@ -302,11 +342,14 @@ export async function spawnAgent(
 		if (timedOut && !sawTerminalEvent) {
 			await onEvent({
 				type: "failed",
-				message: `agent idle timeout: no events for ${idleMs}ms`,
+				message: hitMaxTurn
+					? `agent turn exceeded max duration: ${maxTurnMs}ms`
+					: `agent idle timeout: no events for ${idleMs}ms`,
 			});
 		}
 		return { exitCode };
 	} finally {
 		clearTimeout(idleTimer);
+		clearTimeout(maxTurnTimer);
 	}
 }

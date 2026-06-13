@@ -115,6 +115,11 @@ app.post("/turn", async (c) => {
 						if (event.type === "failed") {
 							turnFailed = true;
 						}
+						// Everything else (text_delta, session_id, heartbeat) is
+						// forwarded as-is. Forwarding `heartbeat` is load-bearing:
+						// it's the only traffic on this connection while a tool runs,
+						// so it keeps Bun's idleTimeout and chat-api's read alive.
+						// chat-api ignores it — it never reaches the end client.
 						await s.write(ndjsonLine(event));
 					},
 				});
