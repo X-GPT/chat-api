@@ -1,20 +1,24 @@
 FROM oven/bun:1 AS base
 WORKDIR /usr/src/app
 
-# Install dependencies — need all workspace package.json files for lockfile resolution
-FROM base AS install
-RUN mkdir -p /temp/dev /temp/prod
+# Prune the context to just the workspace manifests. --frozen-lockfile needs
+# every member's package.json (the root lockfile describes them all), and
+# deriving the set this way means a new workspace member needs no Dockerfile
+# edit. Only package.json files plus the root lockfile survive, so the install
+# layers below still cache on manifest content alone.
+FROM base AS manifests
+COPY package.json bun.lock ./
+COPY apps apps
+COPY packages packages
+RUN find apps packages -type f ! -name package.json -delete \
+ && find apps packages -type d -empty -delete
 
-COPY package.json bun.lock /temp/dev/
-COPY apps/chat-api/package.json /temp/dev/apps/chat-api/
-COPY apps/sandbox-daemon/package.json /temp/dev/apps/sandbox-daemon/
-COPY packages/llm-token/package.json /temp/dev/packages/llm-token/
+# Install dependencies from the pruned manifests.
+FROM base AS install
+COPY --from=manifests /usr/src/app /temp/dev
 RUN cd /temp/dev && bun install --frozen-lockfile
 
-COPY package.json bun.lock /temp/prod/
-COPY apps/chat-api/package.json /temp/prod/apps/chat-api/
-COPY apps/sandbox-daemon/package.json /temp/prod/apps/sandbox-daemon/
-COPY packages/llm-token/package.json /temp/prod/packages/llm-token/
+COPY --from=manifests /usr/src/app /temp/prod
 RUN cd /temp/prod && bun install --frozen-lockfile --production
 
 # Copy source, prebuild daemon bundle, and run tests
