@@ -45,5 +45,9 @@ console.log(`Sandbox daemon starting on port ${port}`);
 export default {
 	port,
 	fetch: app.fetch,
-	idleTimeout: 120,
+	// Per-connection idle timeout (Bun caps this at 255s). Must sit above the
+	// agent idle watchdog (120s in child-spawn.ts) so that on a genuine hang the
+	// daemon emits its own `failed` event before Bun silently drops the socket.
+	// During a healthy long tool the agent's `heartbeat` events keep this armed.
+	idleTimeout: 240,
 };

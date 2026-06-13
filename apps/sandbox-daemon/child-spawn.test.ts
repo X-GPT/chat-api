@@ -197,6 +197,7 @@ describe("spawnAgent idle timeout", () => {
 		"SANDBOX_BWRAP_PATH",
 		"SANDBOX_AGENT_PATH",
 		"SANDBOX_AGENT_IDLE_TIMEOUT_MS",
+		"SANDBOX_AGENT_MAX_TURN_MS",
 	];
 	const originalEnv: Record<string, string | undefined> = {};
 
@@ -229,6 +230,27 @@ describe("spawnAgent idle timeout", () => {
 		writeFileSync(
 			fixtures.agentSlow,
 			`for await (const _ of process.stdin) {}\nfor (let i = 0; i < 6; i++) {\n  process.stdout.write(JSON.stringify({ type: "text_delta", text: "tick" }) + "\\n");\n  await new Promise((r) => setTimeout(r, 500));\n}\nprocess.stdout.write(JSON.stringify({ type: "completed" }) + "\\n");\nprocess.exit(0);\n`,
+		);
+
+		// Agent that emits ONLY heartbeats (no text) 500ms apart for ~2.5s, then
+		// completes. Mirrors agentSlow but for the liveness path: tool execution
+		// is silent on stdout, so this is what keeps a long healthy tool from
+		// tripping the watchdog. With the 2s window it survives only if every
+		// heartbeat re-arms the timer.
+		fixtures.agentHeartbeat = join(tmpDir, "agent-heartbeat.ts");
+		writeFileSync(
+			fixtures.agentHeartbeat,
+			`for await (const _ of process.stdin) {}\nfor (let i = 0; i < 6; i++) {\n  process.stdout.write(JSON.stringify({ type: "heartbeat" }) + "\\n");\n  await new Promise((r) => setTimeout(r, 500));\n}\nprocess.stdout.write(JSON.stringify({ type: "completed" }) + "\\n");\nprocess.exit(0);\n`,
+		);
+
+		// Agent that heartbeats every 200ms forever and never completes —
+		// stands in for a tool that hangs but keeps the turn "alive". The idle
+		// watchdog can never fire (heartbeats keep re-arming it); only the
+		// absolute per-turn ceiling can stop it.
+		fixtures.agentHeartbeatForever = join(tmpDir, "agent-heartbeat-forever.ts");
+		writeFileSync(
+			fixtures.agentHeartbeatForever,
+			`for await (const _ of process.stdin) {}\nsetInterval(() => {\n  process.stdout.write(JSON.stringify({ type: "heartbeat" }) + "\\n");\n}, 200);\nawait new Promise(() => {});\n`,
 		);
 
 		// Agent that emits completed, closes stdout, then lingers forever —
@@ -318,4 +340,68 @@ describe("spawnAgent idle timeout", () => {
 		expect(events.find((e) => e.type === "completed")).toBeDefined();
 		expect(events.find((e) => e.type === "failed")).toBeUndefined();
 	}, 15_000);
+
+	// Regression for the watchdog bug: a long, text-silent gap that is bridged
+	// only by `heartbeat` events (the liveness a tool emits while executing)
+	// must NOT trip the watchdog, even though no token ever streams.
+	it("treats heartbeats as liveness: a silent-but-beating tool survives", async () => {
+		process.env.SANDBOX_AGENT_PATH = fixtures.agentHeartbeat;
+		process.env.SANDBOX_AGENT_IDLE_TIMEOUT_MS = "2000";
+		delete process.env.SANDBOX_AGENT_MAX_TURN_MS; // default ceiling, won't fire
+
+		const events: AgentEvent[] = [];
+		const result = await spawnAgent(makeInput((e) => events.push(e)));
+
+		expect(result.exitCode).toBe(0);
+		expect(events.find((e) => e.type === "failed")).toBeUndefined();
+		// No text was ever emitted — survival is due to heartbeats alone.
+		expect(events.find((e) => e.type === "text_delta")).toBeUndefined();
+		expect(events.filter((e) => e.type === "heartbeat").length).toBe(6);
+		expect(events.find((e) => e.type === "completed")).toBeDefined();
+	}, 15_000);
+
+	// The honest residual: a tool that hangs forever keeps heartbeating, so the
+	// idle watchdog can't see it. The absolute per-turn ceiling is the backstop.
+	it("kills a forever-beating turn via the absolute ceiling, not the idle timer", async () => {
+		process.env.SANDBOX_AGENT_PATH = fixtures.agentHeartbeatForever;
+		// Idle window large so it never fires; ceiling small so it does. The
+		// elapsed-time assertion proves the ceiling — not the idle timer — killed it.
+		process.env.SANDBOX_AGENT_IDLE_TIMEOUT_MS = "30000";
+		process.env.SANDBOX_AGENT_MAX_TURN_MS = "1500";
+
+		const events: AgentEvent[] = [];
+		const start = Date.now();
+		const result = await spawnAgent(makeInput((e) => events.push(e)));
+		const elapsed = Date.now() - start;
+
+		// Ceiling (1500ms) fired well before the idle window (30000ms).
+		expect(elapsed).toBeLessThan(10_000);
+		expect(result.exitCode).not.toBe(0);
+		// Heartbeats were flowing the whole time — liveness was never the issue.
+		expect(events.some((e) => e.type === "heartbeat")).toBe(true);
+		const failed = events.find((e) => e.type === "failed");
+		expect(failed).toBeDefined();
+		if (failed?.type === "failed") {
+			expect(failed.message).toContain("max duration");
+			expect(failed.message).toContain("1500");
+		}
+	}, 15_000);
+
+	// A malformed SANDBOX_AGENT_IDLE_TIMEOUT_MS must fall back to the default,
+	// not become NaN/0 — setTimeout(fn, NaN|0) fires immediately and would
+	// SIGKILL every turn at spawn.
+	it("falls back to the default idle timeout on a malformed env value", async () => {
+		process.env.SANDBOX_AGENT_PATH = fixtures.agentSlow;
+		delete process.env.SANDBOX_AGENT_MAX_TURN_MS; // default ceiling, won't fire
+
+		for (const bad of ["abc", ""]) {
+			process.env.SANDBOX_AGENT_IDLE_TIMEOUT_MS = bad;
+			const events: AgentEvent[] = [];
+			// With the default 120s window the ~2.5s fixture finishes cleanly;
+			// an immediate (NaN/0) fire would kill it before `completed`.
+			const result = await spawnAgent(makeInput((e) => events.push(e)));
+			expect(result.exitCode).toBe(0);
+			expect(events.find((e) => e.type === "failed")).toBeUndefined();
+		}
+	}, 20_000);
 });

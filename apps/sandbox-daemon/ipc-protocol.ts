@@ -10,5 +10,9 @@
 export type AgentEvent =
 	| { type: "text_delta"; text: string }
 	| { type: "session_id"; sessionId: string }
+	// Internal liveness signal emitted while a tool is executing. Re-arms the
+	// daemon's idle watchdog and keeps the chat-api↔daemon connection warm; it
+	// carries no payload and is never surfaced to the end client as text.
+	| { type: "heartbeat" }
 	| { type: "completed" }
 	| { type: "failed"; message: string };

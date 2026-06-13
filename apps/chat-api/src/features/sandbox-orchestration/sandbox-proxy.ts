@@ -45,101 +45,134 @@ export async function forwardChatTurnToSandbox(
 		onSessionId,
 	} = options;
 
-	const response = await fetch(`${daemonUrl}/turn`, {
-		method: "POST",
-		headers: {
-			"Content-Type": "application/json",
-			"x-daemon-auth-token": daemonAuthToken,
-		},
-		body: JSON.stringify(turnRequest),
-		signal: AbortSignal.timeout(120_000),
-	});
+	// Idle-based timeout over the streamed body, re-armed on every chunk —
+	// turns are legitimately long, so an absolute timeout over the whole read
+	// would abort healthy ones. The window sits at the daemon's Bun idleTimeout
+	// (240s, > the daemon's 120s agent watchdog); during a healthy turn the
+	// daemon's text + `heartbeat` events keep resetting it, and on a genuine
+	// hang the daemon surfaces a `failed` event well before this fires. So this
+	// only trips if the daemon goes fully silent (e.g. the process died).
+	const IDLE_TIMEOUT_MS = 240_000;
+	const idleController = new AbortController();
+	let idleTimer: ReturnType<typeof setTimeout> | undefined;
+	const armIdle = () => {
+		clearTimeout(idleTimer);
+		idleTimer = setTimeout(
+			() =>
+				idleController.abort(
+					new Error(`daemon idle timeout: no bytes for ${IDLE_TIMEOUT_MS}ms`),
+				),
+			IDLE_TIMEOUT_MS,
+		);
+	};
 
-	if (response.status === 409) {
-		throw new ConversationBusyError("Sandbox is busy processing another turn");
-	}
+	try {
+		armIdle();
+		const response = await fetch(`${daemonUrl}/turn`, {
+			method: "POST",
+			headers: {
+				"Content-Type": "application/json",
+				"x-daemon-auth-token": daemonAuthToken,
+			},
+			body: JSON.stringify(turnRequest),
+			signal: idleController.signal,
+		});
 
-	if (!response.ok) {
-		const text = await response.text().catch(() => "");
-		throw new Error(`Daemon returned ${response.status}: ${text}`);
-	}
+		if (response.status === 409) {
+			throw new ConversationBusyError(
+				"Sandbox is busy processing another turn",
+			);
+		}
 
-	if (!response.body) {
-		throw new Error("Daemon returned no response body");
-	}
+		if (!response.ok) {
+			const text = await response.text().catch(() => "");
+			throw new Error(`Daemon returned ${response.status}: ${text}`);
+		}
 
-	let agentError: string | null = null;
-	let buffer = "";
+		if (!response.body) {
+			throw new Error("Daemon returned no response body");
+		}
 
-	const reader = response.body.getReader();
-	const decoder = new TextDecoder();
+		let agentError: string | null = null;
+		let buffer = "";
 
-	while (true) {
-		const { done, value } = await reader.read();
-		if (done) break;
+		const reader = response.body.getReader();
+		const decoder = new TextDecoder();
 
-		buffer += decoder.decode(value, { stream: true });
+		while (true) {
+			const { done, value } = await reader.read();
+			if (done) break;
+			armIdle();
 
-		let newlineIndex = buffer.indexOf("\n");
-		while (newlineIndex !== -1) {
-			const line = buffer.slice(0, newlineIndex).trim();
-			buffer = buffer.slice(newlineIndex + 1);
+			buffer += decoder.decode(value, { stream: true });
 
-			if (line) {
-				let parsed: unknown;
-				try {
-					parsed = JSON.parse(line);
-				} catch {
-					// Non-JSON line, ignore
-					parsed = null;
-				}
-				if (typeof parsed === "object" && parsed !== null) {
-					const evt = parsed as { type?: string } & Record<string, unknown>;
-					switch (evt.type) {
-						case "text_delta":
-							if (typeof evt.text === "string") {
-								await onTextDelta(evt.text);
-							}
-							break;
-						case "session_id":
-							if (typeof evt.sessionId === "string") {
-								await onSessionId(evt.sessionId);
-							}
-							break;
-						case "completed":
-							break;
-						case "failed":
-							agentError = (evt.message as string) ?? "Turn failed";
-							break;
-						case "started":
-							break;
-						case "result":
-							break;
-						case "error":
-							agentError = (evt.message as string) ?? "Unknown agent error";
-							break;
+			let newlineIndex = buffer.indexOf("\n");
+			while (newlineIndex !== -1) {
+				const line = buffer.slice(0, newlineIndex).trim();
+				buffer = buffer.slice(newlineIndex + 1);
+
+				if (line) {
+					let parsed: unknown;
+					try {
+						parsed = JSON.parse(line);
+					} catch {
+						// Non-JSON line, ignore
+						parsed = null;
+					}
+					if (typeof parsed === "object" && parsed !== null) {
+						const evt = parsed as { type?: string } & Record<string, unknown>;
+						switch (evt.type) {
+							case "text_delta":
+								if (typeof evt.text === "string") {
+									await onTextDelta(evt.text);
+								}
+								break;
+							case "session_id":
+								if (typeof evt.sessionId === "string") {
+									await onSessionId(evt.sessionId);
+								}
+								break;
+							case "heartbeat":
+								// Daemon liveness keepalive — re-arms armIdle() above
+								// (every chunk does); never surfaced to the client.
+								break;
+							case "completed":
+								break;
+							case "failed":
+								agentError = (evt.message as string) ?? "Turn failed";
+								break;
+							case "started":
+								break;
+							case "result":
+								break;
+							case "error":
+								agentError = (evt.message as string) ?? "Unknown agent error";
+								break;
+						}
 					}
 				}
+
+				newlineIndex = buffer.indexOf("\n");
 			}
-
-			newlineIndex = buffer.indexOf("\n");
 		}
-	}
 
-	// Flush remaining buffer
-	if (buffer.trim()) {
-		try {
-			const parsed = JSON.parse(buffer.trim());
-			if (parsed?.type === "failed")
-				agentError = parsed.message ?? "Turn failed";
-		} catch {
-			// Ignore
+		// Flush remaining buffer
+		if (buffer.trim()) {
+			try {
+				const parsed = JSON.parse(buffer.trim());
+				if (parsed?.type === "failed")
+					agentError = parsed.message ?? "Turn failed";
+			} catch {
+				// Ignore
+			}
 		}
-	}
 
-	if (agentError) {
-		throw new Error(`Sandbox agent error: ${agentError}`);
-	}
+		if (agentError) {
+			throw new Error(`Sandbox agent error: ${agentError}`);
+		}
 
-	await onTextEnd();
+		await onTextEnd();
+	} finally {
+		clearTimeout(idleTimer);
+	}
 }

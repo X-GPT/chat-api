@@ -8,6 +8,7 @@
  * Stdout:  NDJSON, one event per line —
  *            { type: "text_delta", text: "..." }
  *            { type: "session_id", sessionId: "..." }
+ *            { type: "heartbeat" }        (liveness while a tool runs)
  *            { type: "completed" }
  *            { type: "failed", message: "..." }
  * Exit:    0 on completed, 1 on failed.
@@ -82,6 +83,9 @@ async function main() {
 		},
 		onSessionId: async (sessionId) => {
 			emit({ type: "session_id", sessionId });
+		},
+		onHeartbeat: () => {
+			emit({ type: "heartbeat" });
 		},
 		onCompleted: async () => {
 			emit({ type: "completed" });
