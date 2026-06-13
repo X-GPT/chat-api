@@ -1,18 +1,21 @@
 FROM oven/bun:1 AS base
 WORKDIR /usr/src/app
 
-# Install dependencies — need all referenced workspace package.json files for
-# lockfile resolution.
+# Prune the context to just the workspace manifests. The root lockfile describes
+# every workspace member, so --frozen-lockfile needs each member's package.json
+# present (only package.json — no source). Deriving the set this way means a new
+# workspace member needs no Dockerfile edit, and the install layer still caches
+# on manifest content alone.
+FROM base AS manifests
+COPY package.json bun.lock ./
+COPY apps apps
+COPY packages packages
+RUN find apps packages -type f ! -name package.json -delete \
+ && find apps packages -type d -empty -delete
+
+# Install dependencies from the pruned manifests.
 FROM base AS install
-RUN mkdir -p /temp/prod
-COPY package.json bun.lock /temp/prod/
-# The root lockfile describes every workspace member, so --frozen-lockfile needs
-# each member's package.json present (only package.json — no source).
-COPY apps/document-gateway/package.json /temp/prod/apps/document-gateway/
-COPY apps/llm-gateway/package.json /temp/prod/apps/llm-gateway/
-COPY apps/chat-api/package.json /temp/prod/apps/chat-api/
-COPY apps/sandbox-daemon/package.json /temp/prod/apps/sandbox-daemon/
-COPY packages/llm-token/package.json /temp/prod/packages/llm-token/
+COPY --from=manifests /usr/src/app /temp/prod
 RUN cd /temp/prod && bun install --frozen-lockfile --production
 
 # Final release image
